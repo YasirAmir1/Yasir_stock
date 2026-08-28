@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "delegate_target": {
+      "title": "Delegate Target",
+      "description": "Daily target weight for delegate per category",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "dailyTargetWeightKg": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["delegateName", "categoryName", "dailyTargetWeightKg"]
+    },
+    "sales_entry": {
+      "title": "Sales Entry",
+      "description": "Sales entry made by delegates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "category": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "pieceWeight": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "timestamp": { "type": "string" },
+        "dateStr": { "type": "string" }
+      },
+      "required": ["id", "delegateName", "category", "totalWeightKg"]
+    },
+    "inventory_item": {
+      "title": "Inventory Item",
+      "description": "Inventory stock items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "unitsInCarton": { "type": "string" },
+        "productName": { "type": "string" },
+        "piecesPerCarton": { "type": "string" },
+        "todayInventoryCartons": { "type": "string" },
+        "inventoryDate": { "type": "string" }
+      },
+      "required": ["id", "categoryName", "productName"]
+    },
+    "daily_evaluation": {
+      "title": "Daily Evaluation Record",
+      "description": "Saved daily evaluation snapshot for delegates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "dateString": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "totalScore": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "totalPieces": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "dateString", "delegateName", "totalScore"]
+    }
+  },
+  "firestore": {
+    "/delegate_targets/{targetId}": {
+      "schema": "delegate_target",
+      "description": "Sync target data for delegates and admin",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/sales_entries/{entryId}": {
+      "schema": "sales_entry",
+      "description": "Sync sales entries across devices",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/inventory_items/{itemId}": {
+      "schema": "inventory_item",
+      "description": "Sync daily inventory stock items",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/daily_evaluations/{evalId}": {
+      "schema": "daily_evaluation",
+      "description": "Saved daily evaluation records",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    }
+  }
+}

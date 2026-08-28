@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read access for all users (delegates and admin) to inventory, sales, targets, and accounts
+    match /inventory_items/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /sales_entries/{entryId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /delegate_targets/{targetId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /delegate_accounts/{accId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /target_locks/{lockId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /{document=**} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

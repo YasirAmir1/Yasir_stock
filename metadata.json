@@ -1,0 +1,6 @@
+{
+  "name": "Tikrit Sales App",
+  "description": "Tikrit Sales App - تطبيق إدخال المبيعات والتقارير اليومية وتتبع التاركت للمندوب",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+}
+
+/* Custom styles for grid table inputs */
+.grid-cell-input {
+  background-color: transparent;
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  padding: 0 0.5rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.grid-cell-input:focus {
+  background-color: #f0fdf4;
+}
