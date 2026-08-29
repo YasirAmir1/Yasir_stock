@@ -47,9 +47,9 @@ export const EntryScreen: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [successMessage]);
-    const [customerName, setCustomerName] = useState('');
-  const [customerCode, setCustomerCode] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
+    const [customerName, setCustomerName] = useState(() => localStorage.getItem('entry_draft_customerName') || '');
+  const [customerCode, setCustomerCode] = useState(() => localStorage.getItem('entry_draft_customerCode') || '');
+  const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('entry_draft_customerAddress') || '');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
 
@@ -184,15 +184,29 @@ export const EntryScreen: React.FC = () => {
   const dailyPct = dailyTargetKg > 0 ? (totalSavedWeight / dailyTargetKg) * 100 : 0;
 
   // Initialize default 6 rows with unique keys
-  const [gridRows, setGridRows] = useState<GridRow[]>(() =>
-    Array.from({ length: 6 }, (_, i) => ({
+  const [gridRows, setGridRows] = useState<GridRow[]>(() => {
+    const saved = localStorage.getItem('entry_draft_gridRows');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return Array.from({ length: 6 }, (_, i) => ({
       id: `row_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
       category: defaultCategory,
       pieceWeight: '',
       quantity: '',
       productName: '',
-    }))
-  );
+    }));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('entry_draft_customerName', customerName);
+    localStorage.setItem('entry_draft_customerCode', customerCode);
+    localStorage.setItem('entry_draft_customerAddress', customerAddress);
+    localStorage.setItem('entry_draft_gridRows', JSON.stringify(gridRows));
+  }, [customerName, customerCode, customerAddress, gridRows]);
 
   const currentGridTotalKg = useMemo(() => {
     return gridRows.reduce((sum, row) => {

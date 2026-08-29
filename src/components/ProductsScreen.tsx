@@ -34,6 +34,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editIsAvailable, setEditIsAvailable] = useState(true);
 
+  // Standalone Image Upload Modal State
+  const [showImageUploadModal, setShowImageUploadModal] = useState(false);
+  const [imageUploadCode, setImageUploadCode] = useState('');
+  const [imageUploadBase64, setImageUploadBase64] = useState('');
+  const [imageUploadError, setImageUploadError] = useState('');
+
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن';
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,11 +105,95 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     });
   }, [productsList, searchTerm, selectedCategoryFilter, isAdmin]);
 
+  const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          setImageUploadBase64(compressedDataUrl);
+        }
+      };
+    };
+    e.target.value = '';
+  };
+
+  const handleStandaloneImageSubmit = () => {
+    setImageUploadError('');
+    if (!imageUploadCode.trim()) {
+      setImageUploadError('يرجى إدخال كود المنتج');
+      return;
+    }
+    if (!imageUploadBase64) {
+      setImageUploadError('يرجى اختيار صورة');
+      return;
+    }
+
+    const prod = productsList.find(p => p.productCode === imageUploadCode.trim());
+    if (!prod) {
+      setImageUploadError('لم يتم العثور على منتج بهذا الكود');
+      return;
+    }
+
+    updateProduct(prod.id, { imageUrl: imageUploadBase64 });
+    setShowImageUploadModal(false);
+    setImageUploadCode('');
+    setImageUploadBase64('');
+    setUserMessage('تم ربط الصورة بالمنتج بنجاح ✅');
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     importProductsFromExcel(file);
     e.target.value = '';
+  };
+
+  const downloadExcelTemplate = () => {
+    const headers = [
+      'صنف المنتج',
+      'كود المنتج',
+      'عدد بالكارتون',
+      'اسم المنتج',
+      'وزن القطعة الواحدة',
+      'سعر القطعة مفرد',
+      'سعر القطعة جملة',
+      'عدد الكارتون المتوفر بالمخزن'
+    ];
+    const csvContent = '\uFEFF' + headers.join(',') + '\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'نموذج_المنتجات.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const startEditing = (p: ProductItem) => {
@@ -250,6 +340,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           {/* Admin Excel Upload & Add Product Buttons */}
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowImageUploadModal(true)}
+              className="cursor-pointer px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              title="إضافة صور المنتجات"
+            >
+              <ImagePlus className="w-3 h-3" />
+              <span>إضافة صور المنتجات</span>
+            </button>
+            <button
               onClick={() => {
                 if(window.confirm('هل أنت متأكد من حذف جميع المنتجات؟ لا يمكن التراجع عن هذا الإجراء.')){
                   deleteAllProducts();
@@ -272,16 +370,24 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               <Plus className="w-3 h-3" />
               <span>إضافة منتج</span>
             </button>
-            <label className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95">
-              <Upload className="w-3 h-3" />
-              <span>رفع إكسل</span>
-              <input
-                type="file"
-                accept=".xlsx, .xls, .csv"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </label>
+            <div className="flex flex-col gap-1 items-center">
+              <label className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 w-full justify-center">
+                <Upload className="w-3 h-3" />
+                <span>رفع إكسل</span>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+              <button
+                onClick={downloadExcelTemplate}
+                className={`text-[9px] font-bold underline transition-colors hover:text-emerald-500 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}
+              >
+                تحميل نموذج الإكسل
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -555,6 +661,18 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       </h3>
                     )}
                   </div>
+                  
+                  {/* Image Display */}
+                  {prod.imageUrl && !isEditing && (
+                    <div className="w-full flex justify-center mt-1 mb-1 animate-in fade-in zoom-in-95 duration-200">
+                      <img 
+                        src={prod.imageUrl} 
+                        alt={prod.productName} 
+                        className="w-full h-24 object-contain rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
+                        onError={(e) => (e.currentTarget.style.display = 'none')}
+                      />
+                    </div>
+                  )}
 
                   {/* Stats Grid */}
                   <div className={`grid grid-cols-2 gap-2 p-1.5 rounded-md border ${
@@ -748,18 +866,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                           </button>
                         </div>
                         </>
-                      ) : (
-                        prod.imageUrl && (
-                          <div className="w-full flex justify-center">
-                            <img 
-                              src={prod.imageUrl} 
-                              alt={prod.productName} 
-                              className="w-24 h-24 object-contain rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
-                              onError={(e) => (e.currentTarget.style.display = 'none')}
-                            />
-                          </div>
-                        )
-                      )}
+                      ) : null}
                     </div>
                   )}
 
@@ -779,7 +886,66 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           )}
         </div>
       </div>
-    </div>
 
+      {showImageUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`font-black text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>إضافة صورة لمنتج</h3>
+              <button onClick={() => setShowImageUploadModal(false)} className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            {imageUploadError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl text-red-500 text-xs font-bold">
+                {imageUploadError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>كود المنتج</label>
+                <input
+                  type="text"
+                  value={imageUploadCode}
+                  onChange={(e) => setImageUploadCode(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border text-sm font-bold text-center ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-emerald-500'} focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all`}
+                  placeholder="مثال: PRD-1234"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>صورة المنتج</label>
+                <div className="flex flex-col items-center gap-3">
+                  {imageUploadBase64 ? (
+                    <div className="relative">
+                      <img src={imageUploadBase64} alt="Preview" className="w-32 h-32 object-contain rounded-xl border border-slate-300 dark:border-slate-700 bg-white" />
+                      <button onClick={() => setImageUploadBase64('')} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full shadow-lg hover:bg-rose-600">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={`w-full flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${isDarkMode ? 'border-slate-700 hover:border-emerald-500 bg-slate-800/50 hover:bg-slate-800' : 'border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50'}`}>
+                      <ImagePlus className={`w-8 h-8 mb-2 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
+                      <span className={`text-xs font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>اضغط لاختيار صورة</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleStandaloneImageUpload} />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleStandaloneImageSubmit}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98]"
+              >
+                حفظ الصورة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
