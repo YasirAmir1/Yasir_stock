@@ -51,6 +51,7 @@ export const EntryScreen: React.FC = () => {
   const [customerCode, setCustomerCode] = useState(() => localStorage.getItem('entry_draft_customerCode') || '');
   const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('entry_draft_customerAddress') || '');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>('retail');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
 
   const [activeAutocompleteRowId, setActiveAutocompleteRowId] = useState<string | null>(null);
@@ -738,6 +739,20 @@ export const EntryScreen: React.FC = () => {
               </span>
             )}
           </div>
+          <div className="flex items-center justify-center sm:justify-start w-full sm:w-auto bg-slate-200 p-1.5 rounded-lg border border-slate-300">
+            <button
+              onClick={() => setInvoicePriceMode('retail')}
+              className={`flex-1 sm:flex-none px-4 py-1.5 rounded-md text-[10px] sm:text-xs font-black transition-all ${invoicePriceMode === 'retail' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-600 hover:bg-slate-300'}`}
+            >
+              مفرد
+            </button>
+            <button
+              onClick={() => setInvoicePriceMode('wholesale')}
+              className={`flex-1 sm:flex-none px-4 py-1.5 rounded-md text-[10px] sm:text-xs font-black transition-all ${invoicePriceMode === 'wholesale' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-600 hover:bg-slate-300'}`}
+            >
+              جملة
+            </button>
+          </div>
         </div>
 
         {/* Delegate Filter Buttons for Admin */}
@@ -790,9 +805,18 @@ export const EntryScreen: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <span className="bg-emerald-600 text-white text-base sm:text-lg font-black px-4 py-1.5 rounded-lg border border-emerald-700 shadow-md">
-                      {formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-emerald-600 text-white text-sm sm:text-base font-black px-3 py-1.5 rounded-lg border border-emerald-700 shadow-md">
+                        {formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم
+                      </span>
+                      <span className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 py-1.5 rounded-lg border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
+                        {formatWithCommas(entries.reduce((sum, e) => {
+                          const prod = productsList.find(p => p.productName === e.productName);
+                          const price = prod ? (invoicePriceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) : 0;
+                          return sum + (price * e.quantity);
+                        }, 0), true)} د.ع
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {

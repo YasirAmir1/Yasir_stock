@@ -10,9 +10,21 @@ interface ProductsScreenProps {
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
   const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('الكل');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
+  const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
 
-  const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>('retail');
+  React.useEffect(() => {
+    localStorage.setItem('pref_categoryFilter', selectedCategoryFilter);
+  }, [selectedCategoryFilter]);
+
+  React.useEffect(() => {
+    localStorage.setItem('pref_priceMode', priceMode);
+  }, [priceMode]);
+
+  React.useEffect(() => {
+    localStorage.setItem('pref_sortBy', sortBy);
+  }, [sortBy]);
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
@@ -91,7 +103,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   }, [productsList]);
 
   const filteredProducts = useMemo(() => {
-    return productsList.filter(p => {
+    let filtered = productsList.filter(p => {
       // Hide unavailable products for non-admins
       if (!isAdmin && p.isAvailable === false) return false;
 
@@ -103,7 +115,22 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       const matchCat = selectedCategoryFilter === 'الكل' || p.categoryName === selectedCategoryFilter;
       return matchSearch && matchCat;
     });
-  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin]);
+
+    filtered.sort((a, b) => {
+      if (sortBy === 'name') return a.productName.localeCompare(b.productName);
+      if (sortBy === 'category') return a.categoryName.localeCompare(b.categoryName);
+      if (sortBy === 'weight') return (Number(b.pieceWeightKg) || 0) - (Number(a.pieceWeightKg) || 0);
+      if (sortBy === 'price') {
+        const priceA = (priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0;
+        const priceB = (priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0;
+        return (priceB * (a.cartonQuantity || 1)) - (priceA * (b.cartonQuantity || 1));
+      }
+      if (sortBy === 'stock') return (b.stockCartons || 0) - (a.stockCartons || 0);
+      return 0;
+    });
+
+    return filtered;
+  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -480,23 +507,41 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           </div>
           
           {categoriesList.length > 2 && (
-            <div className="flex items-center gap-1.5 w-full flex-wrap pb-1 sm:pb-0">
-              <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الصنف:</span>
-              {categoriesList.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategoryFilter(cat)}
-                  className={`px-2 py-1 rounded text-[8px] sm:text-[9px] font-extrabold transition-all ${
-                    selectedCategoryFilter === cat
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : isDarkMode
-                      ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+            <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الصنف:</span>
+                {categoriesList.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategoryFilter(cat)}
+                    className={`px-2 py-1 rounded text-[8px] sm:text-[9px] font-extrabold transition-all ${
+                      selectedCategoryFilter === cat
+                        ? 'bg-emerald-600 text-white shadow-md'
+                        : isDarkMode
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 mr-auto">
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الترتيب حسب:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className={`text-[9px] sm:text-xs font-bold rounded p-1 focus:outline-none ${
+                    isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-200 text-slate-700 border-slate-300'
                   }`}
                 >
-                  {cat}
-                </button>
-              ))}
+                  <option value="name">الاسم</option>
+                  <option value="category">الصنف</option>
+                  <option value="weight">الوزن</option>
+                  <option value="price">سعر الكارتون</option>
+                  <option value="stock">الكمية المتوفرة</option>
+                </select>
+              </div>
             </div>
           )}
         </div>
@@ -530,9 +575,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       : 'bg-white border-slate-200 hover:border-emerald-400/50'
                   } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''}`}
                 >
-                  <div className="flex items-start justify-between  gap-1">
-                    {/* Category Label */}
-                    <div className="shrink-0">
+                  <div className="flex items-start justify-between gap-1">
+                    {/* Category Label and Stock */}
+                    <div className="flex items-center gap-1 shrink-0">
                       {isEditing ? (
                         <input
                           type="text"
@@ -548,6 +593,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         }`}>
                           {prod.categoryName}
                         </span>
+                      )}
+                      {!isEditing && prod.stockCartons !== undefined && prod.stockCartons > 0 && (
+                        <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-1.5 py-0.5 rounded text-[9px] font-black text-indigo-600 dark:text-indigo-400" title="عدد كارتون بالمخزن">
+                          <Package className="w-2 h-2" />
+                          {Number(prod.stockCartons).toLocaleString('en-US', {maximumFractionDigits: 0})}
+                        </div>
                       )}
                     </div>
                     {/* Actions */}
@@ -607,7 +658,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   {/* Product Code & Stock Cartons */}
                   <div className="text-right flex items-center justify-between">
                     <div>
-                      {isEditing ? (
+                      {isEditing && (
                         <div className="flex flex-col gap-1">
                           <label className="text-[8px] text-slate-400">عدد كارتون بالمخزن:</label>
                           <input
@@ -619,13 +670,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                             placeholder="المخزن"
                           />
                         </div>
-                      ) : (
-                        prod.stockCartons !== undefined && prod.stockCartons > 0 && (
-                          <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-1.5 py-0.5 rounded text-[9px] font-black text-indigo-600 dark:text-indigo-400" title="عدد كارتون بالمخزن">
-                            <Package className="w-2.5 h-2.5" />
-                            {prod.stockCartons} بالمخزن
-                          </div>
-                        )
                       )}
                     </div>
                     {isEditing ? (
@@ -733,7 +777,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         />
                       ) : (
                         <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                          {priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)}
+                          {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 0})}
                         </span>
                       )}
                     </div>
@@ -741,7 +785,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                     <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
                       <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
                       <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                        {(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)}
+                        {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 0})}
                       </span>
                     </div>
                   </div>
