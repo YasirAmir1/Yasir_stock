@@ -1,10 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { ProductItem } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus } from 'lucide-react';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle } from 'lucide-react';
 
-export const ProductsScreen: React.FC = () => {
-  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries } = useSales();
+interface ProductsScreenProps {
+  largeFont?: boolean;
+}
+
+export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
+  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('الكل');
 
@@ -12,6 +16,7 @@ export const ProductsScreen: React.FC = () => {
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>({});
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -158,16 +163,17 @@ export const ProductsScreen: React.FC = () => {
   };
 
   const handleSaveQuickAdd = () => {
+    setErrorMessage(null);
     const trimmedCustomerName = customerName.trim();
     if (!trimmedCustomerName) {
-      window.alert('تنبيه: لم تقم بإدخال اسم الزبون!');
+      setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
       return;
     }
 
     const itemsToSave = [];
     const entries = Object.entries(selectedQuantities);
     if (entries.length === 0) {
-      window.alert('تنبيه: لم تقم بإضافة أي منتج للزبون.');
+      setErrorMessage('تنبيه: لم تقم بإضافة أي منتج للزبون.');
       return;
     }
 
@@ -188,12 +194,17 @@ export const ProductsScreen: React.FC = () => {
         quantity: q,
         pieceWeightKg: pieceWeightKg,
         totalWeightKg: totalW,
-        delegateName: (currentUser?.isAdmin ? 'الأدمن' : currentUser?.name) || 'عام',
+        delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
         dateString: new Date().toISOString().split('T')[0],
         customerName: trimmedCustomerName,
         customerCode: customerCode.trim(),
         customerAddress: customerAddress.trim()
       });
+    }
+
+    if (itemsToSave.length < 3) {
+      setErrorMessage('تنبيه: يجب ادخال 3 منتجات او اكثر للحفظ');
+      return;
     }
 
     if (itemsToSave.length > 0) {
@@ -203,6 +214,7 @@ export const ProductsScreen: React.FC = () => {
       setCustomerName('');
       setCustomerCode('');
       setCustomerAddress('');
+      setErrorMessage(null);
     }
   };
 
@@ -219,23 +231,23 @@ export const ProductsScreen: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300">
       {/* Header & Description */}
-      <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
-        isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
-      }`}>
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-600/20 flex items-center justify-center border border-emerald-500/30">
-            <Package className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+      {isAdmin && (
+        <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
+          isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-emerald-600/20 flex items-center justify-center border border-emerald-500/30">
+              <Package className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">قائمة المنتجات والأصناف</h2>
+              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                استعراض تفاصيل المنتجات، كود المنتج، عدد الكارتون، ووزن القطعة الواحدة. (يمكن للأدمن التعديل المباشر للأصناف)
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg sm:text-xl font-black tracking-tight">قائمة المنتجات والأصناف</h2>
-            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              استعراض تفاصيل المنتجات، كود المنتج، عدد الكارتون، ووزن القطعة الواحدة. {isAdmin && '(يمكن للأدمن التعديل المباشر للأصناف)'}
-            </p>
-          </div>
-        </div>
 
-        {/* Admin Excel Upload & Add Product Buttons (Visible ONLY to Admin) */}
-        {isAdmin && (
+          {/* Admin Excel Upload & Add Product Buttons */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -271,11 +283,17 @@ export const ProductsScreen: React.FC = () => {
               />
             </label>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Quick Add Customer Info Box */}
       <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
+        {errorMessage && (
+          <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
+            <span>{errorMessage}</span>
+            <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
           <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
             إضافة سريعة للمنتجات
@@ -396,65 +414,6 @@ export const ProductsScreen: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2">
             {filteredProducts.map((prod, idx) => {
               const isEditing = editingId === prod.id;
-              const handleSaveQuickAdd = () => {
-    const trimmedCustomerName = customerName.trim();
-    if (!trimmedCustomerName) {
-      window.alert('تنبيه: لم تقم بإدخال اسم الزبون!');
-      return;
-    }
-
-    const itemsToSave = [];
-    const entries = Object.entries(selectedQuantities);
-    if (entries.length === 0) {
-      window.alert('تنبيه: لم تقم بإضافة أي منتج للزبون.');
-      return;
-    }
-
-    for (const [prodId, qtyStr] of entries) {
-      const q = parseInt(qtyStr, 10);
-      if (isNaN(q) || q <= 0) continue;
-      
-      const prod = productsList.find(p => p.id === prodId);
-      if (!prod) continue;
-      
-      const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
-      const pieceWeightKg = wGrams / 1000;
-      const totalW = (q * wGrams) / 1000;
-      
-      itemsToSave.push({
-        productName: prod.productName,
-        categoryName: prod.categoryName,
-        quantity: q,
-        pieceWeightKg: pieceWeightKg,
-        totalWeightKg: totalW,
-        delegateName: (currentUser?.isAdmin ? 'الأدمن' : currentUser?.name) || 'عام',
-        dateString: new Date().toISOString().split('T')[0],
-        customerName: trimmedCustomerName,
-        customerCode: customerCode.trim(),
-        customerAddress: customerAddress.trim()
-      });
-    }
-
-    if (itemsToSave.length > 0) {
-      saveSalesEntries(itemsToSave);
-      setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
-      setSelectedQuantities({});
-      setCustomerName('');
-      setCustomerCode('');
-      setCustomerAddress('');
-    }
-  };
-
-  const handleUpdateQuantity = (prodId: string, val: string) => {
-    if (val === '') {
-      const newQ = { ...selectedQuantities };
-      delete newQ[prodId];
-      setSelectedQuantities(newQ);
-    } else {
-      setSelectedQuantities({ ...selectedQuantities, [prodId]: val });
-    }
-  };
-
   return (
                 <div
                   key={prod.id || idx}
@@ -591,7 +550,7 @@ export const ProductsScreen: React.FC = () => {
                         placeholder="اسم المنتج"
                       />
                     ) : (
-                      <h3 className="font-black text-xs sm:text-sm leading-tight text-slate-900 dark:text-slate-100">
+                      <h3 className={`font-black leading-tight text-slate-900 dark:text-slate-100 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-sm'}`}>
                         {prod.productName}
                       </h3>
                     )}
@@ -655,7 +614,7 @@ export const ProductsScreen: React.FC = () => {
                           className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
                         />
                       ) : (
-                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-[15px]">
+                        <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
                           {priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)}
                         </span>
                       )}
@@ -663,7 +622,7 @@ export const ProductsScreen: React.FC = () => {
                     
                     <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
                       <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
-                      <span className="font-black text-indigo-600 dark:text-indigo-400 text-xs sm:text-[15px]">
+                      <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
                         {(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)}
                       </span>
                     </div>
@@ -720,9 +679,12 @@ export const ProductsScreen: React.FC = () => {
                             e.stopPropagation();
                             setAddingQuantityId(prod.id);
                           }}
-                          className="w-full py-1.5 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg flex items-center justify-center gap-1 transition-all"
+                          className="w-full py-1.5 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg flex items-center justify-center gap-1 transition-all relative"
                         >
                           <Plus className="w-4 h-4" />
+                          {prod.stockCartons !== undefined && (prod.stockCartons || 0) * (Number(prod.cartonQuantity) || 1) < 5 && (
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 absolute left-2" title="الكمية قاربت على النفاد (أقل من 5 قطع)" />
+                          )}
                         </button>
                       )}
                     </div>

@@ -225,14 +225,14 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
 
           {/* Row 1 */}
           <button
-            onClick={() => handleNum('7')}
+            onClick={() => handleNum('9')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            7
+            9
           </button>
           <button
             onClick={() => handleNum('8')}
@@ -245,14 +245,14 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
             8
           </button>
           <button
-            onClick={() => handleNum('9')}
+            onClick={() => handleNum('7')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            9
+            7
           </button>
           <button
             onClick={() => handleOp('+')}
@@ -268,14 +268,14 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
 
           {/* Row 2 */}
           <button
-            onClick={() => handleNum('4')}
+            onClick={() => handleNum('6')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            4
+            6
           </button>
           <button
             onClick={() => handleNum('5')}
@@ -288,26 +288,26 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
             5
           </button>
           <button
-            onClick={() => handleNum('6')}
+            onClick={() => handleNum('4')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            6
+            4
           </button>
 
           {/* Row 3 */}
           <button
-            onClick={() => handleNum('1')}
+            onClick={() => handleNum('3')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            1
+            3
           </button>
           <button
             onClick={() => handleNum('2')}
@@ -320,14 +320,14 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
             2
           </button>
           <button
-            onClick={() => handleNum('3')}
+            onClick={() => handleNum('1')}
             className={`p-3.5 sm:p-4 rounded-2xl border active:scale-95 transition-all font-black ${
               isDarkMode
                 ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 shadow-sm'
             }`}
           >
-            3
+            1
           </button>
           <button
             onClick={handleCalculate}

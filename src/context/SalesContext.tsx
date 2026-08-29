@@ -269,13 +269,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const parsedProducts: ProductItem[] = jsonData.map((row, index) => {
         const productName = row['اسم المنتج'] || row['المنتج'] || row['اسم'] || row['Product Name'] || row['Product'] || `منتج ${index + 1}`;
-        const cartonQuantity = row['عدد في الكارتون'] || row['عدد الكارتون'] || row['Carton Qty'] || row['Qty'] || 12;
+        const cartonQuantity = row['عدد بالكارتون'] || row['عدد في الكارتون'] || row['عدد الكارتون'] || row['Carton Qty'] || row['Qty'] || 12;
         const categoryName = row['صنف المنتج'] || row['الصنف'] || row['الفئة'] || row['Category'] || 'قشطة';
         const productCode = row['كود المنتج'] || row['الكود'] || row['Code'] || `PRD-${100 + index}`;
         const pieceWeightKg = row['وزن القطعة الواحدة'] || row['وزن القطعة'] || row['الوزن'] || row['Piece Weight'] || row['Weight'] || 0.2;
-        const retailPrice = row['سعر المفرد'] || row['سعر القطعة مفرد'] || row['Retail Price'] || 0;
-        const wholesalePrice = row['سعر الجملة'] || row['سعر القطعة جملة'] || row['Wholesale Price'] || 0;
-        const stockCartons = row['المخزن'] || row['كارتون بالمخزن'] || row['عدد كارتون بالمخزن'] || row['Stock'] || 0;
+        const retailPrice = row['سعر القطعة مفرد'] || row['سعر  القطعة مفرد'] || row['سعر المفرد'] || row['Retail Price'] || 0;
+        const wholesalePrice = row['سعر القطعة جملة'] || row['سعر الجملة'] || row['Wholesale Price'] || 0;
+        const stockCartons = row['عدد الكارتون المتوفر بالمخزن'] || row['المخزن'] || row['كارتون بالمخزن'] || row['عدد كارتون بالمخزن'] || row['Stock'] || 0;
         const imageUrl = row['صورة'] || row['صورة المنتج'] || row['Image'] || '';
 
         return {

@@ -26,6 +26,7 @@ import {
   Calculator,
   Award,
   Package,
+  Type,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -43,6 +44,7 @@ const MainAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'entry' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [largeFont, setLargeFont] = useState(false);
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -155,6 +157,20 @@ const MainAppContent: React.FC = () => {
               >
                 <Calculator className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span className="text-[10px] sm:text-[11px] leading-tight">حاسبة</span>
+              </button>
+
+              {/* Font Size Toggle Button */}
+              <button
+                onClick={() => setLargeFont(!largeFont)}
+                className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                  largeFont
+                    ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
+                    : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
+                }`}
+                title="تكبير الخط"
+              >
+                <Type className={`w-5 h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
+                <span className="text-[10px] sm:text-[11px] leading-tight">الخط</span>
               </button>
 
               {/* Admin Button (Placed between Calculator and Theme Toggle) */}
@@ -324,7 +340,7 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'entry' && <EntryScreen />}
         {activeTab === 'reports' && <ReportsScreen />}
         {activeTab === 'evaluations' && <EvaluationsScreen />}
-        {activeTab === 'products' && <ProductsScreen />}
+        {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
         {activeTab === 'admin' && <AdminScreen />}
       </main>
 

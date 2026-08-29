@@ -170,6 +170,7 @@ export const EntryScreen: React.FC = () => {
   const safeDelegateAccounts = Array.isArray(delegateAccounts) ? delegateAccounts : [];
   const safeDelegateTargets = Array.isArray(delegateTargets) ? delegateTargets : [];
   const safeSavedEntries = Array.isArray(savedEntries) ? savedEntries : [];
+  const uniqueCustomerNames = Array.from(new Set(safeSavedEntries.map(e => e.customerName).filter(Boolean))).sort();
   const activeAccountObj = safeDelegateAccounts.find((a) => a.delegateName === activeDelegateName);
 
   // Active delegate targets
@@ -264,7 +265,7 @@ export const EntryScreen: React.FC = () => {
   const handleSaveGrid = () => {
     const trimmedCustomerName = customerName.trim();
     if (!trimmedCustomerName) {
-      window.alert('تنبيه: لم تقم بإدخال اسم الزبون!');
+      setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
       return;
     }
 
@@ -336,12 +337,13 @@ export const EntryScreen: React.FC = () => {
 
     if (invalidFound) return;
 
-    if (itemsToSave.length < 2) {
-      setErrorMessage('يجب ادخال اكثر من 3 منتجات لحفظ الفاتورة');
+    if (itemsToSave.length < 3) {
+      setErrorMessage('تنبيه: يجب ادخال 3 منتجات او اكثر للحفظ');
       return;
     }
 
     saveSalesEntries(itemsToSave);
+    setErrorMessage(null);
 
     setGridRows(
       Array.from({ length: 6 }, (_, i) => ({
@@ -491,11 +493,17 @@ export const EntryScreen: React.FC = () => {
             <label className="block text-xs font-bold text-slate-700 mb-1">اسم الزبون <span className="text-red-500">*</span></label>
             <input
               type="text"
+              list="customerNamesList"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="إلزامي"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
+            <datalist id="customerNamesList">
+              {uniqueCustomerNames.map((name, idx) => (
+                <option key={idx} value={name} />
+              ))}
+            </datalist>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كود الزبون</label>
