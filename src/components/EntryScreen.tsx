@@ -721,26 +721,28 @@ export const EntryScreen: React.FC = () => {
                     <td className="p-0 border-l border-slate-800 relative">
                       <div className="flex flex-col h-full justify-center">
                         <div className="flex items-center justify-center gap-3 pt-1.5 pb-1 border-b border-slate-200 bg-slate-50/50">
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input 
-                              type="radio" 
-                              name={`unit_${row.id}`} 
-                              checked={(row.entryUnit || 'piece') === 'piece'} 
-                              onChange={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'piece')} 
-                              className="w-3 h-3 text-emerald-600 focus:ring-emerald-500" 
-                            />
-                            <span className="text-[10px] font-bold text-slate-700">قطع</span>
-                          </label>
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input 
-                              type="radio" 
-                              name={`unit_${row.id}`} 
-                              checked={row.entryUnit === 'carton'} 
-                              onChange={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'carton')} 
-                              className="w-3 h-3 text-emerald-600 focus:ring-emerald-500" 
-                            />
-                            <span className="text-[10px] font-bold text-slate-700">كارتون</span>
-                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'piece')}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-colors ${
+                              (row.entryUnit || 'piece') === 'piece' 
+                                ? 'border-red-500 text-red-600' 
+                                : 'border-transparent text-slate-700'
+                            }`}
+                          >
+                            قطع
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'carton')}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-colors ${
+                              row.entryUnit === 'carton'
+                                ? 'border-red-500 text-red-600'
+                                : 'border-transparent text-slate-700'
+                            }`}
+                          >
+                            كارتون
+                          </button>
                         </div>
                         <input
                           type="text"
