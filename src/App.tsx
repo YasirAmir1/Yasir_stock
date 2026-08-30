@@ -102,32 +102,55 @@ const MainAppContent: React.FC = () => {
           }`}
         >
           <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-            {/* Brand Logo & App Title */}
-            <div className="flex items-center gap-2.5 shrink-0">
-              <AppLogo size="md" />
-              <div className="flex flex-col">
-                <h1
-                  className={`font-black text-base sm:text-lg tracking-tight leading-none ${
-                    isDarkMode ? 'text-white' : 'text-slate-900'
-                  }`}
-                >
-                  Tikrit Sales
-                </h1>
+            {/* Top row for Mobile (Logo + Delegate Name) & Logo for Desktop */}
+            <div className="flex items-center justify-between w-full sm:w-auto shrink-0">
+              {/* Brand Logo & App Title */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                <AppLogo size="md" />
+                <div className="flex flex-col">
+                  <h1
+                    className={`font-black text-base sm:text-lg tracking-tight leading-none ${
+                      isDarkMode ? 'text-white' : 'text-slate-900'
+                    }`}
+                  >
+                    Tikrit Sales
+                  </h1>
+                  <span
+                    className={`text-[10px] sm:text-xs font-bold mt-0.5 ${
+                      isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
+                    }`}
+                  >
+                    Build by: Eng.Yasir
+                  </span>
+                </div>
+              </div>
+              
+              {/* User Info Card (Mobile Only) */}
+              <div
+                className={`sm:hidden px-2.5 py-1 rounded-xl border flex flex-col text-right ${
+                  isDarkMode
+                    ? 'bg-slate-800/80 border-slate-700 text-slate-200'
+                    : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
+                }`}
+              >
+                <span className="font-extrabold text-xs leading-tight">
+                  {currentUser.name}
+                </span>
                 <span
-                  className={`text-[10px] sm:text-xs font-bold mt-0.5 ${
+                  className={`text-[10px] font-bold ${
                     isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                   }`}
                 >
-                  Build by: Eng.Yasir
+                  {currentUser.roleName}
                 </span>
               </div>
             </div>
 
-            {/* User Profile Info, Theme Toggle & Logout */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              {/* User Info Card */}
+            {/* Buttons Group & Desktop User Profile Info */}
+            <div className="flex items-center justify-center sm:justify-end gap-2 sm:gap-3 shrink-0 w-full sm:w-auto">
+              {/* User Info Card (Desktop Only) */}
               <div
-                className={`px-2.5 py-1 rounded-xl border flex flex-col text-right ${
+                className={`hidden sm:flex px-2.5 py-1 rounded-xl border flex-col text-right ${
                   isDarkMode
                     ? 'bg-slate-800/80 border-slate-700 text-slate-200'
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'

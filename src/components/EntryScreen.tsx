@@ -51,8 +51,13 @@ export const EntryScreen: React.FC = () => {
   const [customerCode, setCustomerCode] = useState(() => localStorage.getItem('entry_draft_customerCode') || '');
   const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('entry_draft_customerAddress') || '');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>('retail');
+  const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
+  const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
+
+  useEffect(() => {
+    localStorage.setItem('pref_priceMode', invoicePriceMode);
+  }, [invoicePriceMode]);
 
   const [activeAutocompleteRowId, setActiveAutocompleteRowId] = useState<string | null>(null);
 
@@ -146,6 +151,16 @@ export const EntryScreen: React.FC = () => {
 
   const defaultCategory = DEFAULT_CATEGORIES_LIST[0] || 'قشطة';
 
+  const getEffectivePieces = (quantityStr: string | number, productName: string, entryUnit?: 'piece' | 'carton'): number => {
+    const q = typeof quantityStr === 'string' ? parseInt(parseArabicDigits(quantityStr.trim()), 10) || 0 : quantityStr;
+    if (entryUnit === 'carton') {
+      const prod = productsList.find(p => p.productName === productName);
+      const cartonQuantity = Number(prod?.cartonQuantity) || 1;
+      return q * cartonQuantity;
+    }
+    return q;
+  };
+
   // Active delegate details
   const getProductCode = (productName: string) => {
     const match = productSuggestions.find(p => p.name === productName);
@@ -181,6 +196,11 @@ export const EntryScreen: React.FC = () => {
   // Saved metrics for active delegate
   const totalSavedWeight = safeSavedEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
   const totalSavedQuantity = safeSavedEntries.reduce((sum, e) => sum + e.quantity, 0);
+  const totalSavedPrice = safeSavedEntries.reduce((sum, e) => {
+    const prod = productsList.find(p => p.productName === e.productName);
+    const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+    return sum + (price * e.quantity);
+  }, 0);
 
   const dailyPct = dailyTargetKg > 0 ? (totalSavedWeight / dailyTargetKg) * 100 : 0;
 
@@ -211,7 +231,7 @@ export const EntryScreen: React.FC = () => {
 
   const currentGridTotalKg = useMemo(() => {
     return gridRows.reduce((sum, row) => {
-      const q = parseInt(parseArabicDigits(row.quantity.trim()), 10) || 0;
+      const q = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
       const g = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
       return sum + (q * g) / 1000;
     }, 0);
@@ -283,11 +303,18 @@ export const EntryScreen: React.FC = () => {
       setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
       return;
     }
+    
+    if (!invoicePriceMode) {
+      setErrorMessage('تنبيه: يرجى اختيار نوع السعر (مفرد أو جملة) قبل الحفظ');
+      return;
+    }
 
     const itemsToSave: {
       productName: string;
       categoryName: string;
       quantity: number;
+      entryUnit?: 'piece' | 'carton';
+      enteredQuantity?: number;
       pieceWeightKg: number;
       totalWeightKg: number;
       delegateName: string;
@@ -295,10 +322,10 @@ export const EntryScreen: React.FC = () => {
       customerName: string;
       customerCode?: string;
       customerAddress?: string;
+      priceMode?: 'retail' | 'wholesale';
     }[] = [];
 
     let invalidFound = false;
-
 
     for (let i = 0; i < gridRows.length; i++) {
       const row = gridRows[i];
@@ -307,7 +334,8 @@ export const EntryScreen: React.FC = () => {
       const wStr = parseArabicDigits(row.pieceWeight.trim());
 
       if (name.length > 0 || qStr.length > 0 || wStr.length > 0) {
-        const q = parseInt(qStr, 10);
+        const enteredQ = parseInt(qStr, 10);
+        const effectiveQ = getEffectivePieces(qStr, name, row.entryUnit || 'piece');
         const wGrams = parseFloat(wStr);
         const cat = row.category || defaultCategory;
 
@@ -316,8 +344,8 @@ export const EntryScreen: React.FC = () => {
           invalidFound = true;
           break;
         }
-        if (isNaN(q) || q <= 0) {
-          setErrorMessage(`يرجى كتابة عدد قطع صحيح في الصف رقم ${i + 1}`);
+        if (isNaN(enteredQ) || enteredQ <= 0) {
+          setErrorMessage(`يرجى كتابة إدخال صحيح في الصف رقم ${i + 1}`);
           invalidFound = true;
           break;
         }
@@ -328,7 +356,7 @@ export const EntryScreen: React.FC = () => {
         }
 
         const pieceWeightKg = wGrams / 1000;
-        const totalW = (q * wGrams) / 1000;
+        const totalW = (effectiveQ * wGrams) / 1000;
         if (!trimmedCustomerName) {
           setErrorMessage('يرجى إدخال اسم الزبون قبل الحفظ');
           invalidFound = true;
@@ -338,14 +366,17 @@ export const EntryScreen: React.FC = () => {
         itemsToSave.push({
           productName: name,
           categoryName: cat,
-          quantity: q,
+          quantity: effectiveQ,
+          entryUnit: row.entryUnit || 'piece',
+          enteredQuantity: enteredQ,
           pieceWeightKg: pieceWeightKg,
           totalWeightKg: totalW,
           delegateName: activeDelegateName || 'عام',
           dateString: new Date().toISOString().split('T')[0],
           customerName: trimmedCustomerName,
           customerCode: customerCode.trim(),
-          customerAddress: customerAddress.trim()
+          customerAddress: customerAddress.trim(),
+          priceMode: invoicePriceMode
         });
       }
     }
@@ -413,7 +444,8 @@ export const EntryScreen: React.FC = () => {
     (e) => {
       const matchSearch = !customerSearchTerm || (e.customerName && e.customerName.includes(customerSearchTerm));
       const matchDelegate = savedEntriesFilterDelegate === 'الكل' || e.delegateName === savedEntriesFilterDelegate;
-      return matchSearch && matchDelegate;
+      const matchPrice = savedEntriesFilterPriceMode === 'الكل' || e.priceMode === savedEntriesFilterPriceMode;
+      return matchSearch && matchDelegate && matchPrice;
     }
   );
   
@@ -442,6 +474,19 @@ export const EntryScreen: React.FC = () => {
     customersPerDelegate[delegate].add(customer);
   });
 
+  const currentInvoiceTotalWeight = gridRows.reduce((sum, row) => {
+    const qVal = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
+    const gVal = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
+    return sum + ((qVal * gVal) / 1000);
+  }, 0);
+
+  const currentInvoiceTotalPrice = gridRows.reduce((sum, row) => {
+    const qVal = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
+    const prod = productsList.find(p => p.productName === row.productName);
+    const price = prod ? (invoicePriceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+    return sum + (qVal * price);
+  }, 0);
+
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
@@ -451,14 +496,31 @@ export const EntryScreen: React.FC = () => {
 
 
       {/* Total Saved Weight Summary Card */}
-      <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-2">
+      <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-3">
         <h2 className="font-extrabold text-slate-900 text-base">
           مجموع وزن إدخالات ({activeDelegateName})
         </h2>
-        <div className="text-3xl font-black text-slate-900">
-          {formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم
+        
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-12">
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-xs font-bold text-slate-500 mb-1">الوزن الكلي</span>
+            <div className="text-3xl font-black text-slate-900">
+              {formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم
+            </div>
+          </div>
+          
+          <div className="hidden sm:block w-px h-12 bg-slate-200"></div>
+          <div className="block sm:hidden w-full h-px bg-slate-200"></div>
+          
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-xs font-bold text-slate-500 mb-1">المبلغ الكلي</span>
+            <div className="text-3xl font-black text-emerald-600">
+              {formatWithCommas(totalSavedPrice, true)} د.ع
+            </div>
+          </div>
         </div>
-        <div className="flex justify-center gap-3 pt-1">
+
+        <div className="flex justify-center gap-3 pt-2">
           <span className="px-3 py-1 bg-emerald-100 border border-emerald-400 text-slate-900 font-bold text-xs rounded-full">
             إجمالي القطع: {formatWithCommas(totalSavedQuantity)} قطعة
           </span>
@@ -503,7 +565,7 @@ export const EntryScreen: React.FC = () => {
         <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
           بيانات الزبون
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">اسم الزبون <span className="text-red-500">*</span></label>
             <input
@@ -519,6 +581,25 @@ export const EntryScreen: React.FC = () => {
                 <option key={idx} value={name} />
               ))}
             </datalist>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">نوع الفاتورة <span className="text-red-500">*</span></label>
+            <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-300">
+              <button
+                type="button"
+                onClick={() => setInvoicePriceMode('retail')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${invoicePriceMode === 'retail' ? 'bg-white shadow-sm text-emerald-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
+              >
+                مفرد
+              </button>
+              <button
+                type="button"
+                onClick={() => setInvoicePriceMode('wholesale')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${invoicePriceMode === 'wholesale' ? 'bg-white shadow-sm text-emerald-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
+              >
+                جملة
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كود الزبون</label>
@@ -550,7 +631,7 @@ export const EntryScreen: React.FC = () => {
             <thead>
               <tr className="bg-[#7EFF74] text-black font-extrabold text-xs sm:text-sm border-b-2 border-slate-900">
                 <th className="py-2.5 px-2 border-l border-slate-900 w-[30%]">اسم المنتج</th>
-                <th className="py-2.5 px-2 border-l border-slate-900 w-[20%]">عدد القطع</th>
+                <th className="py-2.5 px-2 border-l border-slate-900 w-[20%]">رقم الإدخال</th>
                 <th className="py-2.5 px-2 border-l border-slate-900 w-[20%]">الصنف</th>
                 <th className="py-2.5 px-2 border-l border-slate-900 w-[15%]">وزن القطعة (غرام)</th>
                 <th className="py-2.5 px-2 w-[15%]">وزن الإدخال بالكيلو</th>
@@ -558,21 +639,11 @@ export const EntryScreen: React.FC = () => {
             </thead>
             <tbody>
               {gridRows.map((row, idx) => {
-                const qVal = parseInt(parseArabicDigits(row.quantity.trim()), 10) || 0;
+                const effectiveQ = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
                 const gVal = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
-                const rowKgVal = (qVal * gVal) / 1000;
+                const rowKgVal = (effectiveQ * gVal) / 1000;
 
-                const customersPerDelegate: Record<string, Set<string>> = {};
-  safeSavedEntries.forEach((entry) => {
-    const delegate = entry.delegateName || 'غير محدد';
-    const customer = entry.customerName || 'بدون اسم زبون';
-    if (!customersPerDelegate[delegate]) {
-      customersPerDelegate[delegate] = new Set();
-    }
-    customersPerDelegate[delegate].add(customer);
-  });
-
-  return (
+                return (
                   <tr
                     key={row.id}
                     className={`border-b border-slate-800 ${
@@ -580,19 +651,34 @@ export const EntryScreen: React.FC = () => {
                     }`}
                   >
                     <td className="p-0 border-l border-slate-800 relative">
-                      <input
-                        type="text"
-                        placeholder="اسم المنتج (اكتب للاقتراح من القائمة)"
-                        value={row.productName}
-                        onChange={(e) => {
-                          handleRowChange(row.id, 'productName', e.target.value);
-                          setActiveAutocompleteRowId(row.id);
-                        }}
-                        onFocus={() => setActiveAutocompleteRowId(row.id)}
-                        onBlur={() => setTimeout(() => setActiveAutocompleteRowId(null), 250)}
-                        onKeyDown={handleKeyDown}
-                        className="w-full h-10 px-2 bg-transparent text-slate-900 font-bold text-sm text-right focus:bg-emerald-50 focus:outline-none border-none"
-                      />
+                      <div className="relative flex items-center w-full h-full">
+                        <input
+                          type="text"
+                          placeholder="اسم المنتج (اكتب للاقتراح من القائمة)"
+                          value={row.productName}
+                          onChange={(e) => {
+                            handleRowChange(row.id, 'productName', e.target.value);
+                            setActiveAutocompleteRowId(row.id);
+                          }}
+                          onFocus={() => setActiveAutocompleteRowId(row.id)}
+                          onBlur={() => setTimeout(() => setActiveAutocompleteRowId(null), 250)}
+                          onKeyDown={handleKeyDown}
+                          className="w-full h-10 px-2 pl-8 bg-transparent text-slate-900 font-bold text-sm text-right focus:bg-emerald-50 focus:outline-none border-none"
+                        />
+                        {(row.productName || row.quantity) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleRowChange(row.id, 'productName', '');
+                              handleRowChange(row.id, 'quantity', '');
+                            }}
+                            className="absolute left-1.5 w-4 h-4 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-full flex items-center justify-center font-bold transition-colors cursor-pointer text-xs leading-none pb-0.5"
+                            title="مسح اسم المنتج والكمية"
+                          >
+                            -
+                          </button>
+                        )}
+                      </div>
                       {activeAutocompleteRowId === row.id && (
                         <div className="absolute top-full right-0 z-50 w-full min-w-[280px] sm:w-96 bg-white border border-slate-300 shadow-2xl rounded-xl mt-1 max-h-72 overflow-y-auto text-right">
                           {productSuggestions
@@ -632,16 +718,40 @@ export const EntryScreen: React.FC = () => {
                       )}
                     </td>
 
-                    <td className="p-0 border-l border-slate-800">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="0"
-                        value={row.quantity}
-                        onChange={(e) => handleRowChange(row.id, 'quantity', e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="w-full h-10 px-2 bg-transparent text-slate-900 font-bold text-sm text-center focus:bg-emerald-50 focus:outline-none border-none"
-                      />
+                    <td className="p-0 border-l border-slate-800 relative">
+                      <div className="flex flex-col h-full justify-center">
+                        <div className="flex items-center justify-center gap-3 pt-1.5 pb-1 border-b border-slate-200 bg-slate-50/50">
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input 
+                              type="radio" 
+                              name={`unit_${row.id}`} 
+                              checked={(row.entryUnit || 'piece') === 'piece'} 
+                              onChange={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'piece')} 
+                              className="w-3 h-3 text-emerald-600 focus:ring-emerald-500" 
+                            />
+                            <span className="text-[10px] font-bold text-slate-700">قطع</span>
+                          </label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input 
+                              type="radio" 
+                              name={`unit_${row.id}`} 
+                              checked={row.entryUnit === 'carton'} 
+                              onChange={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'carton')} 
+                              className="w-3 h-3 text-emerald-600 focus:ring-emerald-500" 
+                            />
+                            <span className="text-[10px] font-bold text-slate-700">كارتون</span>
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={row.quantity}
+                          onChange={(e) => handleRowChange(row.id, 'quantity', e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          className="w-full h-8 px-2 bg-transparent text-slate-900 font-bold text-sm text-center focus:bg-emerald-50 focus:outline-none border-none"
+                        />
+                      </div>
                     </td>
 
                     <td className="p-0 border-l border-slate-800">
@@ -678,6 +788,16 @@ export const EntryScreen: React.FC = () => {
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr className="bg-emerald-50 border-t-2 border-slate-900">
+                <td colSpan={3} className="py-2.5 px-3 text-right font-black text-emerald-900 text-sm">
+                  الإجمالي الكلي: {formatWithCommas(currentInvoiceTotalPrice, true)} د.ع
+                </td>
+                <td colSpan={2} className="py-2.5 px-3 text-left font-black text-emerald-900 text-sm">
+                  الوزن: {formatWithCommas(parseFloat(currentInvoiceTotalWeight.toFixed(2)), true)} كجم
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
@@ -714,6 +834,31 @@ export const EntryScreen: React.FC = () => {
             <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
               سجل المبيعات المحفوظة اليوم ({safeSavedEntries.length})
             </h3>
+            
+            <div className="flex bg-slate-200 rounded-lg p-0.5 border border-slate-300 mr-2">
+              <button
+                type="button"
+                onClick={() => setSavedEntriesFilterPriceMode('الكل')}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'الكل' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                الكل
+              </button>
+              <button
+                type="button"
+                onClick={() => setSavedEntriesFilterPriceMode('retail')}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'retail' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                مفرد
+              </button>
+              <button
+                type="button"
+                onClick={() => setSavedEntriesFilterPriceMode('wholesale')}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'wholesale' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                جملة
+              </button>
+            </div>
+
             {currentUser?.isAdmin && safeSavedEntries.length > 0 && (
               <button
                 onClick={handleExportCSV}
@@ -738,20 +883,6 @@ export const EntryScreen: React.FC = () => {
                 الإجمالي: {formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم
               </span>
             )}
-          </div>
-          <div className="flex items-center justify-center sm:justify-start w-full sm:w-auto bg-slate-200 p-1.5 rounded-lg border border-slate-300">
-            <button
-              onClick={() => setInvoicePriceMode('retail')}
-              className={`flex-1 sm:flex-none px-4 py-1.5 rounded-md text-[10px] sm:text-xs font-black transition-all ${invoicePriceMode === 'retail' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-600 hover:bg-slate-300'}`}
-            >
-              مفرد
-            </button>
-            <button
-              onClick={() => setInvoicePriceMode('wholesale')}
-              className={`flex-1 sm:flex-none px-4 py-1.5 rounded-md text-[10px] sm:text-xs font-black transition-all ${invoicePriceMode === 'wholesale' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-600 hover:bg-slate-300'}`}
-            >
-              جملة
-            </button>
           </div>
         </div>
 
@@ -795,6 +926,11 @@ export const EntryScreen: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
+                    {entries[0]?.priceMode && (
+                      <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                        {entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="bg-slate-200 text-slate-800 px-3 py-1.5 rounded-lg border border-slate-300 flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2">
@@ -812,7 +948,7 @@ export const EntryScreen: React.FC = () => {
                       <span className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 py-1.5 rounded-lg border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
                         {formatWithCommas(entries.reduce((sum, e) => {
                           const prod = productsList.find(p => p.productName === e.productName);
-                          const price = prod ? (invoicePriceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) : 0;
+                          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
                           return sum + (price * e.quantity);
                         }, 0), true)} د.ع
                       </span>
@@ -840,17 +976,7 @@ export const EntryScreen: React.FC = () => {
                 const currentGrams = parseArabicNumber(editFormData.pieceWeightKg) || 0;
                 const calcTotalWeight = ((currentQty * currentGrams) / 1000).toFixed(2);
 
-                const customersPerDelegate: Record<string, Set<string>> = {};
-  safeSavedEntries.forEach((entry) => {
-    const delegate = entry.delegateName || 'غير محدد';
-    const customer = entry.customerName || 'بدون اسم زبون';
-    if (!customersPerDelegate[delegate]) {
-      customersPerDelegate[delegate] = new Set();
-    }
-    customersPerDelegate[delegate].add(customer);
-  });
-
-  return (
+                return (
                   <div
                     key={`edit_${entry.id || 'item'}_${index}`}
                     className="p-3 bg-amber-50 border-2 border-amber-500 rounded-xl shadow-md space-y-3 text-slate-900 text-xs edit-form-container"
@@ -902,7 +1028,7 @@ export const EntryScreen: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">عدد القطع</label>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">رقم الإدخال</label>
                         <input
                           type="text"
                           inputMode="numeric"
@@ -964,17 +1090,7 @@ export const EntryScreen: React.FC = () => {
                 );
               }
 
-              const customersPerDelegate: Record<string, Set<string>> = {};
-  safeSavedEntries.forEach((entry) => {
-    const delegate = entry.delegateName || 'غير محدد';
-    const customer = entry.customerName || 'بدون اسم زبون';
-    if (!customersPerDelegate[delegate]) {
-      customersPerDelegate[delegate] = new Set();
-    }
-    customersPerDelegate[delegate].add(customer);
-  });
-
-  return (
+              return (
                 <div
                   key={`saved_${entry.id || 'item'}_${index}`}
                   className="py-2.5 px-3 border-b last:border-b-0 border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-slate-900 text-xs hover:bg-slate-50 transition-colors"
@@ -991,17 +1107,18 @@ export const EntryScreen: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                    <div className="flex items-center gap-2">
-                      {getCartonsDisplay(entry.productName, entry.quantity) && (
-                        <div className="text-center font-bold px-2.5 py-1 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[11px] min-w-[65px]" title="عدد الكراتين">
-                          {getCartonsDisplay(entry.productName, entry.quantity)}
-                        </div>
-                      )}
-                      <div className="text-center font-bold px-2.5 py-1 bg-slate-100 rounded-md text-slate-800 text-[11px] min-w-[65px]">
-                        {formatWithCommas(entry.quantity)} قطعة
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-center font-bold px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[10px] min-w-[50px]" title="الكراتين المدخلة">
+                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : '0'} كارتون
                       </div>
-                      <div className="text-center font-black text-emerald-800 px-2.5 py-1 bg-emerald-50 rounded-md border border-emerald-100 text-[11px] min-w-[75px]">
+                      <div className="text-center font-bold px-2 py-0.5 bg-slate-100 rounded-md text-slate-800 text-[10px] min-w-[50px]" title="القطع المدخلة">
+                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
+                      </div>
+                      <div className="text-center font-black text-emerald-800 px-2 py-0.5 bg-emerald-50 rounded-md border border-emerald-100 text-[10px] min-w-[60px]" title="الوزن الإجمالي">
                         {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
+                      </div>
+                      <div className="text-center font-black text-rose-800 px-2 py-0.5 bg-rose-50 rounded-md border border-rose-100 text-[10px] min-w-[60px]" title="السعر">
+                        {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">

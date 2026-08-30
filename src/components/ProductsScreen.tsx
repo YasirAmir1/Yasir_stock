@@ -8,7 +8,7 @@ interface ProductsScreenProps {
 }
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
-  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate } = useSales();
+  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
   const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
@@ -104,8 +104,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
-      // Hide unavailable products for non-admins
-      if (!isAdmin && p.isAvailable === false) return false;
+      // Hide unavailable products and low stock products (<= 2) for non-admins
+      if (!isAdmin && (p.isAvailable === false || (p.stockCartons || 0) <= 2)) return false;
 
       const matchSearch = 
         p.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -116,21 +116,37 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return matchSearch && matchCat;
     });
 
-    filtered.sort((a, b) => {
-      if (sortBy === 'name') return a.productName.localeCompare(b.productName);
-      if (sortBy === 'category') return a.categoryName.localeCompare(b.categoryName);
-      if (sortBy === 'weight') return (Number(b.pieceWeightKg) || 0) - (Number(a.pieceWeightKg) || 0);
-      if (sortBy === 'price') {
-        const priceA = (priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0;
-        const priceB = (priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0;
-        return (priceB * (a.cartonQuantity || 1)) - (priceA * (b.cartonQuantity || 1));
-      }
-      if (sortBy === 'stock') return (b.stockCartons || 0) - (a.stockCartons || 0);
-      return 0;
-    });
+    if (sortBy === 'most_sold') {
+      const salesMap = new Map<string, number>();
+      rawSavedEntries?.forEach(entry => {
+        salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
+      });
+      filtered.sort((a, b) => {
+        const salesA = salesMap.get(a.productName) || 0;
+        const salesB = salesMap.get(b.productName) || 0;
+        return salesB - salesA;
+      });
+    } else if (sortBy === 'file_order') {
+      filtered.sort((a, b) => {
+        return productsList.indexOf(a) - productsList.indexOf(b);
+      });
+    } else {
+      filtered.sort((a, b) => {
+        if (sortBy === 'name') return a.productName.localeCompare(b.productName);
+        if (sortBy === 'category') return a.categoryName.localeCompare(b.categoryName);
+        if (sortBy === 'weight') return (Number(b.pieceWeightKg) || 0) - (Number(a.pieceWeightKg) || 0);
+        if (sortBy === 'price') {
+          const priceA = (priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0;
+          const priceB = (priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0;
+          return (priceB * (Number(a.cartonQuantity) || 1)) - (priceA * (Number(b.cartonQuantity) || 1));
+        }
+        if (sortBy === 'stock') return (b.stockCartons || 0) - (a.stockCartons || 0);
+        return 0;
+      });
+    }
 
     return filtered;
-  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode]);
+  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -540,6 +556,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   <option value="weight">الوزن</option>
                   <option value="price">سعر الكارتون</option>
                   <option value="stock">الكمية المتوفرة</option>
+                  <option value="most_sold">الأكثر مبيعاً</option>
+                  <option value="file_order">ترتيب الملف المرفوع</option>
                 </select>
               </div>
             </div>
@@ -823,7 +841,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                            }}
                          >
                            <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
-                             تم إضافة: {selectedQuantities[prod.id]} قطع
+                             تم ادخال {selectedQuantities[prod.id]} قطع | {parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون
                            </span>
                            <button
                              onClick={(e) => {
@@ -845,7 +863,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         >
                           <Plus className="w-4 h-4" />
                           {prod.stockCartons !== undefined && (prod.stockCartons || 0) * (Number(prod.cartonQuantity) || 1) < 5 && (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 absolute left-2" title="الكمية قاربت على النفاد (أقل من 5 قطع)" />
+                            <span title="الكمية قاربت على النفاد (أقل من 5 قطع)" className="absolute left-2">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                            </span>
                           )}
                         </button>
                       )}

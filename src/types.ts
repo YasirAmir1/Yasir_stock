@@ -37,7 +37,10 @@ export interface SalesEntry {
   productName: string;
   categoryName: string;
   quantity: number;
+  entryUnit?: 'piece' | 'carton';
+  enteredQuantity?: number;
   pieceWeightKg: number;
+  priceMode?: 'retail' | 'wholesale';
   totalWeightKg: number;
   delegateName: string;
   timestamp: number;
@@ -49,6 +52,7 @@ export interface GridRow {
   category: string;
   pieceWeight: string;
   quantity: string;
+  entryUnit?: 'piece' | 'carton';
   productName: string;
 }
 
