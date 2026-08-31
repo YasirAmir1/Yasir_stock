@@ -415,7 +415,7 @@ export const EntryScreen: React.FC = () => {
       return;
     }
     
-    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)'];
+    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
     const rows = safeSavedEntries.map(entry => [
       entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
       entry.delegateName || 'غير محدد',
@@ -425,7 +425,8 @@ export const EntryScreen: React.FC = () => {
       getProductCode(entry.productName),
       entry.quantity.toString(),
       entry.pieceWeightKg.toString(),
-      entry.totalWeightKg.toString()
+      entry.totalWeightKg.toString(),
+      entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
     ]);
     
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -1132,9 +1133,11 @@ export const EntryScreen: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                     <div className="flex items-center gap-1.5">
-                      <div className="text-center font-bold px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[10px] min-w-[50px]" title="الكراتين المدخلة">
-                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1)).toFixed(2)))} كارتون
-                      </div>
+                      {entry.quantity >= (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1) && (
+                        <div className="text-center font-bold px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[10px] min-w-[50px]" title="الكراتين المدخلة">
+                          {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1)).toFixed(2)))} كارتون
+                        </div>
+                      )}
                       <div className="text-center font-bold px-2 py-0.5 bg-slate-100 rounded-md text-slate-800 text-[10px] min-w-[50px]" title="القطع المدخلة">
                         {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
                       </div>
