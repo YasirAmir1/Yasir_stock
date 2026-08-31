@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
@@ -464,14 +464,19 @@ export const EntryScreen: React.FC = () => {
     groupedEntries[groupKey].push(entry);
   });
 
-  const customersPerDelegate: Record<string, Set<string>> = {};
+  const delegateStats: Record<string, { retail: Set<string>, wholesale: Set<string>, total: Set<string> }> = {};
   safeSavedEntries.forEach((entry) => {
     const delegate = entry.delegateName || 'غير محدد';
     const customer = entry.customerName || 'بدون اسم زبون';
-    if (!customersPerDelegate[delegate]) {
-      customersPerDelegate[delegate] = new Set();
+    if (!delegateStats[delegate]) {
+      delegateStats[delegate] = { retail: new Set(), wholesale: new Set(), total: new Set() };
     }
-    customersPerDelegate[delegate].add(customer);
+    if (entry.priceMode === 'wholesale') {
+      delegateStats[delegate].wholesale.add(customer);
+    } else {
+      delegateStats[delegate].retail.add(customer);
+    }
+    delegateStats[delegate].total.add(customer);
   });
 
   const currentInvoiceTotalWeight = gridRows.reduce((sum, row) => {
@@ -528,14 +533,29 @@ export const EntryScreen: React.FC = () => {
             عدد السجلات: {formatWithCommas(safeSavedEntries.length)} منتج
           </span>
         </div>
-        {Object.keys(customersPerDelegate).length > 0 && (
-          <div className="flex flex-wrap justify-center gap-2 pt-3 mt-2 border-t border-emerald-200">
-            {Object.entries(customersPerDelegate)
-              .sort(([, a], [, b]) => b.size - a.size)
-              .map(([delegate, customersSet]) => (
-               <span key={delegate} className="px-3 py-1.5 bg-white border-2 border-emerald-500 text-slate-800 font-bold text-xs rounded-lg shadow-sm">
-                 {delegate} : {customersSet.size}
-               </span>
+        {Object.keys(delegateStats).length > 0 && (
+          <div className="flex flex-wrap justify-center gap-3 pt-3 mt-2 border-t border-emerald-200">
+            {Object.entries(delegateStats)
+              .sort(([, a], [, b]) => (b.wholesale.size + b.retail.size) - (a.wholesale.size + a.retail.size))
+              .map(([delegate, stats]) => (
+               <div key={delegate} className="flex flex-col items-center bg-white border-2 border-emerald-500 rounded-lg shadow-sm overflow-hidden text-xs min-w-[120px]">
+                 <div className="bg-emerald-50 w-full text-center py-1.5 px-3 border-b border-emerald-200 text-slate-800 font-bold">
+                   {delegate}
+                 </div>
+                 <div className="flex justify-between w-full px-2 py-1 text-slate-600 border-b border-slate-100">
+                   <div className="flex flex-col items-center w-1/2 border-l border-slate-200">
+                     <span className="text-[9px] text-purple-600 font-bold">جملة</span>
+                     <span className="font-bold text-slate-800">{stats.wholesale.size}</span>
+                   </div>
+                   <div className="flex flex-col items-center w-1/2">
+                     <span className="text-[9px] text-amber-600 font-bold">مفرد</span>
+                     <span className="font-bold text-slate-800">{stats.retail.size}</span>
+                   </div>
+                 </div>
+                 <div className="bg-slate-50 w-full text-center py-1 px-3 text-emerald-800 font-black">
+                   المجموع: {stats.wholesale.size + stats.retail.size}
+                 </div>
+               </div>
             ))}
           </div>
         )}
@@ -665,17 +685,18 @@ export const EntryScreen: React.FC = () => {
                           onKeyDown={handleKeyDown}
                           className="w-full h-10 px-2 pl-8 bg-transparent text-slate-900 font-bold text-sm text-right focus:bg-emerald-50 focus:outline-none border-none"
                         />
-                        {(row.productName || row.quantity) && (
+                        {(row.productName || row.quantity || row.pieceWeight) && (
                           <button
                             type="button"
                             onClick={() => {
                               handleRowChange(row.id, 'productName', '');
                               handleRowChange(row.id, 'quantity', '');
+                              handleRowChange(row.id, 'pieceWeight', '');
                             }}
-                            className="absolute left-1.5 w-4 h-4 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-full flex items-center justify-center font-bold transition-colors cursor-pointer text-xs leading-none pb-0.5"
-                            title="مسح اسم المنتج والكمية"
+                            className="absolute left-1.5 w-5 h-5 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-full flex items-center justify-center transition-colors cursor-pointer"
+                            title="مسح السطر"
                           >
-                            -
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -929,8 +950,9 @@ export const EntryScreen: React.FC = () => {
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
                     {entries[0]?.priceMode && (
-                      <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
-                        {entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+                      <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                        {entries[0].priceMode === 'wholesale' ? <Package className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
+                        {entries[0].priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}
                       </span>
                     )}
                   </div>
@@ -958,7 +980,7 @@ export const EntryScreen: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        if(window.confirm('هل تريد حذف الفاتورة : نعم او لا')) {
+                        if(window.confirm('هل تريد حذف هذه الفاتورة ؟')) {
                           entries.forEach(e => deleteSalesEntry(e.id));
                         }
                       }}
@@ -1111,7 +1133,7 @@ export const EntryScreen: React.FC = () => {
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                     <div className="flex items-center gap-1.5">
                       <div className="text-center font-bold px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[10px] min-w-[50px]" title="الكراتين المدخلة">
-                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : '0'} كارتون
+                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1)).toFixed(2)))} كارتون
                       </div>
                       <div className="text-center font-bold px-2 py-0.5 bg-slate-100 rounded-md text-slate-800 text-[10px] min-w-[50px]" title="القطع المدخلة">
                         {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة

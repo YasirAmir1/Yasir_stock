@@ -267,23 +267,34 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const worksheet = workbook.Sheets[firstSheetName];
       const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
+      const existingImages = new Map<string, string>();
+      productsList.forEach(p => {
+        if (p.productCode && p.imageUrl) {
+          existingImages.set(String(p.productCode).trim(), p.imageUrl);
+        }
+      });
+
       const parsedProducts: ProductItem[] = jsonData.map((row, index) => {
         const productName = row['اسم المنتج'] || row['المنتج'] || row['اسم'] || row['Product Name'] || row['Product'] || `منتج ${index + 1}`;
         const cartonQuantity = row['عدد بالكارتون'] || row['عدد في الكارتون'] || row['عدد الكارتون'] || row['Carton Qty'] || row['Qty'] || 12;
         const categoryName = row['صنف المنتج'] || row['الصنف'] || row['الفئة'] || row['Category'] || 'قشطة';
-        const productCode = row['كود المنتج'] || row['الكود'] || row['Code'] || `PRD-${100 + index}`;
+        const productCode = String(row['كود المنتج'] || row['الكود'] || row['Code'] || `PRD-${100 + index}`).trim();
         const pieceWeightKg = row['وزن القطعة الواحدة'] || row['وزن القطعة'] || row['الوزن'] || row['Piece Weight'] || row['Weight'] || 0.2;
         const retailPrice = row['سعر القطعة مفرد'] || row['سعر  القطعة مفرد'] || row['سعر المفرد'] || row['Retail Price'] || 0;
         const wholesalePrice = row['سعر القطعة جملة'] || row['سعر الجملة'] || row['Wholesale Price'] || 0;
         const stockCartons = row['عدد الكارتون المتوفر بالمخزن'] || row['المخزن'] || row['كارتون بالمخزن'] || row['عدد كارتون بالمخزن'] || row['Stock'] || 0;
-        const imageUrl = row['صورة'] || row['صورة المنتج'] || row['Image'] || '';
+        let imageUrl = row['صورة'] || row['صورة المنتج'] || row['Image'] || '';
+
+        if (!imageUrl && existingImages.has(productCode)) {
+          imageUrl = existingImages.get(productCode)!;
+        }
 
         return {
           id: `prod_${Date.now()}_${index}`,
           productName: String(productName),
           cartonQuantity: Number(cartonQuantity) || cartonQuantity,
           categoryName: String(categoryName),
-          productCode: String(productCode),
+          productCode: productCode,
           pieceWeightKg: Number(pieceWeightKg) || pieceWeightKg,
           retailPrice: Number(retailPrice) || 0,
           wholesalePrice: Number(wholesalePrice) || 0,

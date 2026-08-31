@@ -3,6 +3,25 @@ import { useSales } from '../context/SalesContext';
 import { ProductItem } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle } from 'lucide-react';
 
+const getAvatarProps = (name: string) => {
+  const colors = [
+    'bg-gradient-to-br from-red-400 to-red-600',
+    'bg-gradient-to-br from-blue-400 to-blue-600',
+    'bg-gradient-to-br from-green-400 to-green-600',
+    'bg-gradient-to-br from-yellow-400 to-yellow-600',
+    'bg-gradient-to-br from-purple-400 to-purple-600',
+    'bg-gradient-to-br from-pink-400 to-pink-600',
+    'bg-gradient-to-br from-indigo-400 to-indigo-600',
+    'bg-gradient-to-br from-teal-400 to-teal-600',
+    'bg-gradient-to-br from-orange-400 to-orange-600',
+    'bg-gradient-to-br from-cyan-400 to-cyan-600'
+  ];
+  const charCode = name && name.length > 0 ? name.charCodeAt(0) : 0;
+  const initial = name && name.length > 0 ? name.charAt(0).toUpperCase() : '?';
+  const colorClass = colors[charCode % colors.length];
+  return { initial, colorClass };
+};
+
 interface ProductsScreenProps {
   largeFont?: boolean;
 }
@@ -13,6 +32,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
   const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
+  const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
   React.useEffect(() => {
     localStorage.setItem('pref_categoryFilter', selectedCategoryFilter);
@@ -25,11 +45,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   React.useEffect(() => {
     localStorage.setItem('pref_sortBy', sortBy);
   }, [sortBy]);
+
+  React.useEffect(() => {
+    localStorage.setItem('pref_mobileGridCols', mobileGridCols);
+  }, [mobileGridCols]);
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>({});
+  const [entryModes, setEntryModes] = useState<Record<string, 'piece' | 'carton'>>({});
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -311,11 +336,17 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     }
 
     for (const [prodId, qtyStr] of entries) {
-      const q = parseInt(qtyStr, 10);
+      let q = parseInt(qtyStr, 10);
       if (isNaN(q) || q <= 0) continue;
       
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
+      
+      const unit = entryModes[prodId] || 'piece';
+      const enteredQty = q;
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
       
       const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
       const pieceWeightKg = wGrams / 1000;
@@ -325,13 +356,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         productName: prod.productName,
         categoryName: prod.categoryName,
         quantity: q,
+        entryUnit: unit,
+        enteredQuantity: enteredQty,
         pieceWeightKg: pieceWeightKg,
         totalWeightKg: totalW,
         delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
         dateString: new Date().toISOString().split('T')[0],
         customerName: trimmedCustomerName,
         customerCode: customerCode.trim(),
-        customerAddress: customerAddress.trim()
+        customerAddress: customerAddress.trim(),
+        priceMode: priceMode
       });
     }
 
@@ -449,9 +483,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           </h3>
           <button
             onClick={handleSaveQuickAdd}
-            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-colors"
+            className="w-1/2 mx-auto sm:mx-0 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-all active:scale-95"
           >
-            حفظ المنتجات المختارة
+            حفظ الفاتورة
           </button>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -542,8 +576,21 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-1.5 mr-auto">
-                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الترتيب حسب:</span>
+              <div className="flex items-center gap-1.5 mr-auto flex-wrap justify-end">
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">طريقة العرض:</span>
+                <select
+                  value={mobileGridCols}
+                  onChange={(e) => setMobileGridCols(e.target.value)}
+                  className={`text-[9px] sm:text-xs font-bold rounded p-1 focus:outline-none ${
+                    isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  <option value="1">عرض 1 بطاقة</option>
+                  <option value="2">عرض 2 بطاقة</option>
+                  <option value="3">عرض 3 بطاقات</option>
+                </select>
+
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0 mr-2">الترتيب حسب:</span>
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
@@ -580,14 +627,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2">
+          <div className={`grid ${mobileGridCols === '1' ? 'grid-cols-1' : mobileGridCols === '3' ? 'grid-cols-3' : 'grid-cols-2'} sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2`}>
             {filteredProducts.map((prod, idx) => {
               const isEditing = editingId === prod.id;
   return (
                 <div
                   key={prod.id || idx}
                   onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
-                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm transition-all hover:shadow-md cursor-pointer ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
+                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
                     isDarkMode 
                       ? 'bg-slate-900 border-slate-800 hover:border-emerald-500/30' 
                       : 'bg-white border-slate-200 hover:border-emerald-400/50'
@@ -706,35 +753,44 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                     )}
                   </div>
 
-                  {/* Product Name */}
-                  <div className=" text-right flex-1">
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={editProductName}
-                        onChange={(e) => setEditProductName(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="w-full px-2 py-1.5 text-sm rounded border border-emerald-500 bg-slate-800 text-white font-bold text-right"
-                        placeholder="اسم المنتج"
-                      />
-                    ) : (
-                      <h3 className={`font-black leading-tight text-slate-900 dark:text-slate-100 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                        {prod.productName}
-                      </h3>
+                  {/* Product Name & Image */}
+                  <div className="flex flex-col gap-1.5 items-center justify-center my-1.5 w-full min-h-[56px]">
+                    <div className="text-center w-full">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editProductName}
+                          onChange={(e) => setEditProductName(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          className="w-full px-2 py-1.5 text-sm rounded border border-emerald-500 bg-slate-800 text-white font-bold text-center"
+                          placeholder="اسم المنتج"
+                        />
+                      ) : (
+                        <h3 className={`font-black leading-tight text-slate-900 dark:text-slate-100 text-center ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-sm'}`}>
+                          {prod.productName}
+                        </h3>
+                      )}
+                    </div>
+                    
+                    {/* Image Display */}
+                    {!isEditing && (
+                      <div className="shrink-0 animate-in fade-in zoom-in-95 duration-200">
+                        {prod.imageUrl ? (
+                          <img 
+                            src={prod.imageUrl} 
+                            alt={prod.productName} 
+                            className="w-[170px] h-[170px] object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
+                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                          />
+                        ) : (
+                          <div className={`w-[170px] h-[170px] flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
+                            <span className="text-5xl font-black opacity-90 drop-shadow-md">{getAvatarProps(prod.productName).initial}</span>
+                            <span className="text-[10px] font-bold opacity-75 mt-2 bg-black/20 px-2 py-0.5 rounded">بدون صورة</span>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                  
-                  {/* Image Display */}
-                  {prod.imageUrl && !isEditing && (
-                    <div className="w-full flex justify-center mt-1 mb-1 animate-in fade-in zoom-in-95 duration-200">
-                      <img 
-                        src={prod.imageUrl} 
-                        alt={prod.productName} 
-                        className="w-full h-24 object-contain rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
-                        onError={(e) => (e.currentTarget.style.display = 'none')}
-                      />
-                    </div>
-                  )}
 
                   {/* Stats Grid */}
                   <div className={`grid grid-cols-2 gap-2 p-1.5 rounded-md border ${
@@ -779,7 +835,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   </div>
                   
                   {/* Price Section */}
-                  <div className={`mt-2 p-1.5 rounded-md border flex justify-between items-center ${
+                  <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center ${
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
                   }`}>
                     <div className="flex flex-col items-center justify-center text-center">
@@ -810,26 +866,36 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   
                   {/* Quick Add Section */}
                   {!isEditing && (
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-0.5 flex items-center gap-2">
                       {addingQuantityId === prod.id ? (
-                        <div className="flex items-center gap-1 w-full bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                        <div className="grid grid-cols-5 gap-1 w-full bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                           <input
                             type="number"
                             min="1"
                             placeholder="العدد"
                             value={selectedQuantities[prod.id] || ''}
                             onChange={(e) => handleUpdateQuantity(prod.id, e.target.value)}
-                            className="flex-1 px-2 py-1 text-xs font-bold rounded-md border border-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none"
+                            className="col-span-3 w-full px-2 py-1 text-xs font-bold rounded-md border border-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:scale-105 transition-all text-center shadow-sm focus:shadow-emerald-500/30"
                             autoFocus
                           />
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              setEntryModes(prev => ({...prev, [prod.id]: prev[prod.id] === 'carton' ? 'piece' : 'carton'}));
+                            }}
+                            className="col-span-1 w-full flex items-center justify-center py-1 bg-slate-300 hover:bg-slate-400 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-md transition-colors text-[10px] font-black shadow-sm"
+                            title="تبديل بين قطعة وكارتون"
+                          >
+                            {entryModes[prod.id] === 'carton' ? 'ك' : 'ق'}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setAddingQuantityId(null);
                             }}
-                            className="p-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors"
+                            className="col-span-1 w-full flex items-center justify-center py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors shadow-sm"
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            <Check className="w-4 h-4" />
                           </button>
                         </div>
                       ) : selectedQuantities[prod.id] ? (
@@ -841,7 +907,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                            }}
                          >
                            <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
-                             تم ادخال {selectedQuantities[prod.id]} قطع | {parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون
+                             {entryModes[prod.id] === 'carton' ? 
+                               `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
+                               `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون`}
                            </span>
                            <button
                              onClick={(e) => {
