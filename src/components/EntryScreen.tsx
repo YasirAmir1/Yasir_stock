@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
-
-
+import logoImg from '../assets/images/logo.png';
 
 export const EntryScreen: React.FC = () => {
   const {
@@ -295,6 +294,170 @@ export const EntryScreen: React.FC = () => {
     setCustomerAddress('');
     setErrorMessage(null);
     setSuccessMessage(null);
+  };
+
+  const handlePrintInvoice = (customerName: string, entries: typeof safeSavedEntries) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('الرجاء السماح بالنوافذ المنبثقة (Pop-ups) للطباعة');
+      return;
+    }
+
+    const delegateName = entries[0]?.delegateName || 'غير محدد';
+    const customerAddress = entries[0]?.customerAddress || '';
+    const invoiceType = entries[0]?.priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+    const actualCustomerName = customerName.split(' | الزبون: ').pop() || '';
+    const customerCode = customerName.includes('كود:') ? customerName.split('كود: ')[1].split(' |')[0] : 'غير محدد';
+    
+    let rowsHtml = '';
+    let totalPrice = 0;
+    let totalCartons = 0;
+    let totalPieces = 0;
+    
+    entries.forEach((e, idx) => {
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      const rowPrice = price * e.quantity;
+      totalPrice += rowPrice;
+      
+      const cartonQty = Number(prod?.cartonQuantity) || 1;
+      const isCartonOrMore = e.quantity >= cartonQty;
+      
+      totalCartons += (e.quantity / cartonQty);
+      totalPieces += e.quantity;
+      
+      let quantityText = '';
+      if (isCartonOrMore) {
+        const cartons = (e.quantity / cartonQty).toFixed(2);
+        const displayCartons = cartons.endsWith('.00') ? cartons.slice(0, -3) : cartons;
+        quantityText = `${formatWithCommas(parseFloat(displayCartons))} كارتون<br><span style="font-size: 10px;">(${formatWithCommas(e.quantity)} قطعة)</span>`;
+      } else {
+        quantityText = `${formatWithCommas(e.quantity)} قطعة`;
+      }
+
+      rowsHtml += `
+        <tr>
+          <td>${idx + 1}</td>
+          <td class="text-right">${e.productName}</td>
+          <td>${quantityText}</td>
+          <td class="text-left">${formatWithCommas(rowPrice, true)} د.ع</td>
+        </tr>
+      `;
+    });
+
+    const displayTotalCartons = totalCartons.toFixed(2).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(2);
+    
+    rowsHtml += `
+      <tr style="border-top: 2px solid #000; font-weight: bold; background-color: #f9f9f9;">
+        <td colspan="3" class="text-right" style="padding-top: 8px; padding-bottom: 8px;">الإجمالي</td>
+        <td class="text-left" style="padding-top: 8px; padding-bottom: 8px;">${formatWithCommas(totalPrice, true)} د.ع</td>
+      </tr>
+    `;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html dir="rtl">
+        <head>
+          <meta charset="utf-8">
+          <title>فاتورة - ${actualCustomerName}</title>
+          <style>
+            @media print {
+              @page { margin: 0; }
+              body { margin: 0; padding: 5px; }
+              button { display: none !important; }
+              .invoice-print-view { padding: 0 !important; }
+            }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 10px; color: #000; max-width: 80mm; margin: 0 auto; background: #fff; line-height: 1.2; }
+            .header-container { text-align: center; display: flex; flex-direction: column; align-items: center; margin-bottom: 3px; }
+            .logo-img { width: 50px; height: auto; margin-bottom: 4px; filter: grayscale(100%); }
+            h1 { margin: 0 0 3px 0; font-size: 15px; font-weight: bold; }
+            .header-customer-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 5px; border-top: 1px dashed #000; padding-top: 5px; }
+            .header-customer-name { margin: 0; font-size: 17px; font-weight: bold; }
+            .header-invoice-date { font-size: 10px; color: #333; }
+            
+            .divider { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+            
+            .info-container { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; text-align: right; }
+            .info-item { font-size: 12px; line-height: 1.2; display: flex; flex-wrap: wrap; }
+            .info-item.spaced-bottom { margin-bottom: 5px; }
+            .info-label { font-weight: bold; margin-left: 4px; }
+            
+            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            th, td { border-bottom: 1px dashed #ccc; padding: 4px 2px; text-align: center; }
+            th { font-weight: bold; border-bottom: 1px solid #000; }
+            td.text-right { text-align: right; }
+            td.text-left { text-align: left; }
+            
+            .totals-container { display: flex; justify-content: space-between; border-top: 1px solid #000; padding-top: 6px; margin-top: 6px; font-size: 14px; font-weight: bold; }
+            .print-btn { display: block; width: 100%; padding: 10px; background: #059669; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
+          </style>
+        </head>
+        <body class="invoice-print-view">
+          <button class="print-btn" onclick="window.print()">🖨️ طباعة الفاتورة الآن</button>
+          
+          <div style="border: 2px solid #000; padding: 6px; margin-bottom: 10px;">
+            <div class="header-container">
+              <img src="${logoImg}" alt="Logo" class="logo-img" onerror="this.style.display='none'" />
+            <h1>تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</h1>
+            <div class="header-customer-row">
+              <span class="header-customer-name">اسم الزبون: ${actualCustomerName}</span>
+              <span class="header-invoice-date">${entries[0]?.timestamp ? new Date(entries[0].timestamp).toLocaleString('en-GB') : new Date().toLocaleString('en-GB')}</span>
+            </div>
+          </div>
+          
+          <div class="info-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div class="info-item">
+                <span class="info-label">اسم المندوب:</span>
+                <span>${delegateName}</span>
+              </div>
+              <div class="info-item" style="font-size: 10px;">
+                <span>(${customerCode})</span>
+              </div>
+            </div>
+            ${customerAddress ? `
+            <div class="info-item" style="margin-top: 3px;">
+              <span class="info-label">عنوان الزبون:</span>
+              <span>${customerAddress}</span>
+            </div>` : ''}
+          </div>
+          
+          <hr class="divider" />
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 5%">#</th>
+                <th style="width: 45%" class="text-right">المنتج</th>
+                <th style="width: 25%">الكمية</th>
+                <th style="width: 25%" class="text-left">السعر (${invoiceType})</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          
+          <div style="border: 1px solid #000; padding: 4px; font-size: 10px; font-weight: bold; text-align: center; margin-top: 8px;">
+            ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزون.
+          </div>
+          
+          </div>
+          
+          <script>
+            window.onload = function() { 
+              setTimeout(() => {
+                window.print(); 
+              }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   const handleSaveGrid = () => {
@@ -978,18 +1141,28 @@ export const EntryScreen: React.FC = () => {
                         }, 0), true)} د.ع
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if(window.confirm('هل تريد حذف هذه الفاتورة ؟')) {
-                          entries.forEach(e => deleteSalesEntry(e.id));
-                        }
-                      }}
-                      className="p-1.5 bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 rounded-lg border border-red-200 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
-                      title="حذف الفاتورة بالكامل"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintInvoice(customerName, entries)}
+                        className="p-1.5 bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 rounded-lg border border-blue-200 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
+                        title="طباعة الفاتورة"
+                      >
+                        <Printer className="w-5 h-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if(window.confirm('هل تريد حذف هذه الفاتورة ؟')) {
+                            entries.forEach(e => deleteSalesEntry(e.id));
+                          }
+                        }}
+                        className="p-1.5 bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 rounded-lg border border-red-200 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
+                        title="حذف الفاتورة بالكامل"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 </h4>
                 <div className="flex flex-col px-2 pb-2 pt-1">

@@ -12,6 +12,8 @@ import { AccountSwitcherModal } from './components/AccountSwitcherModal';
 import { ToastContainer } from './components/ToastContainer';
 import { AppLogo } from './components/AppLogo';
 import { ScrollToTopButton } from './components/ScrollToTopButton';
+import { DelegatePanelModal } from './components/DelegatePanelModal';
+import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import {
   FileText,
   BarChart2,
@@ -27,6 +29,7 @@ import {
   Award,
   Package,
   Type,
+  User,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -44,6 +47,7 @@ const MainAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'entry' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [showDelegateModal, setShowDelegateModal] = useState(false);
   const [largeFont, setLargeFont] = useState(false);
 
   if (!isLoggedIn) {
@@ -69,6 +73,7 @@ const MainAppContent: React.FC = () => {
       )}
       {/* Toast Notifications Overlay */}
       <ToastContainer />
+      <DelegateAlertsListener />
 
       {/* Scroll to Top Floating Button */}
       <ScrollToTopButton />
@@ -78,6 +83,14 @@ const MainAppContent: React.FC = () => {
         isOpen={showCalculatorModal}
         onClose={() => setShowCalculatorModal(false)}
       />
+
+      {/* Delegate Modal */}
+      {showDelegateModal && (
+        <DelegatePanelModal
+          onClose={() => setShowDelegateModal(false)}
+          isDarkMode={isDarkMode}
+        />
+      )}
 
       {/* Account Switcher Modal */}
       <AccountSwitcherModal
@@ -167,6 +180,22 @@ const MainAppContent: React.FC = () => {
                   {currentUser.roleName}
                 </span>
               </div>
+
+              {/* Delegate Button */}
+              {!currentUser.isAdmin && (
+                <button
+                  onClick={() => setShowDelegateModal(true)}
+                  className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                    isDarkMode
+                      ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
+                      : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
+                  }`}
+                  title="لوحة المندوب"
+                >
+                  <User className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span className="text-[10px] sm:text-[11px] leading-tight">المندوب</span>
+                </button>
+              )}
 
               {/* Calculator Button */}
               <button
