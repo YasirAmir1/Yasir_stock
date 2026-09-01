@@ -55,17 +55,13 @@ export const ReportsScreen: React.FC = () => {
     return dailyEvaluationsHistory.filter((r) => r.dateString && r.dateString >= startDate && r.dateString <= endDate);
   }, [dailyEvaluationsHistory, useRange, selectedDate, startDate, endDate]);
 
-  const { totalSalesWeight, totalItemsSold, totalInvoicesCreated } = useMemo(() => {
+  const { totalSalesWeight } = useMemo(() => {
     const relevant = activeDelegateName === 'الكل'
       ? rangeFilteredSales
       : rangeFilteredSales.filter((e) => e.delegateName?.trim().toLowerCase() === activeDelegateName.trim().toLowerCase());
       
     const weight = relevant.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-    const items = relevant.reduce((sum, e) => sum + (e.quantity || 0), 0);
-    const uniqueTimestamps = new Set(relevant.map(e => e.timestamp));
-    const invoices = uniqueTimestamps.size;
-
-    return { totalSalesWeight: weight, totalItemsSold: items, totalInvoicesCreated: invoices };
+    return { totalSalesWeight: weight };
   }, [rangeFilteredSales, activeDelegateName]);
 
   const totalTargetWeight = useMemo(() => {
@@ -488,22 +484,6 @@ export const ReportsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Summary Card for Items and Invoices */}
-      <div className="bg-white border-slate-200 border rounded-2xl p-4 sm:p-6 shadow-sm">
-        <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
-          ملخص إضافي
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col gap-1 items-center justify-center text-center">
-            <span className="text-sm font-bold text-slate-500">إجمالي القطع المباعة</span>
-            <span className="text-2xl font-black text-indigo-700">{totalItemsSold}</span>
-          </div>
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col gap-1 items-center justify-center text-center">
-            <span className="text-sm font-bold text-slate-500">إجمالي عدد الفواتير</span>
-            <span className="text-2xl font-black text-purple-700">{totalInvoicesCreated}</span>
-          </div>
-        </div>
-      </div>
     </div>
     </PullToRefresh>
   );
