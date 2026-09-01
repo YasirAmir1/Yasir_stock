@@ -21,6 +21,7 @@ export const EntryScreen: React.FC = () => {
     deleteSalesEntry,
     updateSalesEntry,
     syncData,
+    isDarkMode,
   } = useSales();
 
   const productSuggestions = useMemo(() => {
@@ -1108,8 +1109,8 @@ export const EntryScreen: React.FC = () => {
                 return weightB - weightA;
               })
               .map(([customerName, entries]) => (
-              <div key={customerName} className="bg-white border-2 border-slate-400 rounded-xl p-0 shadow-md overflow-hidden">
-                <h4 className="font-extrabold text-slate-800 text-sm mb-0 p-3 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap rounded-t-xl">
+              <div key={customerName} className={`border-2 rounded-xl p-0 shadow-md overflow-hidden ${isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400'}`}>
+                <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex items-center justify-between gap-2 flex-wrap rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
@@ -1121,10 +1122,10 @@ export const EntryScreen: React.FC = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <div className="bg-slate-200 text-slate-800 px-3 py-1.5 rounded-lg border border-slate-300 flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2">
+                    <div className={`px-3 py-1.5 rounded-lg border flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2 ${isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'}`}>
                       <span className="text-xs sm:text-sm font-bold">المندوب: {entries[0]?.delegateName || 'غير محدد'}</span>
                       {entries[0]?.timestamp && (
-                        <span className="text-[9px] text-slate-500 font-bold whitespace-nowrap sm:border-r border-slate-300 sm:pr-2" dir="ltr">
+                        <span className={`text-[9px] font-bold whitespace-nowrap sm:border-r sm:pr-2 ${isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'}`} dir="ltr">
                           {new Date(entries[0].timestamp).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
                         </span>
                       )}
@@ -1145,7 +1146,7 @@ export const EntryScreen: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(customerName, entries)}
-                        className="p-1.5 bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 rounded-lg border border-blue-200 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'}`}
                         title="طباعة الفاتورة"
                       >
                         <Printer className="w-5 h-5" />
@@ -1157,7 +1158,7 @@ export const EntryScreen: React.FC = () => {
                             entries.forEach(e => deleteSalesEntry(e.id));
                           }
                         }}
-                        className="p-1.5 bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 rounded-lg border border-red-200 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
                         title="حذف الفاتورة بالكامل"
                       >
                         <Trash2 className="w-5 h-5" />
@@ -1291,15 +1292,15 @@ export const EntryScreen: React.FC = () => {
               return (
                 <div
                   key={`saved_${entry.id || 'item'}_${index}`}
-                  className="py-2.5 px-3 border-b last:border-b-0 border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-slate-900 text-xs hover:bg-slate-50 transition-colors"
+                  className={`py-2.5 px-3 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs transition-colors ${isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50'}`}
                 >
                   <div className="flex-1 flex flex-col gap-1 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-700 font-bold bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300" title="كود المنتج">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`} title="كود المنتج">
                         {getProductCode(entry.productName)}
                       </span>
-                      <span className="font-bold text-sm text-slate-900">{entry.productName}</span>
-                      <span className="text-[10px] text-slate-500 font-semibold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      <span className={`font-bold text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{entry.productName}</span>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                         {entry.categoryName}
                       </span>
                     </div>
@@ -1307,17 +1308,17 @@ export const EntryScreen: React.FC = () => {
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                     <div className="flex items-center gap-1.5">
                       {entry.quantity >= (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1) && (
-                        <div className="text-center font-bold px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-700 text-[10px] min-w-[50px]" title="الكراتين المدخلة">
+                        <div className={`text-center font-bold px-2 py-0.5 border rounded-md text-[10px] min-w-[50px] ${isDarkMode ? 'bg-indigo-900/50 border-indigo-700 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-700'}`} title="الكراتين المدخلة">
                           {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1)).toFixed(2)))} كارتون
                         </div>
                       )}
-                      <div className="text-center font-bold px-2 py-0.5 bg-slate-100 rounded-md text-slate-800 text-[10px] min-w-[50px]" title="القطع المدخلة">
+                      <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800'}`} title="القطع المدخلة">
                         {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
                       </div>
-                      <div className="text-center font-black text-emerald-800 px-2 py-0.5 bg-emerald-50 rounded-md border border-emerald-100 text-[10px] min-w-[60px]" title="الوزن الإجمالي">
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="الوزن الإجمالي">
                         {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
                       </div>
-                      <div className="text-center font-black text-rose-800 px-2 py-0.5 bg-rose-50 rounded-md border border-rose-100 text-[10px] min-w-[60px]" title="السعر">
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="السعر">
                         {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
                       </div>
                     </div>
@@ -1325,7 +1326,7 @@ export const EntryScreen: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleStartEdit(entry)}
-                        className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-100 rounded-md transition-colors flex items-center justify-center cursor-pointer"
+                        className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/50' : 'text-amber-600 hover:text-amber-800 hover:bg-amber-100'}`}
                         title="تعديل هذا الإدخال"
                       >
                         <Pencil className="w-4 h-4" />
@@ -1333,7 +1334,7 @@ export const EntryScreen: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
-                        className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors flex items-center justify-center cursor-pointer"
+                        className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
                         title="حذف السجل"
                       >
                         <Trash2 className="w-4 h-4" />
