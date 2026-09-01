@@ -61,12 +61,12 @@ const MainAppContent: React.FC = () => {
       }`}
     >
       {/* Offline / Sync Banner */}
-      {!isOnline && (
+      {!isOnline && currentUser?.isAdmin && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50">
           <span>⚠️ أنت تعمل حالياً في وضع عدم الاتصال (Offline). سيتم حفظ مبيعاتك محلياً ومزامنتها تلقائياً عند اتصال الإنترنت.</span>
         </div>
       )}
-      {isOnline && pendingSyncCount > 0 && (
+      {isOnline && pendingSyncCount > 0 && currentUser?.isAdmin && (
         <div className="bg-emerald-600 text-white px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50 animate-pulse">
           <span>🔄 جاري مزامنة ({pendingSyncCount}) من المدخلات المعلقة مع قاعدة البيانات...</span>
         </div>
