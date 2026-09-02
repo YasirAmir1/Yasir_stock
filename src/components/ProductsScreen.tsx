@@ -142,7 +142,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     });
 
     if (sortBy === 'most_sold') {
-      const salesMap = new Map<string, number>();
+      const salesMap = new globalThis.Map<string, number>();
       rawSavedEntries?.forEach(entry => {
         salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
       });

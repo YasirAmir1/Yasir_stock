@@ -14,6 +14,7 @@ import { AppLogo } from './components/AppLogo';
 import { ScrollToTopButton } from './components/ScrollToTopButton';
 import { DelegatePanelModal } from './components/DelegatePanelModal';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
+import { UnreadBadge } from './components/UnreadBadge';
 import {
   FileText,
   BarChart2,
@@ -192,7 +193,10 @@ const MainAppContent: React.FC = () => {
                   }`}
                   title="لوحة المندوب"
                 >
-                  <User className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <div className="relative">
+                    <User className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <UnreadBadge delegateName={currentUser.name} />
+                  </div>
                   <span className="text-[10px] sm:text-[11px] leading-tight">المندوب</span>
                 </button>
               )}

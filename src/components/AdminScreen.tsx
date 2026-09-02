@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { db } from '../lib/firebase';
+import { collection, writeBatch, doc, getDocs, setDoc } from 'firebase/firestore';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import {
@@ -22,6 +24,9 @@ import {
   Download,
   Trash2,
   TrendingUp,
+  Map as MapIcon,
+  ClipboardList,
+  Bell
 } from 'lucide-react';
 
 export const AdminScreen: React.FC = () => {
@@ -43,6 +48,96 @@ export const AdminScreen: React.FC = () => {
     toggleDataSaverMode,
     syncData,
   } = useSales();
+
+  // --- Route Management State ---
+  const [routeUploadMessage, setRouteUploadMessage] = useState<string | null>(null);
+  const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
+  const [dailyTaskText, setDailyTaskText] = useState<string>('');
+  const [dailyTaskMessage, setDailyTaskMessage] = useState<string | null>(null);
+
+  const [globalNotifText, setGlobalNotifText] = useState<string>('');
+  const [globalNotifMessage, setGlobalNotifMessage] = useState<string | null>(null);
+
+  const handleRouteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRouteUploadMessage('جاري معالجة ورفع مسارات المندوبين...');
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+      
+      if (jsonData.length <= 1) {
+        setRouteUploadMessage('الملف فارغ أو لا يحتوي على بيانات صحيحة.');
+        return;
+      }
+
+      const batch = writeBatch(db);
+      
+      const oldRoutes = await getDocs(collection(db, 'routes'));
+      oldRoutes.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+        const docRef = doc(collection(db, 'routes'));
+        batch.set(docRef, {
+          customerCode: row[0] || '',
+          customerName: row[1] || '',
+          customerAddress: row[2] || '',
+          delegateName: row[3] || '',
+          path: row[4] || '',
+        });
+      }
+      
+      await batch.commit();
+      setRouteUploadMessage('تم رفع وتحديث المسارات بنجاح!');
+      e.target.value = '';
+    } catch (err) {
+      console.error(err);
+      setRouteUploadMessage('حدث خطأ أثناء الرفع.');
+    }
+  };
+
+  const handleSaveDailyTask = async () => {
+    if (!dailyTaskDelegate || !dailyTaskText) {
+      setDailyTaskMessage('يرجى اختيار المندوب وكتابة المهمة.');
+      return;
+    }
+    setDailyTaskMessage('جاري الحفظ...');
+    try {
+      await setDoc(doc(db, 'admin_daily_tasks', dailyTaskDelegate), {
+        taskText: dailyTaskText,
+        timestamp: Date.now()
+      });
+      setDailyTaskMessage('تم تعيين المهمة اليومية بنجاح!');
+      setDailyTaskText('');
+    } catch (err) {
+      console.error(err);
+      setDailyTaskMessage('حدث خطأ أثناء حفظ المهمة.');
+    }
+  };
+
+  const handleSaveGlobalNotification = async () => {
+    if (!globalNotifText) {
+      setGlobalNotifMessage('يرجى كتابة نص الإشعار.');
+      return;
+    }
+    setGlobalNotifMessage('جاري الإرسال...');
+    try {
+      const notifId = `notif_${Date.now()}`;
+      await setDoc(doc(db, 'admin_notifications', notifId), {
+        text: globalNotifText,
+        timestamp: Date.now()
+      });
+      setGlobalNotifMessage('تم إرسال الإشعار لجميع المندوبين بنجاح!');
+      setGlobalNotifText('');
+    } catch (err) {
+      console.error(err);
+      setGlobalNotifMessage('حدث خطأ أثناء إرسال الإشعار.');
+    }
+  };
 
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
 
@@ -892,7 +987,7 @@ export const AdminScreen: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
           {(() => {
             const currentYearMonth = new Date().toISOString().slice(0, 7);
-            const map = new Map<string, { productName: string; totalPieces: number; totalWeightKg: number }>();
+            const map = new globalThis.Map<string, { productName: string; totalPieces: number; totalWeightKg: number }>();
             rawSavedEntries.forEach((entry) => {
               if (entry.dateString && entry.dateString.startsWith(currentYearMonth)) {
                 const name = entry.productName?.trim() || 'منتج غير محدد';
@@ -1044,6 +1139,108 @@ export const AdminScreen: React.FC = () => {
             }`}
           >
             {isDataSaverMode ? 'إيقاف وضع توفير البيانات' : 'تفعيل وضع توفير البيانات'}
+          </button>
+        </div>
+      </div>
+      {/* 10. Route Management */}
+      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2 mb-2">
+          <MapIcon className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
+            10. إدارة المسارات والمهام اليومية:
+          </h3>
+        </div>
+
+        {/* Upload Route Excel */}
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            رفع ملف مسارات المندوبين (Excel)
+          </label>
+          <div className="text-[10px] text-slate-400 space-y-1">
+            <p>يجب أن يحتوي الملف على الأعمدة التالية بالترتيب:</p>
+            <p>كود الزبون | اسم الزبون | العنوان | المندوب | المسار (مثال: السبت)</p>
+          </div>
+          {routeUploadMessage && (
+            <div className={`p-2 rounded border text-xs font-bold text-center ${routeUploadMessage.includes('بنجاح') ? 'bg-emerald-900/50 border-emerald-500 text-emerald-200' : 'bg-amber-900/50 border-amber-500 text-amber-200'}`}>
+              {routeUploadMessage}
+            </div>
+          )}
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            onChange={handleRouteFileUpload}
+            className="w-full text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
+          />
+        </div>
+
+        {/* Assign Daily Task */}
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-emerald-400" />
+            تعيين المهام اليومية للمندوب
+          </label>
+          {dailyTaskMessage && (
+            <div className={`p-2 rounded border text-xs font-bold text-center ${dailyTaskMessage.includes('بنجاح') ? 'bg-emerald-900/50 border-emerald-500 text-emerald-200' : 'bg-amber-900/50 border-amber-500 text-amber-200'}`}>
+              {dailyTaskMessage}
+            </div>
+          )}
+          <select
+            value={dailyTaskDelegate}
+            onChange={(e) => setDailyTaskDelegate(e.target.value)}
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold focus:border-emerald-500 focus:outline-none"
+          >
+            <option value="">-- اختر المندوب --</option>
+            {delegatesList.map((del) => (
+              <option key={del} value={del}>{del}</option>
+            ))}
+          </select>
+          <textarea
+            value={dailyTaskText}
+            onChange={(e) => setDailyTaskText(e.target.value)}
+            placeholder="اكتب المهام اليومية هنا..."
+            rows={3}
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold focus:border-emerald-500 focus:outline-none"
+          />
+          <button
+            onClick={handleSaveDailyTask}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition-all"
+          >
+            <Check className="w-4 h-4" /> حفظ المهمة اليومية
+          </button>
+        </div>
+      </div>
+
+      {/* 11. Global Notifications Management */}
+      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2 mb-2">
+          <Bell className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
+            11. إرسال إشعارات عامة للمندوبين:
+          </h3>
+        </div>
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-emerald-400" />
+            نص الإشعار الجديد
+          </label>
+          {globalNotifMessage && (
+            <div className={`p-2 rounded border text-xs font-bold text-center ${globalNotifMessage.includes('بنجاح') ? 'bg-emerald-900/50 border-emerald-500 text-emerald-200' : 'bg-amber-900/50 border-amber-500 text-amber-200'}`}>
+              {globalNotifMessage}
+            </div>
+          )}
+          <textarea
+            value={globalNotifText}
+            onChange={(e) => setGlobalNotifText(e.target.value)}
+            placeholder="اكتب الإشعار هنا وسيظهر لجميع المندوبين..."
+            rows={3}
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold focus:border-emerald-500 focus:outline-none"
+          />
+          <button
+            onClick={handleSaveGlobalNotification}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition-all"
+          >
+            <Check className="w-4 h-4" /> حفظ وإرسال الإشعار
           </button>
         </div>
       </div>

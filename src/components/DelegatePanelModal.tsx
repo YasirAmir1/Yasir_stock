@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Bell, FileText, Info, Trash2 } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs, getDoc } from 'firebase/firestore';
 
 interface DelegatePanelModalProps {
   onClose: () => void;
@@ -24,9 +24,18 @@ interface NoteItem {
   createdAt: number;
 }
 
+interface RouteItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  delegateName: string;
+  path: string;
+}
+
 export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose, isDarkMode }) => {
-  const { currentUser, productsList = [] } = useSales();
-  const [activeTab, setActiveTab] = useState<'alerts' | 'notes' | 'notifications'>('alerts');
+  const { currentUser, productsList = [], delegatesList = [] } = useSales();
+  const [activeTab, setActiveTab] = useState<'alerts' | 'notes' | 'notifications' | 'route' | 'tasks'>('alerts');
   
   // Alerts State
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -39,9 +48,15 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [newNote, setNewNote] = useState('');
 
+  // Route & Tasks States
+  const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.name || '');
+  const [routeFilterDay, setRouteFilterDay] = useState('');
+  const [dailyTask, setDailyTask] = useState('');
+
   // Notifications State
-  const [lastInventoryDate, setLastInventoryDate] = useState<string>('غير متوفر');
-  const [topRankDate, setTopRankDate] = useState<string>('غير متوفر');
+  const [globalNotifs, setGlobalNotifs] = useState<any[]>([]);
+  const [readsMap, setReadsMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!currentUser || currentUser.isAdmin) return;
@@ -64,30 +79,62 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
       setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
     });
 
-    // Determine Top Rank Date
-    const getTopRank = async () => {
-      try {
-        const evalsQ = query(collection(db, 'daily_evaluations'), where('delegateName', '==', delegateName));
-        const evalsSnap = await getDocs(evalsQ);
-        let bestDate = '';
-        let highestScore = 0;
-        evalsSnap.forEach(d => {
-           const data = d.data();
-           if (data.totalScore > highestScore) {
-             highestScore = data.totalScore;
-             bestDate = data.dateString;
-           }
-        });
-        if (bestDate) setTopRankDate(bestDate);
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    getTopRank();
+    // Load Global Notifications
+    const notifsQ = query(collection(db, 'admin_notifications'));
+    const unsubNotifs = onSnapshot(notifsQ, (snap) => {
+      const loaded: any[] = [];
+      snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
+      setGlobalNotifs(loaded.sort((a, b) => b.timestamp - a.timestamp));
+    });
+
+    // Load Reads
+    const readsQ = query(collection(db, 'delegate_notification_reads'), where('delegateName', '==', delegateName));
+    const unsubReads = onSnapshot(readsQ, (snap) => {
+      const rm: Record<string, number> = {};
+      snap.forEach(d => {
+        rm[d.data().notificationId] = d.data().readAt;
+      });
+      setReadsMap(rm);
+    });
 
     return () => {
       unsubAlerts();
       unsubNotes();
+      unsubNotifs();
+      unsubReads();
+    };
+  }, [currentUser]);
+
+  // Fetch Routes and Tasks
+  useEffect(() => {
+    const q = query(collection(db, 'routes'));
+    const unsubRoutes = onSnapshot(q, (snap) => {
+      const arr: RouteItem[] = [];
+      snap.forEach(d => arr.push({ id: d.id, ...d.data() } as RouteItem));
+      setRoutes(arr);
+    });
+
+    let unsubTask = () => {};
+    if (currentUser?.name) {
+      unsubTask = onSnapshot(doc(db, 'admin_daily_tasks', currentUser.name), (dSnap) => {
+        if (dSnap.exists()) {
+          setDailyTask(dSnap.data().taskText || '');
+        } else {
+          setDailyTask('');
+        }
+      });
+      
+      // Mark task as read when opening tasks tab
+      if (activeTab === 'tasks') {
+        setDoc(doc(db, 'delegate_task_reads', currentUser.name), {
+          lastReadTimestamp: Date.now()
+        }, { merge: true }).catch(console.error);
+      }
+    }
+
+    return () => {
+      unsubRoutes();
+      unsubTask();
     };
   }, [currentUser]);
 
@@ -191,6 +238,12 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           <button onClick={() => setActiveTab('notifications')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'notifications' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
             إشعارات
           </button>
+          <button onClick={() => setActiveTab('route')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'route' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
+            المسار
+          </button>
+          <button onClick={() => setActiveTab('tasks')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'tasks' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
+            المهام اليومية
+          </button>
         </div>
 
         {/* Content */}
@@ -278,21 +331,110 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
 
           {activeTab === 'notifications' && (
             <div className="space-y-4">
-               <div className={`p-4 rounded-xl border flex items-center gap-4 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                 <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><Info className="w-6 h-6" /></div>
-                 <div>
-                   <h3 className="font-black text-sm">تاريخ آخر جرد للمخزن</h3>
-                   <p className="text-xs opacity-70 mt-1">{lastInventoryDate}</p>
-                 </div>
-               </div>
-               
-               <div className={`p-4 rounded-xl border flex items-center gap-4 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                 <div className="p-3 bg-amber-100 text-amber-600 rounded-lg"><Info className="w-6 h-6" /></div>
-                 <div>
-                   <h3 className="font-black text-sm">تاريخ أعلى تصنيف</h3>
-                   <p className="text-xs opacity-70 mt-1">{topRankDate}</p>
-                 </div>
-               </div>
+              {globalNotifs.length === 0 && <p className="text-center p-4 text-xs opacity-60">لا توجد إشعارات</p>}
+              {globalNotifs.map((notif) => {
+                const readAt = readsMap[notif.id];
+                const isRead = !!readAt;
+                const twelveHoursMs = 12 * 60 * 60 * 1000;
+                
+                // If it's read and 12 hours have passed, it disappears completely
+                if (isRead && Date.now() - readAt > twelveHoursMs) {
+                  return null;
+                }
+
+                return (
+                  <div 
+                    key={notif.id} 
+                    onClick={async () => {
+                      if (!isRead) {
+                        try {
+                          await setDoc(doc(db, 'delegate_notification_reads', `${currentUser?.name}_${notif.id}`), {
+                            delegateName: currentUser?.name,
+                            notificationId: notif.id,
+                            readAt: Date.now()
+                          });
+                        } catch(e) {
+                          console.error(e);
+                        }
+                      }
+                    }}
+                    className={`p-4 rounded-xl border flex items-start gap-4 cursor-pointer transition-all ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+                  >
+                    <div className={`p-3 rounded-lg ${isRead ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+                      <Info className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 mt-1">
+                      <p 
+                        className={`transition-all duration-300 whitespace-pre-wrap ${isRead ? 'font-normal text-sm opacity-90' : 'font-black text-lg blur-[3px] opacity-70 select-none'}`}
+                      >
+                        {notif.text}
+                      </p>
+                      {!isRead && (
+                        <p className="text-[10px] text-blue-500 font-bold mt-2">انقر للقراءة</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeTab === 'route' && (
+            <div className="space-y-4">
+              <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                  <option value="">كل المندوبين</option>
+                  {delegatesList.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                  <option value="">كل الأيام</option>
+                  <option value="السبت">السبت</option>
+                  <option value="الأحد">الأحد</option>
+                  <option value="الإثنين">الإثنين</option>
+                  <option value="الثلاثاء">الثلاثاء</option>
+                  <option value="الأربعاء">الأربعاء</option>
+                  <option value="الخميس">الخميس</option>
+                </select>
+              </div>
+              
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+                  <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                    <tr>
+                      <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700">الاسم</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+                    {routes.filter(r => 
+                      (routeFilterDelegate ? r.delegateName === routeFilterDelegate : true) && 
+                      (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
+                    ).map(r => (
+                      <tr key={r.id} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
+                        <td className="px-3 py-2">{r.customerCode}</td>
+                        <td className="px-3 py-2">{r.customerName}</td>
+                        <td className="px-3 py-2">{r.customerAddress}</td>
+                        <td className="px-3 py-2">{r.delegateName}</td>
+                        <td className="px-3 py-2">{r.path}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'tasks' && (
+            <div className="flex flex-col items-center justify-center min-h-[200px] p-6 rounded-2xl bg-gradient-to-br from-emerald-50 to-green-100 dark:from-emerald-950 dark:to-green-900 border-2 border-emerald-200 dark:border-emerald-800 shadow-inner">
+              <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المهام اليومية المسندة إليك</h3>
+              <p className="text-center font-bold text-sm sm:text-base whitespace-pre-wrap text-emerald-900 dark:text-emerald-100 bg-white/50 dark:bg-black/20 p-4 rounded-xl w-full shadow-sm">
+                {dailyTask || "لا توجد مهام مسندة لهذا اليوم."}
+              </p>
             </div>
           )}
         </div>

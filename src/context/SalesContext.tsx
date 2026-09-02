@@ -267,7 +267,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const worksheet = workbook.Sheets[firstSheetName];
       const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
-      const existingImages = new Map<string, string>();
+      const existingImages = new globalThis.Map<string, string>();
       productsList.forEach(p => {
         if (p.productCode && p.imageUrl) {
           existingImages.set(String(p.productCode).trim(), p.imageUrl);
@@ -464,6 +464,56 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUserMessage('تم حذف جميع المنتجات بنجاح 🗑️✅');
   };
 
+  const deleteAllSalesEntries = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'sales_entries'));
+      if (!snap.empty) {
+        let deleteBatch = writeBatch(db);
+        let deleteCount = 0;
+        for (const docSnapshot of snap.docs) {
+          deleteBatch.delete(docSnapshot.ref);
+          deleteCount++;
+          if (deleteCount === 450) {
+            await deleteBatch.commit();
+            deleteBatch = writeBatch(db);
+            deleteCount = 0;
+          }
+        }
+        if (deleteCount > 0) {
+          await deleteBatch.commit();
+        }
+      }
+      setSalesEntries([]);
+    } catch (e) {
+      console.error('Error clearing all sales entries:', e);
+    }
+  };
+
+  useEffect(() => {
+    const checkTimeAndClear = () => {
+      try {
+        const baghdadTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Baghdad" });
+        const d = new Date(baghdadTime);
+        const hours = d.getHours();
+        const minutes = d.getMinutes();
+        
+        const lastClearDateStr = localStorage.getItem('lastAutoClearDate');
+        const currentDateStr = d.toISOString().split('T')[0];
+
+        if (hours === 0 && minutes === 0 && lastClearDateStr !== currentDateStr) {
+          deleteAllSalesEntries();
+          localStorage.setItem('lastAutoClearDate', currentDateStr);
+        }
+      } catch (err) {
+        console.error('Error auto-clearing invoices:', err);
+      }
+    };
+
+    checkTimeAndClear();
+    const intervalId = setInterval(checkTimeAndClear, 30000);
+    return () => clearInterval(intervalId);
+  }, []);
+
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => {
     try {
@@ -572,7 +622,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     const unsubAll = onSnapshot(collection(db, 'sales_entries'), (snapshot) => {
-      const entriesMap = new Map<string, SalesEntry>();
+      const entriesMap = new globalThis.Map<string, SalesEntry>();
       snapshot.forEach((doc) => {
         const data = doc.data() as SalesEntry;
         if (data && data.id) {
@@ -750,7 +800,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubSales = onSnapshot(
       salesQuery,
       (snapshot) => {
-        const entriesMap = new Map<string, SalesEntry>();
+        const entriesMap = new globalThis.Map<string, SalesEntry>();
         snapshot.forEach((doc) => {
           const data = doc.data() as SalesEntry;
           if (data && data.id) {
@@ -775,7 +825,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       },
       (err) => {
         console.error('Sales listener error (offline fallback active):', err);
-        const entriesMap = new Map<string, SalesEntry>();
+        const entriesMap = new globalThis.Map<string, SalesEntry>();
         const pending = getPendingQueue();
         pending.forEach((entry) => {
           if (entry.dateString === selectedDate) {
@@ -1348,7 +1398,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         curr.setDate(curr.getDate() + 1);
       }
 
-      const delegateWeekMap = new Map<string, { scores: number[]; totalKg: number; totalPieces: number; breakdowns: any[] }>();
+      const delegateWeekMap = new globalThis.Map<string, { scores: number[]; totalKg: number; totalPieces: number; breakdowns: any[] }>();
       delegatesList.forEach((del) => {
         delegateWeekMap.set(del, { scores: [], totalKg: 0, totalPieces: 0, breakdowns: [] });
       });
@@ -1436,7 +1486,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       relevantEntries = allSalesEntries.filter((e) => e.dateString && e.dateString.startsWith(yearMonth));
     }
 
-    const evaluationsMap = new Map<string, { totalWeightKg: number; totalPieces: number; entriesCount: number; firstEntryTime: number | null }>();
+    const evaluationsMap = new globalThis.Map<string, { totalWeightKg: number; totalPieces: number; entriesCount: number; firstEntryTime: number | null }>();
     delegatesList.forEach((del) => {
       evaluationsMap.set(del, { totalWeightKg: 0, totalPieces: 0, entriesCount: 0, firstEntryTime: null });
     });
