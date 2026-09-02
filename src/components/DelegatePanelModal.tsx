@@ -52,7 +52,23 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.name || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [dailyTask, setDailyTask] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
+
+  const filteredRoutes = routes.filter(r => 
+    (routeFilterDelegate ? r.delegateName.trim() === (routeFilterDelegate === "صباح فرحان" ? "شرقاط" : routeFilterDelegate).trim() : true) && 
+    (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
+    (searchQuery ? r.customerName.includes(searchQuery) : true)
+  );
+
+  const handleSort = (key: keyof RouteItem) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   // Notifications State
   const [globalNotifs, setGlobalNotifs] = useState<any[]>([]);
@@ -397,24 +413,35 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                   <option value="الأربعاء">الأربعاء</option>
                   <option value="الخميس">الخميس</option>
                 </select>
+                <input 
+                  type="text" 
+                  value={searchQuery} 
+                  onChange={e => setSearchQuery(e.target.value)} 
+                  placeholder="بحث عن اسم محل..." 
+                  className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+                />
               </div>
               
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                 <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
                   <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
                     <tr>
-                      <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
-                      <th className="px-3 py-2 border-b dark:border-slate-700">الاسم</th>
-                      <th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th>
-                      <th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th>
-                      <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>المندوب</th>
+                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-                    {routes.filter(r => 
-                      (routeFilterDelegate ? r.delegateName.trim() === (routeFilterDelegate === "صباح فرحان" ? "شرقاط" : routeFilterDelegate).trim() : true) && 
-                      (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
-                    ).map(r => (
+                    {filteredRoutes.sort((a, b) => {
+                        if (!sortConfig) return 0;
+                        const aVal = a[sortConfig.key] || '';
+                        const bVal = b[sortConfig.key] || '';
+                        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                        return 0;
+                    }).map(r => (
                       <tr key={r.id} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
                         <td className="px-3 py-2">{r.customerCode}</td>
                         <td className="px-3 py-2">{r.customerName}</td>
