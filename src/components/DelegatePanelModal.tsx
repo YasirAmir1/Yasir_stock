@@ -385,7 +385,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                 <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
                   <option value="">كل المندوبين</option>
                   {delegatesList.map(d => (
-                    <option key={d} value={d}>{d}</option>
+                    <option key={d} value={d === "شرقاط" ? "صباح فرحان" : d}>{d === "شرقاط" ? "صباح فرحان" : d}</option>
                   ))}
                 </select>
                 <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -412,7 +412,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                     {routes.filter(r => 
-                      (routeFilterDelegate ? r.delegateName === routeFilterDelegate : true) && 
+                      (routeFilterDelegate ? r.delegateName.trim() === (routeFilterDelegate === "صباح فرحان" ? "شرقاط" : routeFilterDelegate).trim() : true) && 
                       (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
                     ).map(r => (
                       <tr key={r.id} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
