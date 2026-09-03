@@ -40,11 +40,11 @@ export const LoginScreen: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <AppLogo size="md" />
           <div>
-            <h1 className={`font-black text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              Tikrit Sales App
+            <h1 className={`font-black text-2xl tracking-tighter ${isDarkMode ? 'text-emerald-400' : 'text-emerald-900'}`}>
+              Tikrit Sales
             </h1>
-            <p className="text-[10px] font-bold text-emerald-600">
-              Build by: Eng.Yasir
+            <p className="text-xs font-bold text-slate-500 mt-0.5">
+              برمجة: المهندس ياسر المعجون
             </p>
           </div>
         </div>

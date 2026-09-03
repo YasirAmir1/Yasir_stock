@@ -42,7 +42,7 @@ export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'sbhkala', password: '5555', delegateName: 'صباح', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'sbhkala', password: '1234', delegateName: 'صباح فرحان', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
 ];
@@ -53,7 +53,7 @@ const DELEGATE_NAME_MAP: Record<string, string> = {
   'مندوب 3': 'محمد جاسم',
   'مندوب 4': 'بكر بدران',
   'مندوب 5': 'فيصل فؤاد',
-  'مندوب 6': 'صباح',
+  'مندوب 6': 'صباح فرحان',
   'مندوب 7': 'مندوب عام 1',
   'مندوب 8': 'مندوب عام 2',
 };
@@ -113,6 +113,8 @@ interface SalesContextType {
   getDelegateLockStatus: (delegateName: string) => DelegateLockStatus;
   unlockDelegateTargetManually: (delegateName: string) => void;
   saveDelegateAccount: (acc: DelegateAccount) => void;
+  updateDelegateIdentity: (oldName: string, newName: string, oldUsername: string, newUsername: string) => Promise<void>;
+  resetDelegateAccount: (username: string) => Promise<void>;
   deleteDelegateAccount: (username: string) => void;
   toasts: ToastNotification[];
   addToast: (toast: Omit<ToastNotification, 'id' | 'timestamp'>) => void;
@@ -899,29 +901,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     );
 
-    if (currentUser.isAdmin) {
-      getDocs(collection(db, 'delegate_accounts'))
-        .then((snapshot) => {
-          const accs: DelegateAccount[] = [];
-          snapshot.forEach((doc) => {
-            const data = doc.data() as DelegateAccount;
-            if (data && data.username) {
-              accs.push(data);
-            }
-          });
-          if (accs.length > 0) {
-            setDelegateAccounts(accs);
-          }
-        })
-        .catch((err) => {
-          console.error('Accounts fetch error:', err);
-        });
-    }
+    const unsubAccounts = onSnapshot(collection(db, 'delegate_accounts'), (snapshot) => {
+      const accs: DelegateAccount[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() as DelegateAccount;
+        if (data && data.username) {
+          accs.push(data);
+        }
+      });
+      if (accs.length > 0) {
+        setDelegateAccounts(accs);
+      }
+    }, (err) => {
+      console.error('Accounts listener error:', err);
+    });
 
     return () => {
       unsubSales();
       unsubTargets();
       unsubLocks();
+      unsubAccounts();
     };
   }, [currentUser.isAdmin, currentUser.name, selectedDate, selectedDelegate]);
 
@@ -1344,13 +1343,113 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const addDelegateAccount = async (acc: DelegateAccount) => {
+    try {
+      const docId = acc.username.trim().toLowerCase();
+      await setDoc(doc(db, 'delegate_accounts', docId), acc);
+      setDelegateAccounts(prev => [...prev, acc]);
+      setUserMessage(`تم إضافة المندوب (${acc.delegateName}) بنجاح`);
+    } catch (e) {
+      console.error('Error adding account:', e);
+      setUserMessage('حدث خطأ أثناء إضافة المندوب.');
+    }
+  };
+
+  const updateDelegateIdentity = async (oldName: string, newName: string, oldUsername: string, newUsername: string, newPassword: string) => {
+    try {
+      // 1. Rename DelegateAccount
+      const oldDocId = oldUsername.trim().toLowerCase();
+      const newDocId = newUsername.trim().toLowerCase();
+      
+      const accSnap = await getDoc(doc(db, 'delegate_accounts', oldDocId));
+      if (!accSnap.exists()) {
+        setUserMessage('لم يتم العثور على حساب المندوب.');
+        return;
+      }
+      
+      const accData = accSnap.data() as DelegateAccount;
+      const batch = writeBatch(db);
+      
+      // Update Account
+      batch.delete(doc(db, 'delegate_accounts', oldDocId));
+      batch.set(doc(db, 'delegate_accounts', newDocId), { ...accData, delegateName: newName, username: newUsername, password: newPassword });
+      
+      // Update Sales Entries
+      const salesSnap = await getDocs(query(collection(db, 'sales_entries'), where('delegateName', '==', oldName)));
+      salesSnap.forEach(d => batch.update(d.ref, { delegateName: newName }));
+      
+      // Update Targets
+      const targetsSnap = await getDocs(query(collection(db, 'delegate_targets'), where('delegateName', '==', oldName)));
+      targetsSnap.forEach(d => batch.update(d.ref, { delegateName: newName }));
+      
+      // Update Locks
+      const locksSnap = await getDocs(query(collection(db, 'target_locks'), where('delegateName', '==', oldName)));
+      locksSnap.forEach(d => batch.update(d.ref, { delegateName: newName }));
+
+      // Update Alerts/Notes (assuming collections exist)
+      const alertsSnap = await getDocs(query(collection(db, 'delegate_alerts'), where('delegateName', '==', oldName)));
+      alertsSnap.forEach(d => batch.update(d.ref, { delegateName: newName }));
+      
+      const notesSnap = await getDocs(query(collection(db, 'delegate_notes'), where('delegateName', '==', oldName)));
+      notesSnap.forEach(d => batch.update(d.ref, { delegateName: newName }));
+
+      await batch.commit();
+      setUserMessage(`تم تحديث بيانات المندوب إلى ${newName} بنجاح.`);
+    } catch (e) {
+      console.error('Error updating delegate identity:', e);
+      setUserMessage('حدث خطأ أثناء التحديث.');
+    }
+  };
+
+  const resetDelegateAccount = async (username: string) => {
+    try {
+      const accSnap = await getDoc(doc(db, 'delegate_accounts', username.trim().toLowerCase()));
+      if (!accSnap.exists()) {
+        setUserMessage('لم يتم العثور على حساب المندوب.');
+        return;
+      }
+      const accData = accSnap.data() as DelegateAccount;
+
+      const batch = writeBatch(db);
+      
+      // Delete old
+      batch.delete(doc(db, 'delegate_accounts', username.trim().toLowerCase()));
+      
+      // Create new default
+      const defaultUser = 'del2-9';
+      batch.set(doc(db, 'delegate_accounts', defaultUser), {
+        username: defaultUser,
+        password: '1234',
+        delegateName: 'مندوب',
+        monthlyTargetKg: 1000,
+        isAdmin: false
+      });
+
+      // Reset targets for this delegateName
+      const targetsSnap = await getDocs(query(collection(db, 'delegate_targets'), where('delegateName', '==', accData.delegateName)));
+      targetsSnap.forEach(d => batch.update(d.ref, { dailyTargetWeightKg: 1 }));
+
+      await batch.commit();
+      setUserMessage('تم إعادة تعيين حساب المندوب بنجاح إلى الإعدادات الأولية ✅');
+    } catch (e) {
+      console.error('Error resetting delegate account:', e);
+      setUserMessage('حدث خطأ أثناء إعادة التعيين.');
+    }
+  };
+
   const deleteDelegateAccount = async (username: string) => {
     try {
       const docId = username.trim().toLowerCase();
+      // Delete the account document completely
       await deleteDoc(doc(db, 'delegate_accounts', docId));
-      setUserMessage('تم حذف حساب المندوب بنجاح');
+
+      // Update local state to remove the deleted account
+      setDelegateAccounts(prev => prev.filter(acc => acc.username.toLowerCase() !== docId));
+      
+      setUserMessage('تم حذف حساب المندوب تماماً من النظام');
     } catch (e) {
       console.error('Error deleting account:', e);
+      setUserMessage('حدث خطأ أثناء الحذف.');
     }
   };
 
@@ -1616,6 +1715,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         getDelegateLockStatus,
         unlockDelegateTargetManually,
         saveDelegateAccount,
+        addDelegateAccount,
+        updateDelegateIdentity,
+        resetDelegateAccount,
         deleteDelegateAccount,
         toasts,
         addToast,

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, writeBatch, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import {
@@ -29,6 +29,30 @@ import {
   Bell
 } from 'lucide-react';
 
+interface RouteItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  delegateName: string;
+  path: string;
+}
+
+interface AlertItem {
+  id: string;
+  delegateName: string;
+  note: string;
+  targetTime: number; // timestamp
+  createdAt: number;
+}
+
+interface NoteItem {
+  id: string;
+  delegateName: string;
+  content: string;
+  createdAt: number;
+}
+
 export const AdminScreen: React.FC = () => {
   const [emailScheduleStatus, setEmailScheduleStatus] = useState<string | null>(null);
   const {
@@ -38,6 +62,9 @@ export const AdminScreen: React.FC = () => {
     delegateAccounts,
     delegatesList,
     saveDelegateAccount,
+    addDelegateAccount,
+    updateDelegateIdentity,
+    resetDelegateAccount,
     deleteDelegateAccount,
     batchUpdateDelegateTargets,
     getDelegateLockStatus,
@@ -54,6 +81,46 @@ export const AdminScreen: React.FC = () => {
   const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
   const [dailyTaskText, setDailyTaskText] = useState<string>('');
   const [dailyTaskMessage, setDailyTaskMessage] = useState<string | null>(null);
+  const [newDelegateData, setNewDelegateData] = useState({ oldName: '', oldUsername: '', newName: '', newUsername: '', newPassword: '' });
+  const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
+
+  const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [allAlerts, setAllAlerts] = useState<AlertItem[]>([]);
+  const [allNotes, setAllNotes] = useState<NoteItem[]>([]);
+  const [routeFilterDelegate, setRouteFilterDelegate] = useState('');
+  const [routeFilterDay, setRouteFilterDay] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 20;
+  
+  const filteredRoutes = routes.filter(r => 
+    (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
+    (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
+    (searchQuery ? r.customerName.includes(searchQuery) : true)
+  );
+
+  const sortedRoutes = filteredRoutes.sort((a, b) => {
+    if (!sortConfig) return 0;
+    const aVal = a[sortConfig.key] || '';
+    const bVal = b[sortConfig.key] || '';
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const paginatedRoutes = sortedRoutes.slice(0, currentPage * rowsPerPage);
+
+  const handleSort = (key: keyof RouteItem) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+    setCurrentPage(1);
+  };
 
   const [globalNotifText, setGlobalNotifText] = useState<string>('');
   const [globalNotifMessage, setGlobalNotifMessage] = useState<string | null>(null);
@@ -86,7 +153,7 @@ export const AdminScreen: React.FC = () => {
           customerCode: row[0] || '',
           customerName: row[1] || '',
           customerAddress: row[2] || '',
-          delegateName: row[3] || '',
+          delegateName: row[5] || '',
           path: row[4] || '',
         });
       }
@@ -139,7 +206,38 @@ export const AdminScreen: React.FC = () => {
     }
   };
 
-  const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
+  // Fetch Routes and Delegate Data
+  useEffect(() => {
+    // Make sure we are fetching ALL routes for admin to display in list,
+    // and correctly filtering for delegates
+    const q = query(collection(db, 'routes'));
+    const unsubRoutes = onSnapshot(q, (snap) => {
+      const arr: RouteItem[] = [];
+      snap.forEach(d => arr.push({ id: d.id, ...d.data() } as RouteItem));
+      console.log('Fetched routes:', arr.length);
+      setRoutes(arr);
+    });
+
+    const alertsQ = query(collection(db, 'delegate_alerts'));
+    const unsubAlerts = onSnapshot(alertsQ, (snap) => {
+      const arr: AlertItem[] = [];
+      snap.forEach(d => arr.push(d.data() as AlertItem));
+      setAllAlerts(arr);
+    });
+
+    const notesQ = query(collection(db, 'delegate_notes'));
+    const unsubNotes = onSnapshot(notesQ, (snap) => {
+      const arr: NoteItem[] = [];
+      snap.forEach(d => arr.push(d.data() as NoteItem));
+      setAllNotes(arr);
+    });
+
+    return () => {
+      unsubRoutes();
+      unsubAlerts();
+      unsubNotes();
+    };
+  }, []);
 
   const handleJsonBackupImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -870,6 +968,21 @@ export const AdminScreen: React.FC = () => {
             {editingAccountUsername && (
               <button
                 type="button"
+                onClick={() => {
+                  if (window.confirm('هل أنت متأكد من حذف حساب المندوب هذا تماماً من النظام؟')) {
+                    deleteDelegateAccount(editingAccountUsername);
+                    handleCancelEditAccount();
+                  }
+                }}
+                className="px-4 py-2.5 bg-red-900/80 hover:bg-red-800 text-red-200 border border-red-700 rounded-xl font-bold text-xs"
+              >
+                حذف الحساب
+              </button>
+            )}
+
+            {editingAccountUsername && (
+              <button
+                type="button"
                 onClick={handleCancelEditAccount}
                 className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl font-bold text-xs"
               >
@@ -1142,7 +1255,90 @@ export const AdminScreen: React.FC = () => {
           </button>
         </div>
       </div>
-      {/* 10. Route Management */}
+      {/* 11. Add New Delegate Account */}
+      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
+            إضافة مندوب جديد:
+          </h3>
+        </div>
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <input 
+            type="text" placeholder="اسم المندوب" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newName} onChange={e => setNewDelegateData({...newDelegateData, newName: e.target.value})}
+          />
+          <input 
+            type="text" placeholder="اسم المستخدم (username)" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newUsername} onChange={e => setNewDelegateData({...newDelegateData, newUsername: e.target.value})}
+          />
+          <input 
+            type="text" placeholder="الرمز السري" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newPassword} onChange={e => setNewDelegateData({...newDelegateData, newPassword: e.target.value})}
+          />
+          <button 
+            onClick={() => console.log('Delegates:', delegateAccounts)}
+            className="w-full px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-xl text-xs font-bold shadow-lg"
+          >
+            Debug: طباعة المندوبين في الكونسول
+          </button>
+          <button 
+            onClick={() => addDelegateAccount({ delegateName: newDelegateData.newName, username: newDelegateData.newUsername, password: newDelegateData.newPassword, monthlyTargetKg: 1000, isAdmin: false })}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg"
+          >
+            إضافة المندوب
+          </button>
+        </div>
+      </div>
+
+      {/* 12. Manage Delegate Accounts */}
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
+            إدارة حسابات المندوبين (تعديل الاسم والرمز):
+          </h3>
+        </div>
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <select 
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            onChange={(e) => {
+              const selected = delegateAccounts.find(d => d.delegateName === e.target.value);
+              if (selected) {
+                 setNewDelegateData({ oldName: selected.delegateName, oldUsername: selected.username, newName: selected.delegateName, newUsername: selected.username, newPassword: '' });
+              }
+            }}
+          >
+            <option value="">-- اختر المندوب --</option>
+            {delegateAccounts.filter(d => !d.isAdmin).map(d => <option key={d.username} value={d.delegateName}>{d.delegateName}</option>)}
+          </select>
+          <input 
+            type="text" placeholder="الاسم الجديد" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newName} onChange={e => setNewDelegateData({...newDelegateData, newName: e.target.value})}
+          />
+          <input 
+            type="text" placeholder="الرمز الجديد (username)" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newUsername} onChange={e => setNewDelegateData({...newDelegateData, newUsername: e.target.value})}
+          />
+          <input 
+            type="text" placeholder="الرمز السري الجديد" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+            value={newDelegateData.newPassword} onChange={e => setNewDelegateData({...newDelegateData, newPassword: e.target.value})}
+          />
+          <button 
+            onClick={() => updateDelegateIdentity(newDelegateData.oldName, newDelegateData.newName, newDelegateData.oldUsername, newDelegateData.newUsername, newDelegateData.newPassword)}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg"
+          >
+            حفظ التغييرات وتحديث البيانات المرتبطة
+          </button>
+          <button 
+            onClick={() => resetDelegateAccount(newDelegateData.oldUsername)}
+            className="w-full px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-lg"
+          >
+            إعادة تعيين حساب المندوب إلى الإعدادات الأولية
+          </button>
+        </div>
+      </div>
+
+      {/* 12. Route Management */}
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
         <div className="flex items-center gap-2 mb-2">
           <MapIcon className="w-5 h-5 text-emerald-400" />
@@ -1172,6 +1368,101 @@ export const AdminScreen: React.FC = () => {
             onChange={handleRouteFileUpload}
             className="w-full text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
           />
+        </div>
+
+        {/* View Routes */}
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <MapIcon className="w-4 h-4 text-emerald-400" />
+            استعراض وفلترة المسارات
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}>
+              <option value="">كل المندوبين</option>
+              {delegatesList.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}>
+              <option value="">كل الأيام</option>
+              <option value="السبت">السبت</option>
+              <option value="الأحد">الأحد</option>
+              <option value="الإثنين">الإثنين</option>
+              <option value="الثلاثاء">الثلاثاء</option>
+              <option value="الأربعاء">الأربعاء</option>
+              <option value="الخميس">الخميس</option>
+            </select>
+            <input 
+              type="text" 
+              value={searchQuery} 
+              onChange={e => setSearchQuery(e.target.value)} 
+              placeholder="بحث عن اسم محل..." 
+              className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}
+            />
+          </div>
+          
+          <div className="overflow-x-auto rounded-xl border border-slate-700">
+            <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+              <thead className="bg-slate-800 text-slate-300 font-bold">
+                <tr>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>المندوب</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700 bg-slate-950 text-slate-300">
+                {paginatedRoutes.map(r => (
+                  <tr key={r.id} className="hover:bg-slate-800 transition-colors">
+                    <td className="px-3 py-2">{r.customerCode}</td>
+                    <td className="px-3 py-2">{r.customerName}</td>
+                    <td className="px-3 py-2">{r.customerAddress}</td>
+                    <td className="px-3 py-2">{r.delegateName}</td>
+                    <td className="px-3 py-2">{r.path}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {currentPage * rowsPerPage < sortedRoutes.length && (
+            <button 
+              onClick={() => setCurrentPage(prev => prev + 1)}
+              className="w-full p-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-lg transition-colors"
+            >
+              عرض المزيد
+            </button>
+          )}
+        </div>
+
+        {/* View Delegate Notifications */}
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-emerald-400" />
+            تنبيهات وملاحظات المندوبين
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-emerald-300">التنبيهات:</h4>
+              {allAlerts.map(a => (
+                <div key={a.id} className="p-2 bg-slate-950 border border-slate-700 rounded-lg text-xs">
+                  <span className="font-bold text-white">{a.delegateName}: </span>
+                  <span className="text-slate-300">{a.note}</span>
+                  <div className="text-[10px] text-emerald-500">{new Date(a.targetTime).toLocaleString('en-GB')}</div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-emerald-300">الملاحظات:</h4>
+              {allNotes.map(n => (
+                <div key={n.id} className="p-2 bg-slate-950 border border-slate-700 rounded-lg text-xs">
+                  <span className="font-bold text-white">{n.delegateName}: </span>
+                  <span className="text-slate-300">{n.content}</span>
+                  <div className="text-[10px] text-slate-500">{new Date(n.createdAt).toLocaleDateString('en-GB')}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Assign Daily Task */}
@@ -1244,7 +1535,31 @@ export const AdminScreen: React.FC = () => {
           </button>
         </div>
       </div>
-    </div>
-    </PullToRefresh>
-  );
-};
+      {/* 12. System Cleanup */}
+      <div className="bg-red-950 border border-red-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="w-5 h-5 text-red-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-red-200">
+            12. تنظيف البيانات:
+          </h3>
+        </div>
+        <button
+          onClick={async () => {
+            if (window.confirm('هل تريد حذف المندوب القديم (del6) نهائياً من قاعدة البيانات؟')) {
+              try {
+                await deleteDoc(doc(db, 'delegate_accounts', 'del6'));
+                alert('تم حذف البيانات القديمة بنجاح!');
+              } catch (e) {
+                alert('حدث خطأ أثناء الحذف.');
+              }
+            }
+          }}
+          className="w-full px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold"
+        >
+          تنظيف البيانات القديمة (حذف del6)
+        </button>
+      </div>
+
+      </PullToRefresh>
+    );
+  };

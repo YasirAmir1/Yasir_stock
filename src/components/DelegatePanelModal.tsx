@@ -53,11 +53,12 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.name || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [dailyTask, setDailyTask] = useState('');
+  const [dailyTask, setDailyTask] = useState<string>('');
+  const [completedTasks, setCompletedTasks] = useState<Record<number, boolean>>({});
   const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
 
   const filteredRoutes = routes.filter(r => 
-    (routeFilterDelegate ? r.delegateName.trim() === (routeFilterDelegate === "صباح فرحان" ? "شرقاط" : routeFilterDelegate).trim() : true) && 
+    (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
     (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
     (searchQuery ? r.customerName.includes(searchQuery) : true)
   );
@@ -121,38 +122,41 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
     };
   }, [currentUser]);
 
-  // Fetch Routes and Tasks
   useEffect(() => {
-    const q = query(collection(db, 'routes'));
-    const unsubRoutes = onSnapshot(q, (snap) => {
-      const arr: RouteItem[] = [];
-      snap.forEach(d => arr.push({ id: d.id, ...d.data() } as RouteItem));
-      setRoutes(arr);
-    });
-
-    let unsubTask = () => {};
     if (currentUser?.name) {
-      unsubTask = onSnapshot(doc(db, 'admin_daily_tasks', currentUser.name), (dSnap) => {
+      const taskDocRef = doc(db, 'admin_daily_tasks', currentUser.name);
+      
+      const unsub = onSnapshot(taskDocRef, (dSnap) => {
         if (dSnap.exists()) {
-          setDailyTask(dSnap.data().taskText || '');
+          const data = dSnap.data();
+          setDailyTask(data.taskText || '');
+          setCompletedTasks(data.completedTasks || {});
         } else {
           setDailyTask('');
+          setCompletedTasks({});
         }
       });
       
-      // Mark task as read when opening tasks tab
-      if (activeTab === 'tasks') {
-        setDoc(doc(db, 'delegate_task_reads', currentUser.name), {
-          lastReadTimestamp: Date.now()
-        }, { merge: true }).catch(console.error);
-      }
+      return () => unsub();
     }
-
-    return () => {
-      unsubRoutes();
-      unsubTask();
-    };
   }, [currentUser]);
+
+  const toggleTaskCompletion = async (index: number) => {
+    if (!currentUser?.name) return;
+    
+    const newCompleted = { ...completedTasks, [index]: !completedTasks[index] };
+    setCompletedTasks(newCompleted);
+
+    try {
+      await setDoc(doc(db, 'admin_daily_tasks', currentUser.name), {
+        taskText: dailyTask,
+        completedTasks: newCompleted
+      }, { merge: true });
+    } catch (e) {
+      console.error('Error toggling task:', e);
+      setCompletedTasks(completedTasks); // Revert
+    }
+  };
 
   const handleSaveAlert = async () => {
     if (!alertNote.trim() || !alertDate) {
@@ -398,10 +402,10 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           {activeTab === 'route' && (
             <div className="space-y-4">
               <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                <select disabled={!currentUser?.isAdmin} value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'} ${!currentUser?.isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <option value="">كل المندوبين</option>
                   {delegatesList.map(d => (
-                    <option key={d} value={d === "شرقاط" ? "صباح فرحان" : d}>{d === "شرقاط" ? "صباح فرحان" : d}</option>
+                    <option key={d} value={d}>{d}</option>
                   ))}
                 </select>
                 <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -457,11 +461,33 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           )}
 
           {activeTab === 'tasks' && (
-            <div className="flex flex-col items-center justify-center min-h-[200px] p-6 rounded-2xl bg-gradient-to-br from-emerald-50 to-green-100 dark:from-emerald-950 dark:to-green-900 border-2 border-emerald-200 dark:border-emerald-800 shadow-inner">
+            <div className="space-y-4">
               <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المهام اليومية المسندة إليك</h3>
-              <p className="text-center font-bold text-sm sm:text-base whitespace-pre-wrap text-emerald-900 dark:text-emerald-100 bg-white/50 dark:bg-black/20 p-4 rounded-xl w-full shadow-sm">
-                {dailyTask || "لا توجد مهام مسندة لهذا اليوم."}
-              </p>
+              {dailyTask ? (
+                dailyTask.split('\n').filter(t => t.trim() !== '').map((task, index) => (
+                  <div key={index} className="flex items-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-emerald-100 dark:border-emerald-900 shadow-sm">
+                    <div className="flex gap-2 ml-4">
+                      <button 
+                        onClick={() => toggleTaskCompletion(index)}
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                          completedTasks[index] 
+                            ? 'bg-emerald-500 text-white' 
+                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        }`}
+                      >
+                        ✓
+                      </button>
+                    </div>
+                    <p className="flex-1 text-right font-bold text-sm sm:text-base text-emerald-900 dark:text-emerald-100">
+                      {task}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center font-bold text-sm sm:text-base text-emerald-900 dark:text-emerald-100 bg-white/50 dark:bg-black/20 p-4 rounded-xl w-full shadow-sm">
+                  لا توجد مهام مسندة لهذا اليوم.
+                </p>
+              )}
             </div>
           )}
         </div>
