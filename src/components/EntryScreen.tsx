@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { GridRow, SalesEntry } from '../types';
 import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
@@ -22,7 +24,20 @@ export const EntryScreen: React.FC = () => {
     updateSalesEntry,
     syncData,
     isDarkMode,
+    prefilledEntryData,
+    setPrefilledEntryData,
+    showQuickAdd,
+    setShowQuickAdd
   } = useSales();
+
+  useEffect(() => {
+    if (prefilledEntryData) {
+      setCustomerName(prefilledEntryData.customerName);
+      setCustomerCode(prefilledEntryData.customerCode);
+      setCustomerAddress(prefilledEntryData.customerAddress);
+      setPrefilledEntryData(null);
+    }
+  }, [prefilledEntryData, setPrefilledEntryData]);
 
   const productSuggestions = useMemo(() => {
     return productsList
@@ -54,6 +69,20 @@ export const EntryScreen: React.FC = () => {
   const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
   const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
+  const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
+    const unsub = onSnapshot(q, (snap) => {
+      const completed: Record<string, boolean> = {};
+      snap.forEach(d => {
+        completed[d.id] = true;
+      });
+      setCompletedDelegates(completed);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('pref_priceMode', invoicePriceMode);
@@ -667,8 +696,9 @@ export const EntryScreen: React.FC = () => {
 
       {/* Total Saved Weight Summary Card */}
       <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-3">
-        <h2 className="font-extrabold text-slate-900 text-base">
+        <h2 className="font-extrabold text-slate-900 text-base flex items-center justify-center gap-2">
           مجموع وزن إدخالات ({activeDelegateName})
+          {completedDelegates[activeDelegateName || ''] && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
         </h2>
         
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-12">
@@ -704,8 +734,9 @@ export const EntryScreen: React.FC = () => {
               .sort(([, a], [, b]) => (b.wholesale.size + b.retail.size) - (a.wholesale.size + a.retail.size))
               .map(([delegate, stats]) => (
                <div key={delegate} className="flex flex-col items-center bg-white border-2 border-emerald-500 rounded-lg shadow-sm overflow-hidden text-xs min-w-[120px]">
-                 <div className="bg-emerald-50 w-full text-center py-1.5 px-3 border-b border-emerald-200 text-slate-800 font-bold">
+                 <div className="bg-emerald-50 w-full text-center py-1.5 px-3 border-b border-emerald-200 text-slate-800 font-bold flex items-center justify-center gap-2">
                    {delegate}
+                   {completedDelegates[delegate] && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
                  </div>
                  <div className="flex justify-between w-full px-2 py-1 text-slate-600 border-b border-slate-100">
                    <div className="flex flex-col items-center w-1/2 border-l border-slate-200">

@@ -34,6 +34,7 @@ export interface SalesEntry {
   customerCode?: string;
   customerName: string;
   customerAddress?: string;
+  customerType?: 'مفرد' | 'جملة';
   productName: string;
   categoryName: string;
   quantity: number;
@@ -121,7 +122,6 @@ export interface DailyEvaluationRecord {
   };
   timestamp: number;
 }
-
 export interface ProductItem {
   id: string;
   productName: string;      // اسم المنتج
@@ -134,6 +134,16 @@ export interface ProductItem {
   stockCartons?: number;    // عدد الكارتون بالمخزن
   imageUrl?: string;        // صورة المنتج
   isAvailable?: boolean;    // حالة المنتج
+}
+
+export interface RouteItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  customerType: 'مفرد' | 'جملة';
+  delegateName: string;
+  path: string;
 }
 
 

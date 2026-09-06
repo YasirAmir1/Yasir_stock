@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { ProductItem } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 const getAvatarProps = (name: string) => {
   const colors = [
@@ -27,7 +29,7 @@ interface ProductsScreenProps {
 }
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
-  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries } = useSales();
+  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
   const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
@@ -35,8 +37,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
   React.useEffect(() => {
-    localStorage.setItem('pref_categoryFilter', selectedCategoryFilter);
-  }, [selectedCategoryFilter]);
+    if (prefilledEntryData) {
+      setCustomerName(prefilledEntryData.customerName);
+      setCustomerCode(prefilledEntryData.customerCode);
+      setCustomerAddress(prefilledEntryData.customerAddress);
+      if (prefilledEntryData.customerType) {
+        setCustomerType(prefilledEntryData.customerType);
+      }
+      setPrefilledEntryData(null);
+    }
+  }, [prefilledEntryData, setPrefilledEntryData]);
 
   React.useEffect(() => {
     localStorage.setItem('pref_priceMode', priceMode);
@@ -52,6 +62,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>('مفرد');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>({});
   const [entryModes, setEntryModes] = useState<Record<string, 'piece' | 'carton'>>({});
@@ -287,7 +298,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const container = e.currentTarget.closest('tr, .relative.flex.flex-col');
+      const container = e.currentTarget.closest('.entry-grid-container');
       if (!container) return;
       const focusableElements = Array.from(
         container.querySelectorAll('input, select')
@@ -295,11 +306,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       const index = focusableElements.indexOf(e.currentTarget);
       if (index > -1 && index + 1 < focusableElements.length) {
         focusableElements[index + 1].focus();
-      } else if (index === focusableElements.length - 1) {
-        const saveBtn = container.querySelector('button[title="حفظ"]') as HTMLButtonElement;
-        if (saveBtn) {
-          saveBtn.click();
-        }
       }
     }
   };
@@ -469,58 +475,63 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         </div>
       )}
 
+      {/* Sales Daily Completion Card */}
+      {/* Moved to ReportsScreen */}
+
       {/* Quick Add Customer Info Box */}
-      <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
-        {errorMessage && (
-          <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
-            <span>{errorMessage}</span>
-            <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+      {showQuickAdd && (
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
+          {errorMessage && (
+            <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
+              <span>{errorMessage}</span>
+              <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+            </div>
+          )}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+            <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              إضافة سريعة للمنتجات
+            </h3>
+            <button
+              onClick={handleSaveQuickAdd}
+              className="w-1/2 mx-auto sm:mx-0 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-all active:scale-95"
+            >
+              حفظ الفاتورة
+            </button>
           </div>
-        )}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-          <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-            إضافة سريعة للمنتجات
-          </h3>
-          <button
-            onClick={handleSaveQuickAdd}
-            className="w-1/2 mx-auto sm:mx-0 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-all active:scale-95"
-          >
-            حفظ الفاتورة
-          </button>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div>
+              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">اسم الزبون (إلزامي)</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="اسم الزبون..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">كود الزبون</label>
+              <input
+                type="text"
+                value={customerCode}
+                onChange={(e) => setCustomerCode(e.target.value)}
+                placeholder="الكود..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">العنوان</label>
+              <input
+                type="text"
+                value={customerAddress}
+                onChange={(e) => setCustomerAddress(e.target.value)}
+                placeholder="العنوان..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div>
-            <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">اسم الزبون (إلزامي)</label>
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="اسم الزبون..."
-              className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">كود الزبون</label>
-            <input
-              type="text"
-              value={customerCode}
-              onChange={(e) => setCustomerCode(e.target.value)}
-              placeholder="الكود..."
-              className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">العنوان</label>
-            <input
-              type="text"
-              value={customerAddress}
-              onChange={(e) => setCustomerAddress(e.target.value)}
-              placeholder="العنوان..."
-              className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Search and Filter Bar */}
       <div className="flex flex-col gap-3">

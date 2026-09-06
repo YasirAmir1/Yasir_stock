@@ -153,7 +153,7 @@ export const AdminScreen: React.FC = () => {
           customerCode: row[0] || '',
           customerName: row[1] || '',
           customerAddress: row[2] || '',
-          delegateName: row[5] || '',
+          delegateName: row[3] || '',
           path: row[4] || '',
         });
       }
@@ -1344,6 +1344,7 @@ export const AdminScreen: React.FC = () => {
           <MapIcon className="w-5 h-5 text-emerald-400" />
           <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
             10. إدارة المسارات والمهام اليومية:
+            <a href="/templates/routes_template.xlsx" className="block text-[10px] text-amber-400 underline mt-1">تحميل نموذج مسارات</a>
           </h3>
         </div>
 
@@ -1408,19 +1409,31 @@ export const AdminScreen: React.FC = () => {
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>المندوب</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700 bg-slate-950 text-slate-300">
-                {paginatedRoutes.map(r => (
-                  <tr key={r.id} className="hover:bg-slate-800 transition-colors">
-                    <td className="px-3 py-2">{r.customerCode}</td>
-                    <td className="px-3 py-2">{r.customerName}</td>
-                    <td className="px-3 py-2">{r.customerAddress}</td>
-                    <td className="px-3 py-2">{r.delegateName}</td>
-                    <td className="px-3 py-2">{r.path}</td>
-                  </tr>
+                {Object.entries(sortedRoutes.reduce((acc, r) => {
+                  const day = r.path || 'غير مصنف';
+                  if (!acc[day]) acc[day] = [];
+                  acc[day].push(r);
+                  return acc;
+                }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
+                  <React.Fragment key={day}>
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2 bg-slate-800 text-emerald-400 font-bold">
+                        {day}
+                      </td>
+                    </tr>
+                    {dayRoutes.map(r => (
+                      <tr key={r.id} className="hover:bg-slate-800 transition-colors">
+                        <td className="px-3 py-2">{r.customerCode}</td>
+                        <td className="px-3 py-2">{r.customerName}</td>
+                        <td className="px-3 py-2">{r.customerAddress}</td>
+                        <td className="px-3 py-2">{r.path}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

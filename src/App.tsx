@@ -15,6 +15,7 @@ import { ScrollToTopButton } from './components/ScrollToTopButton';
 import { DelegatePanelModal } from './components/DelegatePanelModal';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
+import { RoutesScreen } from './components/RoutesScreen';
 import {
   FileText,
   BarChart2,
@@ -31,6 +32,7 @@ import {
   Package,
   Type,
   User,
+  MapPin,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -44,8 +46,9 @@ const MainAppContent: React.FC = () => {
     logout,
     isOnline,
     pendingSyncCount,
+    activeTab,
+    setActiveTab,
   } = useSales();
-  const [activeTab, setActiveTab] = useState<'entry' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showDelegateModal, setShowDelegateModal] = useState(false);
@@ -214,6 +217,16 @@ const MainAppContent: React.FC = () => {
                 <Calculator className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span className="text-[10px] sm:text-[11px] leading-tight">حاسبة</span>
               </button>
+              
+              {/* Date Display */}
+              <div className={`p-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[80px] ${
+                isDarkMode
+                  ? 'bg-slate-800 text-emerald-300 border-slate-700'
+                  : 'bg-emerald-50 text-emerald-950 border-emerald-200'
+              }`}>
+                <span className="text-[10px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
+                <span className="text-[10px] sm:text-[11px] leading-tight">{new Date().toLocaleDateString('ar-EG')}</span>
+              </div>
 
               {/* Font Size Toggle Button */}
               <button
@@ -316,6 +329,22 @@ const MainAppContent: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('routes')}
+            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
+              activeTab === 'routes'
+                ? isDarkMode
+                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                : isDarkMode
+                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+            }`}
+          >
+            <MapPin className="w-4 h-4 text-emerald-400" />
+            <span>المسارات</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('reports')}
             className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
               activeTab === 'reports'
@@ -394,6 +423,7 @@ const MainAppContent: React.FC = () => {
       {/* Main Screen Body */}
       <main className="flex-1 pb-12 pt-2">
         {activeTab === 'entry' && <EntryScreen />}
+        {activeTab === 'routes' && <RoutesScreen />}
         {activeTab === 'reports' && <ReportsScreen />}
         {activeTab === 'evaluations' && <EvaluationsScreen />}
         {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}

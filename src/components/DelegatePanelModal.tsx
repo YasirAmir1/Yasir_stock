@@ -55,6 +55,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [searchQuery, setSearchQuery] = useState('');
   const [dailyTask, setDailyTask] = useState<string>('');
   const [completedTasks, setCompletedTasks] = useState<Record<number, boolean>>({});
+  const [completionTimes, setCompletionTimes] = useState<Record<number, number>>({});
   const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
 
   const filteredRoutes = routes.filter(r => 
@@ -131,9 +132,11 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           const data = dSnap.data();
           setDailyTask(data.taskText || '');
           setCompletedTasks(data.completedTasks || {});
+          setCompletionTimes(data.completionTimes || {});
         } else {
           setDailyTask('');
           setCompletedTasks({});
+          setCompletionTimes({});
         }
       });
       
@@ -141,20 +144,24 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
     }
   }, [currentUser]);
 
-  const toggleTaskCompletion = async (index: number) => {
+  const toggleTaskCompletion = async (index: number, isComplete: boolean) => {
     if (!currentUser?.name) return;
     
-    const newCompleted = { ...completedTasks, [index]: !completedTasks[index] };
+    const newCompleted = { ...completedTasks, [index]: isComplete };
+    const newCompletionTimes = { ...completionTimes, [index]: isComplete ? Date.now() : 0 };
     setCompletedTasks(newCompleted);
+    setCompletionTimes(newCompletionTimes);
 
     try {
       await setDoc(doc(db, 'admin_daily_tasks', currentUser.name), {
         taskText: dailyTask,
-        completedTasks: newCompleted
+        completedTasks: newCompleted,
+        completionTimes: newCompletionTimes
       }, { merge: true });
     } catch (e) {
       console.error('Error toggling task:', e);
       setCompletedTasks(completedTasks); // Revert
+      setCompletionTimes(completionTimes);
     }
   };
 
@@ -257,9 +264,6 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           </button>
           <button onClick={() => setActiveTab('notifications')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'notifications' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
             إشعارات
-          </button>
-          <button onClick={() => setActiveTab('route')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'route' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
-            المسار
           </button>
           <button onClick={() => setActiveTab('tasks')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'tasks' ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}`}>
             المهام اليومية
@@ -433,26 +437,31 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                       <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
                       <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
                       <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
-                      <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>المندوب</th>
                       <th className="px-3 py-2 border-b dark:border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-                    {filteredRoutes.sort((a, b) => {
-                        if (!sortConfig) return 0;
-                        const aVal = a[sortConfig.key] || '';
-                        const bVal = b[sortConfig.key] || '';
-                        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-                        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-                        return 0;
-                    }).map(r => (
-                      <tr key={r.id} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
-                        <td className="px-3 py-2">{r.customerCode}</td>
-                        <td className="px-3 py-2">{r.customerName}</td>
-                        <td className="px-3 py-2">{r.customerAddress}</td>
-                        <td className="px-3 py-2">{r.delegateName}</td>
-                        <td className="px-3 py-2">{r.path}</td>
-                      </tr>
+                    {Object.entries(filteredRoutes.reduce((acc, r) => {
+                      const day = r.path || 'غير مصنف';
+                      if (!acc[day]) acc[day] = [];
+                      acc[day].push(r);
+                      return acc;
+                    }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
+                      <React.Fragment key={day}>
+                        <tr>
+                          <td colSpan={4} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
+                            {day}
+                          </td>
+                        </tr>
+                        {dayRoutes.map(r => (
+                          <tr key={r.id} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
+                            <td className="px-3 py-2">{r.customerCode}</td>
+                            <td className="px-3 py-2">{r.customerName}</td>
+                            <td className="px-3 py-2">{r.customerAddress}</td>
+                            <td className="px-3 py-2">{r.path}</td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -460,29 +469,56 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
             </div>
           )}
 
-          {activeTab === 'tasks' && (
+           {activeTab === 'tasks' && (
             <div className="space-y-4">
               <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المهام اليومية المسندة إليك</h3>
               {dailyTask ? (
-                dailyTask.split('\n').filter(t => t.trim() !== '').map((task, index) => (
-                  <div key={index} className="flex items-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-emerald-100 dark:border-emerald-900 shadow-sm">
-                    <div className="flex gap-2 ml-4">
-                      <button 
-                        onClick={() => toggleTaskCompletion(index)}
-                        className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
-                          completedTasks[index] 
-                            ? 'bg-emerald-500 text-white' 
-                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                        }`}
-                      >
-                        ✓
-                      </button>
+                dailyTask.split('\n').filter(t => t.trim() !== '').map((task, index) => {
+                  const isCompleted = completedTasks[index];
+                  const completionTime = completionTimes[index] || 0;
+                  const sixHoursMs = 6 * 60 * 60 * 1000;
+                  
+                  if (isCompleted && Date.now() - completionTime > sixHoursMs) {
+                    return null;
+                  }
+
+                  return (
+                    <div key={index} className="flex items-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-emerald-100 dark:border-emerald-900 shadow-sm gap-3">
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => toggleTaskCompletion(index, true)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                            isCompleted
+                              ? 'bg-emerald-500 text-white' 
+                              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                          }`}
+                        >
+                          ✓
+                        </button>
+                        <button 
+                          onClick={() => toggleTaskCompletion(index, false)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                            !isCompleted
+                              ? 'bg-red-500 text-white' 
+                              : 'bg-red-100 text-red-700 hover:bg-red-200'
+                          }`}
+                        >
+                          ✗
+                        </button>
+                      </div>
+                      <div className="flex-1 text-right">
+                        <p className="font-bold text-sm sm:text-base text-emerald-900 dark:text-emerald-100">
+                          {task}
+                        </p>
+                        {isCompleted && (
+                          <p className="text-[10px] text-emerald-600 font-bold mt-1">
+                            مكتملة في: {new Date(completionTime).toLocaleString('ar-EG')}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <p className="flex-1 text-right font-bold text-sm sm:text-base text-emerald-900 dark:text-emerald-100">
-                      {task}
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="text-center font-bold text-sm sm:text-base text-emerald-900 dark:text-emerald-100 bg-white/50 dark:bg-black/20 p-4 rounded-xl w-full shadow-sm">
                   لا توجد مهام مسندة لهذا اليوم.

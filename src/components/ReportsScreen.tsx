@@ -161,6 +161,28 @@ export const ReportsScreen: React.FC = () => {
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
+      
+      {/* Sales Daily Completion Card */}
+      {!currentUser.isAdmin && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
+          <button
+            onClick={async () => {
+              if (currentUser?.name) {
+                await setDoc(doc(db, 'daily_sales_completion', currentUser.name), {
+                  completedAt: Date.now(),
+                  date: new Date().toISOString().split('T')[0]
+                });
+                setUserMessage('تم تسجيل إكمال مبيعات اليوم! ✅');
+              }
+            }}
+            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95"
+          >
+            لقد أكملت مبيعات اليوم
+          </button>
+        </div>
+      )}
+
+      {/* Reports Content */}
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
         <div className="bg-amber-400 border-2 border-amber-500 rounded-2xl p-4 shadow-xl text-slate-950 space-y-2 animate-bounce-short print:hidden">

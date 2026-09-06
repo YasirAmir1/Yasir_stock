@@ -146,7 +146,12 @@ interface SalesContextType {
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
-  syncData: () => Promise<void>;
+  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null;
+  showQuickAdd: boolean;
+  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null) => void;
+  setShowQuickAdd: (show: boolean) => void;
+  activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
+  setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -213,6 +218,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [targetLockMap, setTargetLockMap] = useState<Record<string, number>>({});
   const [userMessage, setUserMessage] = useState<string | null>(null);
   const [dailyEvaluationsHistory, setDailyEvaluationsHistory] = useState<DailyEvaluationRecord[]>([]);
+  const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null>(null);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
@@ -1737,6 +1745,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         deleteProduct,
         deleteAllProducts,
         syncData: syncPendingEntries,
+        prefilledEntryData,
+        showQuickAdd,
+        setPrefilledEntryData,
+        setShowQuickAdd,
+        activeTab,
+        setActiveTab,
+        setDailyEvaluationsHistory,
       }}
     >
       {children}
