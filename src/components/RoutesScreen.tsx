@@ -1,16 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { RouteItem } from '../types';
+import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 
 export const RoutesScreen: React.FC = () => {
-  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab } = useSales();
+  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
+    const unsub = onSnapshot(q, (snap) => {
+      const completed: Record<string, boolean> = {};
+      snap.forEach(d => {
+        completed[d.id] = true;
+      });
+      setCompletedDelegates(completed);
+    });
+    return () => unsub();
+  }, []);
   const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.name || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [displayLimit, setDisplayLimit] = useState(20);
 
   useEffect(() => {
     const routesQ = query(collection(db, 'routes'));
@@ -55,6 +71,31 @@ export const RoutesScreen: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
+      
+      {/* Summary Card */}
+      <div className={`grid grid-cols-3 gap-2 p-3 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className="text-center">
+            <div className="text-xs font-bold text-slate-500">إجمالي</div>
+            <div className="text-lg font-black text-slate-900 dark:text-white">{filteredRoutes.length}</div>
+        </div>
+        <div className="text-center">
+            <div className="text-xs font-bold text-emerald-500">تمت الزيارة</div>
+            <div className="text-lg font-black text-emerald-600">{filteredRoutes.filter(r => {
+                const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+                const todayStr = new Date().toISOString().split('T')[0];
+                return customerEntries.some(e => e.dateString === todayStr);
+            }).length}</div>
+        </div>
+        <div className="text-center">
+            <div className="text-xs font-bold text-orange-500">منتظرة</div>
+            <div className="text-lg font-black text-orange-600">{filteredRoutes.filter(r => {
+                const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+                const todayStr = new Date().toISOString().split('T')[0];
+                return !customerEntries.some(e => e.dateString === todayStr);
+            }).length}</div>
+        </div>
+      </div>
+
       {currentUser?.isAdmin && (
         <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -86,15 +127,15 @@ export const RoutesScreen: React.FC = () => {
         <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
           <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
             <tr>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({filteredRoutes.length})</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-            {Object.entries(filteredRoutes.reduce((acc, r) => {
+            {Object.entries(filteredRoutes.slice(0, displayLimit).reduce((acc, r) => {
               const day = r.path || 'غير مصنف';
               if (!acc[day]) acc[day] = [];
               acc[day].push(r);
@@ -106,37 +147,69 @@ export const RoutesScreen: React.FC = () => {
                     {day}
                   </td>
                 </tr>
-                {dayRoutes.map(r => (
-                  <tr 
-                    key={r.id} 
-                    onClick={() => handleRowClick(r)}
-                    className={`cursor-pointer transition-all ${selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
-                  >
-                    <td className="px-3 py-2">{r.customerCode}</td>
-                    <td className="px-3 py-2">{r.customerType}</td>
-                    <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{r.customerName}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOrderClick(r);
-                          }}
-                          className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[9px] font-black hover:bg-emerald-500"
-                        >
-                          طلب
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">{r.customerAddress}</td>
-                    <td className="px-3 py-2">{r.path}</td>
-                  </tr>
-                ))}
+                {dayRoutes.map(r => {
+                  const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+                  const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const isVisitedToday = lastEntry && lastEntry.dateString === todayStr;
+                  const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
+                  
+                  const statusIcon = isVisitedToday 
+                    ? (totalWeightToday >= 25 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <AlertCircle className="w-4 h-4 text-yellow-500" />)
+                    : <Circle className="w-4 h-4 text-slate-400" />;
+
+                  const daysSinceLastVisit = lastEntry ? Math.floor((new Date().getTime() - lastEntry.timestamp) / (1000 * 60 * 60 * 24)) : 999;
+                  
+                  return (
+                    <tr 
+                      key={r.id} 
+                      onClick={() => handleRowClick(r)}
+                      className={`cursor-pointer transition-all ${selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
+                    >
+                      <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1">
+                            {statusIcon}
+                            <span>{r.customerName}</span>
+                            {daysSinceLastVisit > 3 && (
+                                <span className="flex items-center justify-center w-5 h-5 bg-red-600 text-white rounded-full text-[8px] font-black">
+                                    {daysSinceLastVisit}
+                                </span>
+                            )}
+                          </div>
+                          {!(completedDelegates[currentUser?.name || ''] || false) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOrderClick(r);
+                              }}
+                              className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[9px] font-black hover:bg-emerald-500"
+                            >
+                              طلب
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">{r.customerAddress}</td>
+                      <td className="px-3 py-2">{r.customerCode}</td>
+                      <td className="px-3 py-2">{r.customerType}</td>
+                      <td className="px-3 py-2">{r.path}</td>
+                    </tr>
+                  );
+                })}
               </React.Fragment>
             ))}
           </tbody>
         </table>
       </div>
+      {displayLimit < filteredRoutes.length && (
+        <button
+          onClick={() => setDisplayLimit(l => l + 20)}
+          className="w-full p-3 text-center bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-400 font-black text-xs rounded-xl"
+        >
+          عرض المزيد
+        </button>
+      )}
     </div>
   );
 };

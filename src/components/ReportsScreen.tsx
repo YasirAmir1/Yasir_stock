@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, Printer, TrendingUp } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { formatWithCommas } from '../utils/numberUtils';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, Printer, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -13,6 +16,23 @@ import {
 import { PullToRefresh } from './PullToRefresh';
 
 export const ReportsScreen: React.FC = () => {
+  // Added state for Sales History move
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
+  const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    productName: string;
+    categoryName: string;
+    quantity: string;
+    pieceWeightKg: string;
+  }>({
+    productName: '',
+    categoryName: '',
+    quantity: '0',
+    pieceWeightKg: '0',
+  });
+
   const {
     currentUser,
     selectedDelegate,
@@ -25,20 +45,95 @@ export const ReportsScreen: React.FC = () => {
     salesEntries,
     delegateTargets,
     syncData,
+    updateSalesEntry,
+    deleteSalesEntry,
+    setUserMessage,
+    isDarkMode, // Added
+    productsList, // Added
   } = useSales();
+
+  const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
+  const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
+    const unsub = onSnapshot(q, (snap) => {
+      const completed: Record<string, boolean> = {};
+      snap.forEach(d => {
+        completed[d.id] = true;
+      });
+      setCompletedDelegates(completed);
+    });
+    return () => unsub();
+  }, []);
+
+  const getProductCode = (productName: string) => {
+    const p = productsList.find(p => p.productName === productName);
+    return p ? p.productCode : '000';
+  };
+
+  const handleStartEdit = (entry: any) => {
+    setEditingEntryId(entry.id);
+    setEditFormData({
+      productName: entry.productName,
+      categoryName: entry.categoryName,
+      quantity: String(entry.quantity),
+      pieceWeightKg: String(Math.round(entry.pieceWeightKg * 1000)),
+    });
+  };
+
+  const handleSaveEdit = (id: string) => {
+    const q = parseInt(parseArabicDigits(editFormData.quantity), 10) || 0;
+    const wGrams = parseFloat(parseArabicDigits(editFormData.pieceWeightKg)) || 0;
+    
+    updateSalesEntry(id, {
+      productName: editFormData.productName.trim(),
+      categoryName: editFormData.categoryName,
+      quantity: q,
+      pieceWeightKg: wGrams / 1000,
+      totalWeightKg: (q * wGrams) / 1000,
+    });
+    setEditingEntryId(null);
+  };
 
   // Date Range state for custom period reports
   const [startDate, setStartDate] = useState<string>(selectedDate);
   const [endDate, setEndDate] = useState<string>(selectedDate);
   const [useRange, setUseRange] = useState<boolean>(false);
 
-  // Check if any category achieved 100%
+  // Filter saved entries for today
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todaysEntries = salesEntries.filter(e => e.dateString === todayStr);
+  const uniqueCustomerNames = Array.from(new Set(todaysEntries.map(e => e.customerName).filter(Boolean))).sort();
   const achievedCategories = useMemo(() => {
     return categoryReports.filter((r) => r.isAchieved && r.dailyTargetWeightKg > 0);
   }, [categoryReports]);
 
   // Overall totals
   const activeDelegateName = currentUser.isAdmin ? selectedDelegate : currentUser.name;
+
+  const { modalTotalWeight, modalTotalPrice } = useMemo(() => {
+    const delegateEntries = salesEntries.filter(e => e.delegateName === activeDelegateName && e.dateString === new Date().toISOString().split('T')[0]);
+    const weight = delegateEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
+    const price = delegateEntries.reduce((sum, e) => {
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      return sum + (price * e.quantity);
+    }, 0);
+    return { modalTotalWeight: weight, modalTotalPrice: price };
+  }, [salesEntries, activeDelegateName, productsList]);
+
+  const handleConfirmCompletion = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    await setDoc(doc(db, 'daily_sales_completion', activeDelegateName || 'عام'), {
+      delegate: activeDelegateName,
+      date: today,
+      completedAt: new Date().toISOString(),
+    });
+    setUserMessage('تم إكمال مبيعات اليوم بنجاح! ✅');
+    setShowCompletionConfirmModal(false);
+  };
 
   // Filter sales entries and evaluations for Date Range if enabled
   const rangeFilteredSales = useMemo(() => {
@@ -162,26 +257,6 @@ export const ReportsScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       
-      {/* Sales Daily Completion Card */}
-      {!currentUser.isAdmin && (
-        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
-          <button
-            onClick={async () => {
-              if (currentUser?.name) {
-                await setDoc(doc(db, 'daily_sales_completion', currentUser.name), {
-                  completedAt: Date.now(),
-                  date: new Date().toISOString().split('T')[0]
-                });
-                setUserMessage('تم تسجيل إكمال مبيعات اليوم! ✅');
-              }
-            }}
-            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95"
-          >
-            لقد أكملت مبيعات اليوم
-          </button>
-        </div>
-      )}
-
       {/* Reports Content */}
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
@@ -245,7 +320,7 @@ export const ReportsScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Date Filter & Range Picker Bar */}
+      {/* Date Filter & Range Picker Bar [HIDDEN]
       <div className="bg-emerald-900/60 border border-emerald-500/40 rounded-2xl p-4 shadow-lg text-white space-y-3 print:hidden">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-emerald-200">
@@ -297,6 +372,7 @@ export const ReportsScreen: React.FC = () => {
           </div>
         )}
       </div>
+      */}
 
 
 
@@ -350,6 +426,36 @@ export const ReportsScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* Total Saved Weight Summary Card */}
+      <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-3">
+        <h2 className="font-extrabold text-slate-900 text-base flex items-center justify-center gap-2">
+          مجموع وزن إدخالات ({activeDelegateName})
+        </h2>
+        
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-12">
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-xs font-bold text-slate-500 mb-1">الوزن الكلي</span>
+            <div className="text-3xl font-black text-slate-900">
+              {formatWithCommas(parseFloat(totalSalesWeight.toFixed(2)), true)} كجم
+            </div>
+          </div>
+          
+          <div className="hidden sm:block w-px h-12 bg-slate-200"></div>
+          <div className="block sm:hidden w-full h-px bg-slate-200"></div>
+          
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-xs font-bold text-slate-500 mb-1">المبلغ الكلي</span>
+            <div className="text-3xl font-black text-emerald-600">
+              {formatWithCommas(rangeFilteredSales.reduce((sum, e) => {
+                const prod = productsList.find(p => p.productName === e.productName);
+                const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                return sum + (price * e.quantity);
+              }, 0), true)} د.ع
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Daily Reset Info Banner */}
       <div className="bg-slate-900 border border-emerald-500/40 rounded-xl p-4 text-white shadow-md space-y-2 print:hidden">
         <div className="flex items-center gap-2">
@@ -364,7 +470,7 @@ export const ReportsScreen: React.FC = () => {
         </p>
       </div>
 
-      {/* Weekly Sales Progress Interactive Chart (Recharts) */}
+      {/* Weekly Sales Progress Interactive Chart (Recharts) [HIDDEN]
       <div className="bg-emerald-950 border-2 border-emerald-500 rounded-2xl p-4 text-white shadow-xl space-y-4 print:hidden">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
@@ -422,6 +528,7 @@ export const ReportsScreen: React.FC = () => {
           </ResponsiveContainer>
         </div>
       </div>
+      */}
 
       {/* Category Reports Table */}
       <div className="bg-white border-2 border-emerald-600 rounded-2xl overflow-hidden shadow-xl space-y-0">
@@ -504,6 +611,44 @@ export const ReportsScreen: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Sales Daily Completion Card */}
+      <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
+        {showCompletionConfirmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+            <div className={`p-5 rounded-2xl shadow-xl w-full max-w-sm border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <h2 className={`text-lg font-black mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>تأكيد إنهاء مبيعات اليوم</h2>
+              <p className={`mb-4 text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>هل أنت متأكد من إكمال مبيعات اليوم؟ لا يمكن التراجع عن هذا الإجراء.</p>
+              <div className={`flex flex-col gap-2 p-3 rounded-xl mb-4 text-sm font-black ${isDarkMode ? 'bg-slate-900 text-emerald-300' : 'bg-emerald-50 text-emerald-950'}`}>
+                <div className="flex justify-between">
+                  <span>إجمالي الوزن:</span>
+                  <span>{modalTotalWeight.toFixed(2)} كجم</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>إجمالي المبلغ:</span>
+                  <span>{formatWithCommas(modalTotalPrice, true)}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setShowCompletionConfirmModal(false)} className={`flex-1 p-3 rounded-xl font-black text-sm border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`}>إلغاء</button>
+                <button onClick={handleConfirmCompletion} className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-xl border border-red-800">تأكيد</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {!completedDelegates[activeDelegateName || ''] && (
+          <button
+            onClick={() => setShowCompletionConfirmModal(true)}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 w-full"
+          >
+            <Check className="w-5 h-5" />
+            <span>لقد أكملت مبيعات اليوم</span>
+          </button>
+        )}
+        {completedDelegates[activeDelegateName || ''] && (
+            <div className="text-emerald-600 font-black text-sm">تم إكمال مبيعات اليوم بنجاح ✅</div>
+        )}
       </div>
 
     </div>

@@ -60,7 +60,7 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div
-      className={`min-h-screen flex flex-col dir-rtl transition-colors duration-300 ${
+      className={`min-h-screen flex flex-col dir-rtl transition-colors duration-300 w-full max-w-[100vw] overflow-x-hidden ${
         isDarkMode ? 'bg-emerald-950 text-slate-100' : 'bg-slate-100 text-slate-900'
       }`}
     >
@@ -110,7 +110,7 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Top Header Bar - Pinned */}
-      <header className="sticky top-0 z-40 w-full">
+      <header className="sticky top-0 z-40 w-full box-sizing-border-box max-w-[100vw] overflow-x-hidden">
         <div
           className={`backdrop-blur-md transition-all duration-300 border-b ${
             isDarkMode
@@ -118,7 +118,7 @@ const MainAppContent: React.FC = () => {
               : 'bg-white/95 border-emerald-600/20 shadow-md text-slate-900'
           }`}
         >
-          <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+          <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap">
             {/* Top row for Mobile (Logo + Delegate Name) & Logo for Desktop */}
             <div className="flex items-center justify-between w-full sm:w-auto shrink-0">
               {/* Brand Logo & App Title */}
@@ -164,7 +164,7 @@ const MainAppContent: React.FC = () => {
             </div>
 
             {/* Buttons Group & Desktop User Profile Info */}
-            <div className="flex items-center justify-center sm:justify-end gap-2 sm:gap-3 shrink-0 w-full sm:w-auto">
+            <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-3 shrink-0 w-full sm:w-auto">
               {/* User Info Card (Desktop Only) */}
               <div
                 className={`hidden sm:flex px-2.5 py-1 rounded-xl border flex-col text-right ${
@@ -189,7 +189,7 @@ const MainAppContent: React.FC = () => {
               {!currentUser.isAdmin && (
                 <button
                   onClick={() => setShowDelegateModal(true)}
-                  className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                     isDarkMode
                       ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
                       : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
@@ -197,56 +197,56 @@ const MainAppContent: React.FC = () => {
                   title="لوحة المندوب"
                 >
                   <div className="relative">
-                    <User className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <User className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
                     <UnreadBadge delegateName={currentUser.name} />
                   </div>
-                  <span className="text-[10px] sm:text-[11px] leading-tight">المندوب</span>
+                  <span className="text-[9px] sm:text-[11px] leading-tight">اشعارات</span>
                 </button>
               )}
 
               {/* Calculator Button */}
               <button
                 onClick={() => setShowCalculatorModal(true)}
-                className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
                 }`}
                 title="فتح الحاسبة السريعة"
               >
-                <Calculator className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="text-[10px] sm:text-[11px] leading-tight">حاسبة</span>
+                <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-[9px] sm:text-[11px] leading-tight">الحاسبة</span>
               </button>
               
               {/* Date Display */}
-              <div className={`p-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[80px] ${
+              <div className={`p-1.5 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[65px] sm:min-w-[80px] ${
                 isDarkMode
                   ? 'bg-slate-800 text-emerald-300 border-slate-700'
                   : 'bg-emerald-50 text-emerald-950 border-emerald-200'
               }`}>
-                <span className="text-[10px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
-                <span className="text-[10px] sm:text-[11px] leading-tight">{new Date().toLocaleDateString('ar-EG')}</span>
+                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
+                <span className="text-[9px] sm:text-[11px] leading-tight">{new Date().toLocaleDateString('ar-EG')}</span>
               </div>
 
               {/* Font Size Toggle Button */}
               <button
                 onClick={() => setLargeFont(!largeFont)}
-                className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   largeFont
                     ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
                     : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
                 }`}
                 title="تكبير الخط"
               >
-                <Type className={`w-5 h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
-                <span className="text-[10px] sm:text-[11px] leading-tight">الخط</span>
+                <Type className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
+                <span className="text-[9px] sm:text-[11px] leading-tight">الخط</span>
               </button>
 
               {/* Admin Button (Placed between Calculator and Theme Toggle) */}
               {(currentUser.isAdmin || currentUser.name === 'الأدمن') && (
                 <button
                   onClick={() => setActiveTab('admin')}
-                  className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                     activeTab === 'admin'
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
                       : isDarkMode
@@ -255,15 +255,15 @@ const MainAppContent: React.FC = () => {
                   }`}
                   title="صفحة الادمن"
                 >
-                  <Shield className="w-5 h-5 text-amber-500 shrink-0" />
-                  <span className="text-[10px] sm:text-[11px] leading-tight">الادمن</span>
+                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
+                  <span className="text-[9px] sm:text-[11px] leading-tight">أدمن</span>
                 </button>
               )}
 
               {/* Theme Toggle Button */}
               <button
                 onClick={toggleDarkMode}
-                className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-slate-800 text-amber-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
@@ -272,13 +272,13 @@ const MainAppContent: React.FC = () => {
               >
                 {isDarkMode ? (
                   <>
-                    <Sun className="w-5 h-5 text-amber-400 fill-amber-400/20 shrink-0" />
-                    <span className="text-[10px] sm:text-[11px] leading-tight">فاتح</span>
+                    <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
+                    <span className="text-[9px] sm:text-[11px] leading-tight">فاتح</span>
                   </>
                 ) : (
                   <>
-                    <Moon className="w-5 h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
-                    <span className="text-[10px] sm:text-[11px] leading-tight">داكن</span>
+                    <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
+                    <span className="text-[9px] sm:text-[11px] leading-tight">داكن</span>
                   </>
                 )}
               </button>
@@ -289,15 +289,15 @@ const MainAppContent: React.FC = () => {
                   setActiveTab('entry');
                   logout();
                 }}
-                className={`p-2 sm:px-3 sm:py-2 rounded-xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[54px] sm:min-w-[60px] ${
+                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-red-950/80 text-red-300 hover:bg-red-900 border-red-800/80'
                     : 'bg-red-600 text-white hover:bg-red-700 border-red-600'
                 }`}
                 title="تسجيل الخروج والعودة لشاشة الدخول"
               >
-                <LogOut className="w-5 h-5 shrink-0" />
-                <span className="text-[10px] sm:text-[11px] leading-tight">خروج</span>
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="text-[9px] sm:text-[11px] leading-tight">خروج</span>
               </button>
             </div>
           </div>
@@ -311,10 +311,10 @@ const MainAppContent: React.FC = () => {
               : 'bg-white/95 border-slate-200 text-slate-900 shadow-md'
           }`}
         >
-          <div className="max-w-5xl mx-auto px-3 sm:px-4 flex">
-          <button
+          <div className="max-w-5xl mx-auto px-1 sm:px-4 flex flex-wrap">
+            <button
             onClick={() => setActiveTab('entry')}
-            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 border-b-2 transition-all ${
+            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'entry'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -324,13 +324,13 @@ const MainAppContent: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            <span>ادخال</span>
+            <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span>الفواتير</span>
           </button>
 
           <button
             onClick={() => setActiveTab('routes')}
-            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
+            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'routes'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -340,13 +340,13 @@ const MainAppContent: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <MapPin className="w-4 h-4 text-emerald-400" />
+            <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
             <span>المسارات</span>
           </button>
 
           <button
             onClick={() => setActiveTab('reports')}
-            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
+            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'reports'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -356,14 +356,14 @@ const MainAppContent: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <BarChart2 className="w-4 h-4" />
-            <span>التقرير</span>
+            <BarChart2 className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span>التقارير</span>
           </button>
 
           {/* EVALUATIONS TAB (تقييمات) */}
           <button
             onClick={() => setActiveTab('evaluations')}
-            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
+            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'evaluations'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -373,14 +373,14 @@ const MainAppContent: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <Award className="w-4 h-4 text-amber-400" />
-            <span>تقييمات</span>
+            <Award className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400" />
+            <span>التقييمات</span>
           </button>
 
           {/* PRODUCTS TAB (المنتجات) */}
           <button
             onClick={() => setActiveTab('products')}
-            className={`flex-1 py-3 px-2 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 border-b-2 transition-all ${
+            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'products'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -390,7 +390,7 @@ const MainAppContent: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <Package className="w-4 h-4 text-emerald-400" />
+            <Package className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
             <span>المنتجات</span>
           </button>
           </div>
@@ -438,7 +438,7 @@ const MainAppContent: React.FC = () => {
             : 'bg-slate-200 border-slate-300 text-slate-700'
         }`}
       >
-        برمجة المهندس ياسر المعجون
+         برمجة وتصميم  |  مهندس ياسر المعجون  |  كالة فرع صلاح الدين
       </footer>
     </div>
   );

@@ -43,10 +43,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       setCustomerAddress(prefilledEntryData.customerAddress);
       if (prefilledEntryData.customerType) {
         setCustomerType(prefilledEntryData.customerType);
+        setPriceMode(prefilledEntryData.customerType === 'جملة' ? 'wholesale' : 'retail');
       }
-      setPrefilledEntryData(null);
     }
-  }, [prefilledEntryData, setPrefilledEntryData]);
+  }, [prefilledEntryData, setPrefilledEntryData, setPriceMode]);
 
   React.useEffect(() => {
     localStorage.setItem('pref_priceMode', priceMode);
@@ -369,14 +369,28 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
         dateString: new Date().toISOString().split('T')[0],
         customerName: trimmedCustomerName,
-        customerCode: customerCode.trim(),
-        customerAddress: customerAddress.trim(),
+        customerCode: String(customerCode || '').trim(),
+        customerAddress: String(customerAddress || '').trim(),
         priceMode: priceMode
       });
     }
 
-    if (itemsToSave.length < 3) {
-      setErrorMessage('تنبيه: يجب ادخال 3 منتجات او اكثر للحفظ');
+    // Check for diverse products (using Set to count unique product names)
+    const uniqueProducts = new Set(itemsToSave.map(item => item.productName));
+    if (uniqueProducts.size < 3) {
+      setErrorMessage('تنبيه: يجب إدخال 3 منتجات متنوعة على الأقل');
+      return;
+    }
+
+    // Check for minimum amount
+    const totalPrice = itemsToSave.reduce((sum, e) => {
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+    }, 0);
+
+    if (totalPrice < 25000) {
+      setErrorMessage('تنبيه: يجب أن يكون إجمالي مبلغ الفاتورة 25 ألف د.ع أو أكثر');
       return;
     }
 
@@ -504,9 +518,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               <input
                 type="text"
                 value={customerName}
+                readOnly={!!prefilledEntryData}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="اسم الزبون..."
-                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div>
@@ -514,19 +529,37 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               <input
                 type="text"
                 value={customerCode}
+                readOnly={!!prefilledEntryData}
                 onChange={(e) => setCustomerCode(e.target.value)}
                 placeholder="الكود..."
-                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div>
-              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">العنوان</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300">العنوان</label>
+                <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded-md">
+                    <button
+                        onClick={() => setPriceMode('retail')}
+                        className={`px-2 py-0.5 rounded-sm text-[8px] font-black transition-all ${priceMode === 'retail' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
+                    >
+                        مفرد
+                    </button>
+                    <button
+                        onClick={() => setPriceMode('wholesale')}
+                        className={`px-2 py-0.5 rounded-sm text-[8px] font-black transition-all ${priceMode === 'wholesale' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
+                    >
+                        جملة
+                    </button>
+                </div>
+              </div>
               <input
                 type="text"
                 value={customerAddress}
+                readOnly={!!prefilledEntryData}
                 onChange={(e) => setCustomerAddress(e.target.value)}
                 placeholder="العنوان..."
-                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
           </div>
@@ -552,20 +585,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-          <div className="flex items-center justify-center sm:justify-start w-full sm:w-auto bg-slate-200 dark:bg-slate-800 p-1.5 rounded-lg">
-            <button
-              onClick={() => setPriceMode('retail')}
-              className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-xs sm:text-sm font-black transition-all ${priceMode === 'retail' ? 'bg-white dark:bg-slate-700 shadow-md text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
-            >
-              مفرد
-            </button>
-            <button
-              onClick={() => setPriceMode('wholesale')}
-              className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-xs sm:text-sm font-black transition-all ${priceMode === 'wholesale' ? 'bg-white dark:bg-slate-700 shadow-md text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
-            >
-              جملة
-            </button>
-          </div>
+          {/* Price toggle moved up */}
+          <div className="hidden"></div>
           
           {categoriesList.length > 2 && (
             <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
@@ -790,11 +811,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                           <img 
                             src={prod.imageUrl} 
                             alt={prod.productName} 
-                            className="w-[170px] h-[170px] object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
+                            className="w-[150px] h-[170px] object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
                             onError={(e) => (e.currentTarget.style.display = 'none')}
                           />
                         ) : (
-                          <div className={`w-[170px] h-[170px] flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
+                          <div className={`w-[150px] h-[170px] flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
                             <span className="text-5xl font-black opacity-90 drop-shadow-md">{getAvatarProps(prod.productName).initial}</span>
                             <span className="text-[10px] font-bold opacity-75 mt-2 bg-black/20 px-2 py-0.5 rounded">بدون صورة</span>
                           </div>

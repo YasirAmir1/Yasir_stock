@@ -153,8 +153,9 @@ export const AdminScreen: React.FC = () => {
           customerCode: row[0] || '',
           customerName: row[1] || '',
           customerAddress: row[2] || '',
-          delegateName: row[3] || '',
-          path: row[4] || '',
+          path: row[3] || '',
+          customerType: row[4] || 'مفرد',
+          delegateName: row[5] || '',
         });
       }
       

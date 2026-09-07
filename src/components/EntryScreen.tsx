@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import { GridRow, SalesEntry } from '../types';
 import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
@@ -27,7 +27,8 @@ export const EntryScreen: React.FC = () => {
     prefilledEntryData,
     setPrefilledEntryData,
     showQuickAdd,
-    setShowQuickAdd
+    setShowQuickAdd,
+    setActiveTab,
   } = useSales();
 
   useEffect(() => {
@@ -160,16 +161,31 @@ export const EntryScreen: React.FC = () => {
     const pieceWeightKg = wGrams / 1000;
     const totalW = (q * wGrams) / 1000;
 
+    // Get product to calculate carton quantity
+    const prod = productsList.find(p => p.productName === name);
+    const cq = Number(prod?.cartonQuantity) || 1;
+    
+    // Find old entry to get its unit
+    const oldEntry = safeSavedEntries.find(e => e.id === id);
+    const newEnteredQuantity = oldEntry?.entryUnit === 'carton' ? (q / cq) : q;
+
+    // التحقق من أن القيم المحدثة منطقية قبل التمرير
+    if (totalW <= 0 || isNaN(totalW)) {
+      setErrorMessage('خطأ في حساب الوزن الإجمالي، يرجى التأكد من القيم المدخلة.');
+      return;
+    }
+
     updateSalesEntry(id, {
       productName: name,
       categoryName: editFormData.categoryName,
       quantity: q,
       pieceWeightKg: pieceWeightKg,
       totalWeightKg: totalW,
+      enteredQuantity: newEnteredQuantity,
     });
 
     setEditingEntryId(null);
-    setSuccessMessage('تم تعديل المنتج بنجاح ✅');
+    setSuccessMessage('تم تعديل المنتج ومزامنة البيانات بنجاح ✅');
     setErrorMessage(null);
     setTimeout(() => setSuccessMessage(null), 3000);
   };
@@ -232,6 +248,17 @@ export const EntryScreen: React.FC = () => {
   }, 0);
 
   const dailyPct = dailyTargetKg > 0 ? (totalSavedWeight / dailyTargetKg) * 100 : 0;
+
+  const { modalTotalWeight, modalTotalPrice } = useMemo(() => {
+    const delegateEntries = safeSavedEntries.filter(e => e.delegateName === activeDelegateName);
+    const weight = delegateEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
+    const price = delegateEntries.reduce((sum, e) => {
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      return sum + (price * e.quantity);
+    }, 0);
+    return { modalTotalWeight: weight, modalTotalPrice: price };
+  }, [safeSavedEntries, activeDelegateName, productsList]);
 
   // Initialize default 6 rows with unique keys
   const [gridRows, setGridRows] = useState<GridRow[]>(() => {
@@ -473,6 +500,10 @@ export const EntryScreen: React.FC = () => {
             ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزون.
           </div>
           
+                    <div style="border: 1px solid #009; padding: 3px; font-size: 9px; font-weight: bold; text-align: center; margin-top: 8px;">
+            رقم المبيعات    :   07718458337
+          </div>
+
           </div>
           
           <script>
@@ -567,8 +598,8 @@ export const EntryScreen: React.FC = () => {
           delegateName: activeDelegateName || 'عام',
           dateString: new Date().toISOString().split('T')[0],
           customerName: trimmedCustomerName,
-          customerCode: customerCode.trim(),
-          customerAddress: customerAddress.trim(),
+          customerCode: String(customerCode || '').trim(),
+          customerAddress: String(customerAddress || '').trim(),
           priceMode: invoicePriceMode
         });
       }
@@ -578,6 +609,25 @@ export const EntryScreen: React.FC = () => {
 
     if (itemsToSave.length < 3) {
       setErrorMessage('تنبيه: يجب ادخال 3 منتجات او اكثر للحفظ');
+      return;
+    }
+
+    // Check for diverse products (using Set to count unique category names or product names)
+    const uniqueProducts = new Set(itemsToSave.map(item => item.productName));
+    if (uniqueProducts.size < 3) {
+      setErrorMessage('تنبيه: يجب إدخال 3 منتجات متنوعة على الأقل');
+      return;
+    }
+
+    // Check for minimum amount
+    const totalPrice = itemsToSave.reduce((sum, e) => {
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+    }, 0);
+
+    if (totalPrice < 25000) {
+      setErrorMessage('تنبيه: يجب أن يكون إجمالي مبلغ الفاتورة 25 ألف د.ع أو أكثر');
       return;
     }
 
@@ -608,11 +658,12 @@ export const EntryScreen: React.FC = () => {
       return;
     }
     
-    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
+    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
     const rows = safeSavedEntries.map(entry => [
       entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
       entry.delegateName || 'غير محدد',
       entry.customerName || 'بدون اسم زبون',
+      entry.customerCode || '',
       entry.productName,
       entry.categoryName,
       getProductCode(entry.productName),
@@ -690,72 +741,20 @@ export const EntryScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       <DelegateLoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
-
-      {/* Target Progress Banner */}
-
-
-      {/* Total Saved Weight Summary Card */}
-      <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-3">
-        <h2 className="font-extrabold text-slate-900 text-base flex items-center justify-center gap-2">
-          مجموع وزن إدخالات ({activeDelegateName})
-          {completedDelegates[activeDelegateName || ''] && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
-        </h2>
-        
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-12">
-          <div className="flex flex-col items-center justify-center">
-            <span className="text-xs font-bold text-slate-500 mb-1">الوزن الكلي</span>
-            <div className="text-3xl font-black text-slate-900">
-              {formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم
-            </div>
-          </div>
-          
-          <div className="hidden sm:block w-px h-12 bg-slate-200"></div>
-          <div className="block sm:hidden w-full h-px bg-slate-200"></div>
-          
-          <div className="flex flex-col items-center justify-center">
-            <span className="text-xs font-bold text-slate-500 mb-1">المبلغ الكلي</span>
-            <div className="text-3xl font-black text-emerald-600">
-              {formatWithCommas(totalSavedPrice, true)} د.ع
-            </div>
-          </div>
+      {/* Summary Bar - Persistent at top of content area */}
+      <div className="sticky top-0 z-40 bg-emerald-700 text-white p-2 rounded-lg shadow-md border border-emerald-900 flex justify-between items-center mb-3 w-full max-w-full">
+        <div className="text-center px-1 flex-1 min-w-0">
+          <div className="text-[9px] opacity-90 truncate">إجمالي المبيعات اليوم</div>
+          <div className="font-black text-xs truncate">{formatWithCommas(totalSavedPrice, true)}</div>
         </div>
-
-        <div className="flex justify-center gap-3 pt-2">
-          <span className="px-3 py-1 bg-emerald-100 border border-emerald-400 text-slate-900 font-bold text-xs rounded-full">
-            إجمالي القطع: {formatWithCommas(totalSavedQuantity)} قطعة
-          </span>
-          <span className="px-3 py-1 bg-emerald-100 border border-emerald-400 text-slate-900 font-bold text-xs rounded-full">
-            عدد السجلات: {formatWithCommas(safeSavedEntries.length)} منتج
-          </span>
+        <div className="text-center px-1 flex-1 min-w-0 border-r border-emerald-800">
+          <div className="text-[9px] opacity-90 truncate">إجمالي الوزن اليوم</div>
+          <div className="font-black text-xs truncate">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم</div>
         </div>
-        {Object.keys(delegateStats).length > 0 && (
-          <div className="flex flex-wrap justify-center gap-3 pt-3 mt-2 border-t border-emerald-200">
-            {Object.entries(delegateStats)
-              .sort(([, a], [, b]) => (b.wholesale.size + b.retail.size) - (a.wholesale.size + a.retail.size))
-              .map(([delegate, stats]) => (
-               <div key={delegate} className="flex flex-col items-center bg-white border-2 border-emerald-500 rounded-lg shadow-sm overflow-hidden text-xs min-w-[120px]">
-                 <div className="bg-emerald-50 w-full text-center py-1.5 px-3 border-b border-emerald-200 text-slate-800 font-bold flex items-center justify-center gap-2">
-                   {delegate}
-                   {completedDelegates[delegate] && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-                 </div>
-                 <div className="flex justify-between w-full px-2 py-1 text-slate-600 border-b border-slate-100">
-                   <div className="flex flex-col items-center w-1/2 border-l border-slate-200">
-                     <span className="text-[9px] text-purple-600 font-bold">جملة</span>
-                     <span className="font-bold text-slate-800">{stats.wholesale.size}</span>
-                   </div>
-                   <div className="flex flex-col items-center w-1/2">
-                     <span className="text-[9px] text-amber-600 font-bold">مفرد</span>
-                     <span className="font-bold text-slate-800">{stats.retail.size}</span>
-                   </div>
-                 </div>
-                 <div className="bg-slate-50 w-full text-center py-1 px-3 text-emerald-800 font-black">
-                   المجموع: {stats.wholesale.size + stats.retail.size}
-                 </div>
-               </div>
-            ))}
-          </div>
-        )}
       </div>
+
+
+
 
       {/* Messages */}
       {errorMessage && (
@@ -775,283 +774,12 @@ export const EntryScreen: React.FC = () => {
 
 
 
-
-            {/* Customer Info Box */}
-      <div className="bg-slate-50 border border-slate-300 rounded-xl p-4 shadow-sm">
-        <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
-          بيانات الزبون
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">اسم الزبون <span className="text-red-500">*</span></label>
-            <input
-              type="text"
-              list="customerNamesList"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="إلزامي"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <datalist id="customerNamesList">
-              {uniqueCustomerNames.map((name, idx) => (
-                <option key={idx} value={name} />
-              ))}
-            </datalist>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">نوع الفاتورة <span className="text-red-500">*</span></label>
-            <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-300">
-              <button
-                type="button"
-                onClick={() => setInvoicePriceMode('retail')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${invoicePriceMode === 'retail' ? 'bg-white shadow-sm text-emerald-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-              >
-                مفرد
-              </button>
-              <button
-                type="button"
-                onClick={() => setInvoicePriceMode('wholesale')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${invoicePriceMode === 'wholesale' ? 'bg-white shadow-sm text-emerald-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-              >
-                جملة
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">كود الزبون</label>
-            <input
-              type="text"
-              value={customerCode}
-              onChange={(e) => setCustomerCode(e.target.value)}
-             
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">العنوان</label>
-            <input
-              type="text"
-              value={customerAddress}
-              onChange={(e) => setCustomerAddress(e.target.value)}
-             
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* EXACT GRID TABLE matching requested style */}
-      <div className="border-2 border-slate-900 rounded-xl overflow-hidden shadow-xl bg-white entry-grid-container">
-        <div className="overflow-x-auto">
-          <table className="w-full text-center border-collapse">
-            <thead>
-              <tr className="bg-[#7EFF74] text-black font-extrabold text-xs sm:text-sm border-b-2 border-slate-900">
-                <th className="py-2.5 px-2 border-l border-slate-900 w-[30%]">اسم المنتج</th>
-                <th className="py-2.5 px-2 border-l border-slate-900 w-[20%]">رقم الإدخال</th>
-                <th className="py-2.5 px-2 border-l border-slate-900 w-[20%]">الصنف</th>
-                <th className="py-2.5 px-2 border-l border-slate-900 w-[15%]">وزن القطعة (غرام)</th>
-                <th className="py-2.5 px-2 w-[15%]">وزن الإدخال بالكيلو</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gridRows.map((row, idx) => {
-                const effectiveQ = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
-                const gVal = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
-                const rowKgVal = (effectiveQ * gVal) / 1000;
-
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-b border-slate-800 ${
-                      idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'
-                    }`}
-                  >
-                    <td className="p-0 border-l border-slate-800 relative">
-                      <div className="relative flex items-center w-full h-full">
-                        <input
-                          type="text"
-                          placeholder="اسم المنتج (اكتب للاقتراح من القائمة)"
-                          value={row.productName}
-                          onChange={(e) => {
-                            handleRowChange(row.id, 'productName', e.target.value);
-                            setActiveAutocompleteRowId(row.id);
-                          }}
-                          onFocus={() => setActiveAutocompleteRowId(row.id)}
-                          onBlur={() => setTimeout(() => setActiveAutocompleteRowId(null), 250)}
-                          onKeyDown={handleKeyDown}
-                          className="w-full h-10 px-2 pl-8 bg-transparent text-slate-900 font-bold text-sm text-right focus:bg-emerald-50 focus:outline-none border-none"
-                        />
-                        {(row.productName || row.quantity || row.pieceWeight) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleRowChange(row.id, 'productName', '');
-                              handleRowChange(row.id, 'quantity', '');
-                              handleRowChange(row.id, 'pieceWeight', '');
-                            }}
-                            className="absolute left-1.5 w-5 h-5 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-full flex items-center justify-center transition-colors cursor-pointer"
-                            title="مسح السطر"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      {activeAutocompleteRowId === row.id && (
-                        <div className="absolute top-full right-0 z-50 w-full min-w-[280px] sm:w-96 bg-white border border-slate-300 shadow-2xl rounded-xl mt-1 max-h-72 overflow-y-auto text-right">
-                          {productSuggestions
-                            .filter((item) =>
-                              row.productName.trim() === '' || item.name.toLowerCase().includes(row.productName.toLowerCase()) || item.code.toLowerCase().includes(row.productName.toLowerCase())
-                            )
-                            .slice(0, 6)
-                            .map((matchedItem, mIdx) => (
-                              <div
-                                key={`sug_${mIdx}`}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  const weightGrams = matchedItem.pieceWeightKg ? String(Math.round(matchedItem.pieceWeightKg * 1000)) : '';
-                                  setGridRows((prev) =>
-                                    prev.map((r) =>
-                                      r.id === row.id
-                                        ? {
-                                            ...r,
-                                            productName: matchedItem.name,
-                                            category: matchedItem.category || r.category,
-                                            pieceWeight: weightGrams || r.pieceWeight,
-                                          }
-                                        : r
-                                    )
-                                  );
-                                  setActiveAutocompleteRowId(null);
-                                }}
-                                className="px-3 py-2.5 hover:bg-emerald-100 cursor-pointer text-xs font-bold text-slate-900 border-b border-slate-100 flex items-center justify-between"
-                              >
-                                <span>{matchedItem.name}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800">
-                                  {matchedItem.category}
-                                </span>
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="p-0 border-l border-slate-800 relative">
-                      <div className="flex flex-col h-full justify-center">
-                        <div className="flex items-center justify-center gap-3 pt-1.5 pb-1 border-b border-slate-200 bg-slate-50/50">
-                          <button
-                            type="button"
-                            onClick={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'piece')}
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-colors ${
-                              (row.entryUnit || 'piece') === 'piece' 
-                                ? 'border-red-500 text-red-600' 
-                                : 'border-transparent text-slate-700'
-                            }`}
-                          >
-                            قطع
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRowChange(row.id, 'entryUnit' as keyof GridRow, 'carton')}
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-colors ${
-                              row.entryUnit === 'carton'
-                                ? 'border-red-500 text-red-600'
-                                : 'border-transparent text-slate-700'
-                            }`}
-                          >
-                            كارتون
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="0"
-                          value={row.quantity}
-                          onChange={(e) => handleRowChange(row.id, 'quantity', e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          className="w-full h-8 px-2 bg-transparent text-slate-900 font-bold text-sm text-center focus:bg-emerald-50 focus:outline-none border-none"
-                        />
-                      </div>
-                    </td>
-
-                    <td className="p-0 border-l border-slate-800">
-                      <select
-                        value={row.category}
-                        onChange={(e) => handleRowChange(row.id, 'category', e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="w-full h-10 px-1 bg-transparent text-slate-900 font-bold text-xs focus:bg-emerald-50 focus:outline-none border-none text-center cursor-pointer"
-                      >
-                        {DEFAULT_CATEGORIES_LIST.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-
-                    <td className="p-0 border-l border-slate-800">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="غرام (مثال 250)"
-                        value={row.pieceWeight}
-                        onChange={(e) => handleRowChange(row.id, 'pieceWeight', e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="w-full h-10 px-2 bg-transparent text-slate-900 font-bold text-sm text-center focus:bg-emerald-50 focus:outline-none border-none"
-                      />
-                    </td>
-
-                    <td className="py-2 px-1 text-center font-black text-xs text-emerald-900 bg-emerald-100/60">
-                      {rowKgVal > 0 ? `${formatWithCommas(parseFloat(rowKgVal.toFixed(2)), true)} كجم` : '0 كجم'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="bg-emerald-50 border-t-2 border-slate-900">
-                <td colSpan={3} className="py-2.5 px-3 text-right font-black text-emerald-900 text-sm">
-                  الإجمالي الكلي: {formatWithCommas(currentInvoiceTotalPrice, true)} د.ع
-                </td>
-                <td colSpan={2} className="py-2.5 px-3 text-left font-black text-emerald-900 text-sm">
-                  الوزن: {formatWithCommas(parseFloat(currentInvoiceTotalWeight.toFixed(2)), true)} كجم
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <button
-          onClick={handleSaveGrid}
-          className="w-full bg-[#7EFF74] hover:bg-[#6be662] text-black font-black text-lg py-3 flex items-center justify-center gap-2 border-t-2 border-slate-900 transition-colors shadow-inner cursor-pointer save-btn"
-        >
-          <Save className="w-5 h-5 text-black" />
-          <span>حفظ الادخال</span>
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <button
-          onClick={handleAddMoreRows}
-          className="px-4 py-2 border border-slate-600 bg-slate-800 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>إضافة صفوف إضافية</span>
-        </button>
-
-        <button
-          onClick={handleClearGrid}
-          className="px-4 py-2 border border-red-500/40 bg-red-950/40 text-red-300 hover:bg-red-900/60 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-        >
-          مسح الجدول
-        </button>
-      </div>
-
       {/* Saved Sales List Table */}
       <div className="space-y-2 pt-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
-              سجل المبيعات المحفوظة اليوم ({safeSavedEntries.length})
+             فواتير اليوم :  ({safeSavedEntries.length})
             </h3>
             
             <div className="flex bg-slate-200 rounded-lg p-0.5 border border-slate-300 mr-2">
@@ -1129,7 +857,7 @@ export const EntryScreen: React.FC = () => {
 
         {safeSavedEntries.length === 0 ? (
           <div className="p-4 bg-slate-100 border border-slate-300 rounded-xl text-center text-xs text-slate-600 font-bold">
-            لا توجد مبيعات محفوظة اليوم بعد. أدخل المنتجات في الجدول أعلاه واضغط 'حفظ الادخال'.
+            لا توجد مبيعات محفوظة اليوم
           </div>
         ) : (
           <div className="space-y-4">
@@ -1174,6 +902,21 @@ export const EntryScreen: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrefilledEntryData({ 
+                            customerName: entries[0].customerName, 
+                            customerCode: entries[0].customerCode || '', 
+                            customerAddress: entries[0].customerAddress || '' 
+                          });
+                          setActiveTab('entry');
+                        }}
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
+                        title="إضافة منتج للفاتورة"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(customerName, entries)}
@@ -1231,63 +974,42 @@ export const EntryScreen: React.FC = () => {
                         <input
                           type="text"
                           value={editFormData.productName}
-                          onChange={(e) =>
-                            setEditFormData({ ...editFormData, productName: e.target.value })
-                          }
-                          onKeyDown={handleKeyDown}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white"
+                          readOnly
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-500 bg-slate-100"
                         />
                       </div>
 
                       <div>
                         <label className="block text-[11px] font-extrabold text-slate-700 mb-1">الصنف</label>
-                        <select
+                        <input
+                          type="text"
                           value={editFormData.categoryName}
-                          onChange={(e) =>
-                            setEditFormData({ ...editFormData, categoryName: e.target.value })
-                          }
-                          onKeyDown={handleKeyDown}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white"
-                        >
-                          {DEFAULT_CATEGORIES_LIST.map((cat) => (
-                            <option key={cat} value={cat}>
-                              {cat}
-                            </option>
-                          ))}
-                        </select>
+                          readOnly
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-500 bg-slate-100"
+                        />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">رقم الإدخال</label>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">عدد القطع (رقم الإدخال)</label>
                         <input
                           type="text"
                           inputMode="numeric"
                           value={editFormData.quantity}
                           onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              quantity: parseArabicDigits(e.target.value),
-                            })
+                            setEditFormData({ ...editFormData, quantity: parseArabicDigits(e.target.value) })
                           }
                           onKeyDown={handleKeyDown}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white text-center"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-amber-500"
                         />
                       </div>
-
+                      
                       <div>
                         <label className="block text-[11px] font-extrabold text-slate-700 mb-1">وزن القطعة (غرام)</label>
                         <input
                           type="text"
-                          inputMode="decimal"
                           value={editFormData.pieceWeightKg}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              pieceWeightKg: parseArabicDigits(e.target.value),
-                            })
-                          }
-                          onKeyDown={handleKeyDown}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white text-center"
+                          readOnly
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-500 bg-slate-100"
                         />
                       </div>
                     </div>
@@ -1346,22 +1068,18 @@ export const EntryScreen: React.FC = () => {
                       <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800'}`} title="القطع المدخلة">
                         {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
                       </div>
-                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="الوزن الإجمالي">
-                        {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
-                      </div>
-                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="السعر">
-                        {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
-                      </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(entry)}
-                        className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/50' : 'text-amber-600 hover:text-amber-800 hover:bg-amber-100'}`}
-                        title="تعديل هذا الإدخال"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      {!completedDelegates[activeDelegateName || ''] && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(entry)}
+                          className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/50' : 'text-amber-600 hover:text-amber-800 hover:bg-amber-100'}`}
+                          title="تعديل هذا الإدخال"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
@@ -1371,7 +1089,30 @@ export const EntryScreen: React.FC = () => {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
+                    
+                    <div className="flex items-center gap-1.5">
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="وزن الإدخال">
+                        وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
+                      </div>
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="مبلغ الإدخال">
+                        مبلغ: {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
+                      </div>
+                    </div>
                   </div>
+                <div className="bg-slate-50 border-t border-slate-200 p-3 rounded-b-xl flex justify-between items-center mt-2">
+                  <div className="text-center px-1 flex-1 min-w-0">
+                    <div className="text-[10px] text-slate-500">إجمالي مبلغ الفاتورة</div>
+                    <div className="font-black text-sm text-slate-900">{formatWithCommas(entries.reduce((sum, e) => {
+                      const prod = productsList.find(p => p.productName === e.productName);
+                      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                      return sum + (price * e.quantity);
+                    }, 0), true)} د.ع</div>
+                  </div>
+                  <div className="text-center px-1 flex-1 min-w-0 border-r border-slate-200">
+                    <div className="text-[10px] text-slate-500">الوزن الكلي</div>
+                    <div className="font-black text-sm text-slate-900">{formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم</div>
+                  </div>
+                </div>
                 </div>              );
             })}
                 </div>

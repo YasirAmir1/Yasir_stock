@@ -18,7 +18,7 @@ import {
 export const DEFAULT_CATEGORIES_LIST = [
   'قشطة',
   'جبن 1',
-  'جبن 2',
+  'جبن ويلي',
   'حليب بطل',
   'حليب باكيت',
   'جبن بيتزا',
@@ -42,7 +42,7 @@ export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'sbhkala', password: '1234', delegateName: 'صباح فرحان', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
 ];
@@ -224,9 +224,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
-    { id: 'p2', productName: 'جبنة بيضاء بلدية', cartonQuantity: 24, categoryName: 'أجبان', productCode: 'CHS-002', pieceWeightKg: 0.500 },
-    { id: 'p3', productName: 'زبدة طبيعية نقية', cartonQuantity: 10, categoryName: 'زبدة', productCode: 'BUT-003', pieceWeightKg: 0.250 },
-    { id: 'p4', productName: 'قشطة بلدي طازجة', cartonQuantity: 15, categoryName: 'قشطة', productCode: 'QSH-004', pieceWeightKg: 0.300 },
   ];
 
   const [productsList, setProductsList] = useState<ProductItem[]>(() => {
