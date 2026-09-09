@@ -799,7 +799,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                           placeholder="اسم المنتج"
                         />
                       ) : (
-                        <h3 className={`font-black leading-tight text-slate-900 dark:!text-white text-center ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-sm'}`}>
+                        <h3 id="product-name-label" className={`font-black leading-tight text-slate-900 ${isDarkMode ? 'text-orange-500' : 'dark:text-white'} text-center ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-sm'}`}>
                           {prod.productName}
                         </h3>
                       )}

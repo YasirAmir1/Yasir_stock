@@ -111,18 +111,18 @@ export const RoutesScreen: React.FC = () => {
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
       
       {/* Summary Card */}
-      <div className={`grid grid-cols-3 gap-2 p-3 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-        <div className="text-center">
-            <div className="text-xs font-bold text-slate-500">إجمالي</div>
-            <div className="text-lg font-black text-slate-900 dark:text-white">{filteredRoutes.length}</div>
+      <div className={`grid grid-cols-3 gap-2 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className="text-center p-2 rounded-lg bg-slate-100 dark:bg-slate-900">
+            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1">إجمالي المسار</div>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">{filteredRoutes.length}</div>
         </div>
-        <div className="text-center">
-            <div className="text-xs font-bold text-emerald-500">تمت الزيارة</div>
-            <div className="text-lg font-black text-emerald-600">{filteredRoutes.filter(isVisited).length}</div>
+        <div className="text-center p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+            <div className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1">تمت الزيارة</div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">{filteredRoutes.filter(isVisited).length}</div>
         </div>
-        <div className="text-center">
-            <div className="text-xs font-bold text-orange-500">منتظرة</div>
-            <div className="text-lg font-black text-orange-600">{filteredRoutes.filter(r => !isVisited(r)).length}</div>
+        <div className="text-center p-2 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+            <div className="text-[10px] sm:text-xs font-bold text-orange-600 dark:text-orange-400 mb-1">متبقي</div>
+            <div className="text-xl sm:text-2xl font-black text-orange-600 dark:text-orange-400">{filteredRoutes.filter(r => !isVisited(r)).length}</div>
         </div>
       </div>
 
@@ -210,13 +210,18 @@ export const RoutesScreen: React.FC = () => {
                           <div className="flex items-center gap-1">
                             {statusIcon}
                             <span>{r.customerName}</span>
+                            {totalWeightToday > 0 && (
+                                <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
+                                    {totalWeightToday.toFixed(1)} كجم
+                                </span>
+                            )}
                             {daysSinceLastVisit > 3 && (
                                 <span className="flex items-center justify-center w-5 h-5 bg-red-600 text-white rounded-full text-[8px] font-black">
                                     {daysSinceLastVisit}
                                 </span>
                             )}
                           </div>
-                          {!(completedDelegates[currentUser?.name || ''] || false) && (
+                          {!isVisitedToday && !(completedDelegates[currentUser?.name || ''] || false) && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
