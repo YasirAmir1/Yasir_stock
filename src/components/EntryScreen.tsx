@@ -779,7 +779,7 @@ export const EntryScreen: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
-             فواتير اليوم :  ({safeSavedEntries.length})
+             فواتير اليوم :  ({new Set(safeSavedEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]).map(e => e.customerName)).size})
             </h3>
             
             <div className="flex bg-slate-200 rounded-lg p-0.5 border border-slate-300 mr-2">

@@ -9,7 +9,6 @@ export const RoutesScreen: React.FC = () => {
   const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, addToast } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
-  const [hideVisited, setHideVisited] = useState(false);
 
   /*
   useEffect(() => {
@@ -88,7 +87,7 @@ export const RoutesScreen: React.FC = () => {
     return aVisited ? 1 : -1;
   });
 
-  const finalRoutes = hideVisited ? filteredRoutes.filter(r => !isVisited(r)) : filteredRoutes;
+  const finalRoutes = filteredRoutes;
 
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
@@ -110,39 +109,26 @@ export const RoutesScreen: React.FC = () => {
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
       
-      {/* Summary Card */}
+      {/* Dashboard Widget */}
       {(() => {
-        const visitedCount = filteredRoutes.filter(isVisited).length;
-        const totalCount = filteredRoutes.length;
-        const remainingCount = totalCount - visitedCount;
+        const todayStr = new Date().toISOString().split('T')[0];
+        const scheduledToday = filteredRoutes.length;
+        const invoicesToday = new Set(salesEntries.filter(e => e.dateString === todayStr).map(e => e.customerCode)).size;
 
         return (
-          <div className={`grid grid-cols-3 gap-2 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-            <div className="text-center p-2 rounded-lg bg-slate-100 dark:bg-slate-900">
-                <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1">إجمالي المسار</div>
-                <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">{totalCount}</div>
+            <div className={`grid grid-cols-2 gap-4 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                <div className="text-center">
+                    <div className="text-[10px] font-bold text-slate-500 mb-1">زبائن اليوم</div>
+                    <div className="text-lg font-black text-slate-900 dark:text-white">{scheduledToday}</div>
+                </div>
+                <div className="text-center">
+                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">فواتير اليوم</div>
+                    <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">{invoicesToday}</div>
+                </div>
             </div>
-            <div className="text-center p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
-                <div className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1">تمت الزيارة</div>
-                <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">{visitedCount}</div>
-            </div>
-            <div className="text-center p-2 rounded-lg bg-orange-50 dark:bg-orange-900/20">
-                <div className="text-[10px] sm:text-xs font-bold text-orange-600 dark:text-orange-400 mb-1">متبقي</div>
-                <div className="text-xl sm:text-2xl font-black text-orange-600 dark:text-orange-400">{remainingCount}</div>
-            </div>
-          </div>
         );
       })()}
-
-      <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <button 
-            onClick={() => setHideVisited(!hideVisited)}
-            className={`p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'} ${hideVisited ? 'bg-emerald-600 text-white' : ''}`}
-          >
-            {hideVisited ? 'إظهار الكل' : 'إخفاء المزار' }
-          </button>
-      </div>
-
+      
       {currentUser?.isAdmin && (
         <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -179,6 +165,7 @@ export const RoutesScreen: React.FC = () => {
               <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">آخر فاتورة</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -190,7 +177,7 @@ export const RoutesScreen: React.FC = () => {
             }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
               <React.Fragment key={day}>
                 <tr>
-                  <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
+                  <td colSpan={6} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
                     {day}
                   </td>
                 </tr>
@@ -198,7 +185,8 @@ export const RoutesScreen: React.FC = () => {
                   const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
                   const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
-                  const isVisitedToday = lastEntry && lastEntry.dateString === todayStr;
+                  const isVisitedToday = customerEntries.some(e => e.dateString === todayStr);
+                  const hasOrderIn12Hours = lastEntry && (Date.now() - lastEntry.timestamp < 12 * 60 * 60 * 1000);
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
                   
                   const statusIcon = isVisitedToday 
@@ -206,12 +194,13 @@ export const RoutesScreen: React.FC = () => {
                     : <Circle className="w-5 h-5 text-slate-400" />;
 
                   const daysSinceLastVisit = lastEntry ? Math.floor((new Date().getTime() - lastEntry.timestamp) / (1000 * 60 * 60 * 24)) : 999;
+                  const lastEntryDate = lastEntry ? lastEntry.dateString : 'لا يوجد';
                   
                   return (
                     <tr 
                       key={r.id} 
                       onClick={() => handleRowClick(r)}
-                      className={`cursor-pointer transition-all ${isVisitedToday ? (isDarkMode ? 'bg-emerald-900/30' : 'bg-emerald-100') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
+                      className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-800' : 'bg-emerald-300') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
                     >
                       <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
@@ -229,7 +218,7 @@ export const RoutesScreen: React.FC = () => {
                                 </span>
                             )}
                           </div>
-                          {!isVisitedToday && !(completedDelegates[currentUser?.name || ''] || false) && (
+                          {!hasOrderIn12Hours && !(completedDelegates[currentUser?.name || ''] || false) && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -246,6 +235,7 @@ export const RoutesScreen: React.FC = () => {
                       <td className="px-3 py-2">{r.customerCode}</td>
                       <td className="px-3 py-2">{r.customerType}</td>
                       <td className="px-3 py-2">{r.path}</td>
+                      <td className="px-3 py-2">{lastEntryDate}</td>
                     </tr>
                   );
                 })}
