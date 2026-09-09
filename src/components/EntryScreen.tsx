@@ -1069,6 +1069,16 @@ export const EntryScreen: React.FC = () => {
                         {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
                       </div>
                     </div>
+                    
+                    <div className="flex items-center gap-1.5">
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="وزن الإدخال">
+                        وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
+                      </div>
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="مبلغ الإدخال">
+                        مبلغ: {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-1 shrink-0">
                       {!completedDelegates[activeDelegateName || ''] && (
                         <button
@@ -1089,31 +1099,9 @@ export const EntryScreen: React.FC = () => {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    
-                    <div className="flex items-center gap-1.5">
-                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="وزن الإدخال">
-                        وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
-                      </div>
-                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="مبلغ الإدخال">
-                        مبلغ: {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
-                      </div>
-                    </div>
-                  </div>
-                <div className="bg-slate-50 border-t border-slate-200 p-3 rounded-b-xl flex justify-between items-center mt-2">
-                  <div className="text-center px-1 flex-1 min-w-0">
-                    <div className="text-[10px] text-slate-500">إجمالي مبلغ الفاتورة</div>
-                    <div className="font-black text-sm text-slate-900">{formatWithCommas(entries.reduce((sum, e) => {
-                      const prod = productsList.find(p => p.productName === e.productName);
-                      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                      return sum + (price * e.quantity);
-                    }, 0), true)} د.ع</div>
-                  </div>
-                  <div className="text-center px-1 flex-1 min-w-0 border-r border-slate-200">
-                    <div className="text-[10px] text-slate-500">الوزن الكلي</div>
-                    <div className="font-black text-sm text-slate-900">{formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم</div>
                   </div>
                 </div>
-                </div>              );
+              );
             })}
                 </div>
               </div>

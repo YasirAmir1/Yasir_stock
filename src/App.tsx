@@ -224,8 +224,8 @@ const MainAppContent: React.FC = () => {
                   ? 'bg-slate-800 text-emerald-300 border-slate-700'
                   : 'bg-emerald-50 text-emerald-950 border-emerald-200'
               }`}>
-                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
-                <span className="text-[9px] sm:text-[11px] leading-tight">{new Date().toLocaleDateString('ar-EG')}</span>
+                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('en-US', { weekday: 'long' })}</span>
+                <span className="text-[9px] sm:text-[11px] leading-tight">{new Date().toLocaleDateString('en-US')}</span>
               </div>
 
               {/* Font Size Toggle Button */}
@@ -286,8 +286,10 @@ const MainAppContent: React.FC = () => {
               {/* Logout Button */}
               <button
                 onClick={() => {
-                  setActiveTab('entry');
-                  logout();
+                  if (window.confirm('هل أنت متأكد أنك تريد تسجيل الخروج؟')) {
+                    setActiveTab('entry');
+                    logout();
+                  }
                 }}
                 className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   isDarkMode

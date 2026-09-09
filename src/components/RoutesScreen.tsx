@@ -6,9 +6,33 @@ import { RouteItem } from '../types';
 import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 
 export const RoutesScreen: React.FC = () => {
-  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries } = useSales();
+  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, addToast } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+  const [hideVisited, setHideVisited] = useState(false);
+
+  /*
+  useEffect(() => {
+    if (!currentUser || currentUser.isAdmin) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const currentDayName = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
+
+    const delegateRoutes = routes.filter(r =>
+        r.delegateName.trim() === currentUser.name.trim() &&
+        r.path?.includes(currentDayName)
+    );
+
+    const unvisitedCount = delegateRoutes.filter(r => {
+        const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+        return !customerEntries.some(e => e.dateString === today);
+    }).length;
+
+    if (unvisitedCount > 0) {
+        addToast({ message: `تذكير: لديك ${unvisitedCount} زبون لم تتم زيارتهم بعد اليوم.`, type: 'info' });
+    }
+  }, [routes, salesEntries, currentUser]);
+  */
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -40,6 +64,12 @@ export const RoutesScreen: React.FC = () => {
 
   const currentDay = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
 
+  const isVisited = (r: RouteItem) => {
+    const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+    const todayStr = new Date().toISOString().split('T')[0];
+    return customerEntries.some(e => e.dateString === todayStr);
+  };
+
   const filteredRoutes = routes.filter(r => {
     if (currentUser?.isAdmin) {
        return (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
@@ -50,7 +80,15 @@ export const RoutesScreen: React.FC = () => {
               r.path?.includes(currentDay) &&
               (searchQuery ? r.customerName.includes(searchQuery) : true);
     }
+  }).sort((a, b) => {
+    const aVisited = isVisited(a);
+    const bVisited = isVisited(b);
+    if (aVisited === bVisited) return 0;
+    // Unvisited (false) should come before Visited (true)
+    return aVisited ? 1 : -1;
   });
+
+  const finalRoutes = hideVisited ? filteredRoutes.filter(r => !isVisited(r)) : filteredRoutes;
 
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
@@ -80,20 +118,21 @@ export const RoutesScreen: React.FC = () => {
         </div>
         <div className="text-center">
             <div className="text-xs font-bold text-emerald-500">تمت الزيارة</div>
-            <div className="text-lg font-black text-emerald-600">{filteredRoutes.filter(r => {
-                const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
-                const todayStr = new Date().toISOString().split('T')[0];
-                return customerEntries.some(e => e.dateString === todayStr);
-            }).length}</div>
+            <div className="text-lg font-black text-emerald-600">{filteredRoutes.filter(isVisited).length}</div>
         </div>
         <div className="text-center">
             <div className="text-xs font-bold text-orange-500">منتظرة</div>
-            <div className="text-lg font-black text-orange-600">{filteredRoutes.filter(r => {
-                const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
-                const todayStr = new Date().toISOString().split('T')[0];
-                return !customerEntries.some(e => e.dateString === todayStr);
-            }).length}</div>
+            <div className="text-lg font-black text-orange-600">{filteredRoutes.filter(r => !isVisited(r)).length}</div>
         </div>
+      </div>
+
+      <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <button 
+            onClick={() => setHideVisited(!hideVisited)}
+            className={`p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'} ${hideVisited ? 'bg-emerald-600 text-white' : ''}`}
+          >
+            {hideVisited ? 'إظهار الكل' : 'إخفاء المزار' }
+          </button>
       </div>
 
       {currentUser?.isAdmin && (
@@ -127,7 +166,7 @@ export const RoutesScreen: React.FC = () => {
         <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
           <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
             <tr>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({filteredRoutes.length})</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
@@ -135,7 +174,7 @@ export const RoutesScreen: React.FC = () => {
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-            {Object.entries(filteredRoutes.slice(0, displayLimit).reduce((acc, r) => {
+            {Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
               const day = r.path || 'غير مصنف';
               if (!acc[day]) acc[day] = [];
               acc[day].push(r);
@@ -155,8 +194,8 @@ export const RoutesScreen: React.FC = () => {
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
                   
                   const statusIcon = isVisitedToday 
-                    ? (totalWeightToday >= 25 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <AlertCircle className="w-4 h-4 text-yellow-500" />)
-                    : <Circle className="w-4 h-4 text-slate-400" />;
+                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    : <Circle className="w-5 h-5 text-slate-400" />;
 
                   const daysSinceLastVisit = lastEntry ? Math.floor((new Date().getTime() - lastEntry.timestamp) / (1000 * 60 * 60 * 24)) : 999;
                   

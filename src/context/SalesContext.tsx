@@ -113,9 +113,11 @@ interface SalesContextType {
   getDelegateLockStatus: (delegateName: string) => DelegateLockStatus;
   unlockDelegateTargetManually: (delegateName: string) => void;
   saveDelegateAccount: (acc: DelegateAccount) => void;
-  updateDelegateIdentity: (oldName: string, newName: string, oldUsername: string, newUsername: string) => Promise<void>;
+  updateDelegateIdentity: (oldName: string, newName: string, oldUsername: string, newUsername: string, newPassword: string) => Promise<void>;
   resetDelegateAccount: (username: string) => Promise<void>;
   deleteDelegateAccount: (username: string) => void;
+  addDelegateAccount: (acc: DelegateAccount) => void;
+  syncData: () => Promise<void>;
   toasts: ToastNotification[];
   addToast: (toast: Omit<ToastNotification, 'id' | 'timestamp'>) => void;
   removeToast: (id: string) => void;
@@ -138,6 +140,7 @@ interface SalesContextType {
     periodEndStr: string;
   };
   dailyEvaluationsHistory: DailyEvaluationRecord[];
+  setDailyEvaluationsHistory: (history: DailyEvaluationRecord[]) => void;
   saveDailyEvaluationsToFirestore: (targetDate?: string) => Promise<void>;
   fetchUnifiedDataFromFirestore: () => Promise<void>;
   productsList: ProductItem[];
