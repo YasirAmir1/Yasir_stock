@@ -872,6 +872,9 @@ export const EntryScreen: React.FC = () => {
                 <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex items-center justify-between gap-2 flex-wrap rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-500">
+                      {entries[0]?.customerCode || '---'}
+                    </span>
                     <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
                     {entries[0]?.priceMode && (
                       <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>

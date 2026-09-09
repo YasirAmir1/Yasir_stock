@@ -95,11 +95,19 @@ export const RoutesScreen: React.FC = () => {
 
   const handleOrderClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+    const lastInvoiceToday = customerEntries
+        .filter(e => e.dateString === todayStr)
+        .sort((a,b) => b.timestamp - a.timestamp)[0];
+
     setPrefilledEntryData({
       customerCode: r.customerCode,
       customerName: r.customerName,
       customerAddress: r.customerAddress,
-      customerType: r.customerType
+      customerType: r.customerType,
+      lastInvoiceToday: lastInvoiceToday
     });
     setShowQuickAdd(true);
     setActiveTab('products');
@@ -189,9 +197,12 @@ export const RoutesScreen: React.FC = () => {
                   const hasOrderIn12Hours = lastEntry && (Date.now() - lastEntry.timestamp < 12 * 60 * 60 * 1000);
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
                   
-                  const statusIcon = isVisitedToday 
-                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    : <Circle className="w-5 h-5 text-slate-400" />;
+                  const statusIcon = (
+                    <Circle 
+                      className={`w-3 h-3 ${isVisitedToday ? 'text-emerald-500' : 'text-yellow-400'}`} 
+                      fill="currentColor" 
+                    />
+                  );
 
                   const daysSinceLastVisit = lastEntry ? Math.floor((new Date().getTime() - lastEntry.timestamp) / (1000 * 60 * 60 * 24)) : 999;
                   const lastEntryDate = lastEntry ? lastEntry.dateString : 'لا يوجد';

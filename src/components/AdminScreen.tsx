@@ -81,6 +81,30 @@ export const AdminScreen: React.FC = () => {
   const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
   const [dailyTaskText, setDailyTaskText] = useState<string>('');
   const [dailyTaskMessage, setDailyTaskMessage] = useState<string | null>(null);
+
+  // --- Admin Note State ---
+  const [noteCustomerCode, setNoteCustomerCode] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [noteExpiryHours, setNoteExpiryHours] = useState('');
+  const [noteMessage, setNoteMessage] = useState<string | null>(null);
+  
+  const handleSaveAdminNote = async () => {
+    if (!noteCustomerCode || !noteContent || !noteExpiryHours) {
+        setNoteMessage('يرجى ملء جميع الحقول');
+        return;
+    }
+    const expiryTimestamp = Date.now() + parseInt(noteExpiryHours) * 60 * 60 * 1000;
+    await setDoc(doc(collection(db, 'admin_notes')), {
+        customerCode: noteCustomerCode,
+        note: noteContent,
+        expiryTimestamp: expiryTimestamp
+    });
+    setNoteMessage('تم حفظ الملاحظة');
+    setNoteCustomerCode('');
+    setNoteContent('');
+    setNoteExpiryHours('');
+    setTimeout(() => setNoteMessage(null), 3000);
+  };
   const [newDelegateData, setNewDelegateData] = useState({ oldName: '', oldUsername: '', newName: '', newUsername: '', newPassword: '' });
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
 
