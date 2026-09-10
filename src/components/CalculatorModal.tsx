@@ -108,10 +108,10 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200 dir-rtl">
       <div
-        className={`w-full max-w-md sm:max-w-lg rounded-3xl border shadow-2xl p-5 sm:p-6 space-y-4 ${
+        className={`w-full max-w-sm rounded-3xl border shadow-2xl p-5 space-y-4 ${
           isDarkMode
-            ? 'bg-slate-900 border-emerald-500/40 text-white'
-            : 'bg-white border-emerald-600/30 text-slate-900'
+            ? 'bg-white border-slate-200 text-slate-900'
+            : 'bg-white border-slate-200 text-slate-900'
         }`}
       >
         {/* Header */}
@@ -361,7 +361,7 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
           >
             .
           </button>
-        </div>
+      </div>
       </div>
     </div>
   );

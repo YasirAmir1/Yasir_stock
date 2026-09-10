@@ -607,29 +607,8 @@ export const EntryScreen: React.FC = () => {
 
     if (invalidFound) return;
 
-    if (itemsToSave.length < 3) {
-      setErrorMessage('تنبيه: يجب ادخال 3 منتجات او اكثر للحفظ');
-      return;
-    }
-
-    // Check for diverse products (using Set to count unique category names or product names)
-    const uniqueProducts = new Set(itemsToSave.map(item => item.productName));
-    if (uniqueProducts.size < 3) {
-      setErrorMessage('تنبيه: يجب إدخال 3 منتجات متنوعة على الأقل');
-      return;
-    }
-
     // Check for minimum amount
-    const totalPrice = itemsToSave.reduce((sum, e) => {
-        const prod = productsList.find(p => p.productName === e.productName);
-        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-        return sum + (price * e.quantity);
-    }, 0);
-
-    if (totalPrice < 25000) {
-      setErrorMessage('تنبيه: يجب أن يكون إجمالي مبلغ الفاتورة 25 ألف د.ع أو أكثر');
-      return;
-    }
+    // Removed restriction of 3 products and 25000 price as requested
 
     saveSalesEntries(itemsToSave);
     setErrorMessage(null);
@@ -913,7 +892,8 @@ export const EntryScreen: React.FC = () => {
                             customerCode: entries[0].customerCode || '', 
                             customerAddress: entries[0].customerAddress || '' 
                           });
-                          setActiveTab('entry');
+                          setShowQuickAdd(true);
+                          setActiveTab('products');
                         }}
                         className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
                         title="إضافة منتج للفاتورة"

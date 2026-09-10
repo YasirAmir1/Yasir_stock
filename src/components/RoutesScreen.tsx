@@ -165,17 +165,7 @@ export const RoutesScreen: React.FC = () => {
       )}
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
-          <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-            <tr>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
               const day = r.path || 'غير مصنف';
               if (!acc[day]) acc[day] = [];
@@ -193,8 +183,10 @@ export const RoutesScreen: React.FC = () => {
                   const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
                   
+                  // The hiding logic is reactive because it depends on allSalesEntries,
+                  // which comes from useSales() and causes a re-render when it updates.
                   const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
-                  const hasOrderIn12Hours = lastEntry && (Date.now() - lastEntry.timestamp < 12 * 60 * 60 * 1000);
+                  const hasOrderIn12Hours = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
                   
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
 
@@ -275,16 +267,7 @@ export const RoutesScreen: React.FC = () => {
           طلبات آخر 12 ساعة
         </h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
-            <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500">
-              <tr>
-                <th className="px-3 py-2">اسم الزبون</th>
-                <th className="px-3 py-2">كود</th>
-                <th className="px-3 py-2">الوزن (كجم)</th>
-                <th className="px-3 py-2">العنوان</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+          <table className="w-full text-xs text-right"><thead className="bg-slate-100 dark:bg-slate-900 text-slate-500"><tr><th className="px-3 py-2"></th><th className="px-3 py-2">اسم الزبون</th><th className="px-3 py-2">كود</th><th className="px-3 py-2">الوزن (كجم)</th><th className="px-3 py-2">العنوان</th></tr></thead><tbody className="divide-y divide-slate-200 dark:divide-slate-700">
               {allSalesEntries
                 .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
                 .reduce((acc, e) => {
@@ -296,8 +279,25 @@ export const RoutesScreen: React.FC = () => {
                   }
                   return acc;
                 }, [] as any[])
+                .sort((a, b) => a.totalWeightKg - b.totalWeightKg)
                 .map((item, idx) => (
                   <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => {
+                          setPrefilledEntryData({
+                            customerCode: item.customerCode,
+                            customerName: item.customerName,
+                            customerAddress: item.customerAddress
+                          });
+                          setShowQuickAdd(true);
+                          setActiveTab('products');
+                        }}
+                        className="w-6 h-6 flex items-center justify-center bg-emerald-600 text-white rounded-full font-black hover:bg-emerald-500"
+                      >
+                        +
+                      </button>
+                    </td>
                     <td className="px-3 py-2">{item.customerName}</td>
                     <td className="px-3 py-2">{item.customerCode}</td>
                     <td className="px-3 py-2 font-mono">{item.totalWeightKg.toFixed(1)}</td>

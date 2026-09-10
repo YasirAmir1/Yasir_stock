@@ -64,10 +64,28 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>('مفرد');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>({});
-  const [entryModes, setEntryModes] = useState<Record<string, 'piece' | 'carton'>>({});
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('app_selected_quantities');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [entryModes, setEntryModes] = useState<Record<string, 'piece' | 'carton'>>(() => {
+    try {
+      const saved = localStorage.getItem('app_entry_modes');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    localStorage.setItem('app_selected_quantities', JSON.stringify(selectedQuantities));
+  }, [selectedQuantities]);
+
+  React.useEffect(() => {
+    localStorage.setItem('app_entry_modes', JSON.stringify(entryModes));
+  }, [entryModes]);
 
   // Inline editing state for Admin
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -377,22 +395,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
     // Check for diverse products (using Set to count unique product names)
     const uniqueProducts = new Set(itemsToSave.map(item => item.productName));
-    if (uniqueProducts.size < 3) {
-      setErrorMessage('تنبيه: يجب إدخال 3 منتجات متنوعة على الأقل');
-      return;
-    }
-
     // Check for minimum amount
-    const totalPrice = itemsToSave.reduce((sum, e) => {
-        const prod = productsList.find(p => p.productName === e.productName);
-        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-        return sum + (price * e.quantity);
-    }, 0);
-
-    if (totalPrice < 25000) {
-      setErrorMessage('تنبيه: يجب أن يكون إجمالي مبلغ الفاتورة 25 ألف د.ع أو أكثر');
-      return;
-    }
+    // Removed restriction of 3 products and 25000 price as requested
 
     if (itemsToSave.length > 0) {
       saveSalesEntries(itemsToSave);
@@ -663,14 +667,15 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           <div className={`grid ${mobileGridCols === '1' ? 'grid-cols-1' : mobileGridCols === '3' ? 'grid-cols-3' : 'grid-cols-2'} sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2`}>
             {filteredProducts.map((prod, idx) => {
               const isEditing = editingId === prod.id;
+  const hasQuantity = !!selectedQuantities[prod.id];
   return (
                 <div
                   key={prod.id || idx}
                   onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
-                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
+                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm hover:shadow-md cursor-pointer ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
                     isDarkMode 
-                      ? 'bg-slate-900 border-slate-800 hover:border-emerald-500/30' 
-                      : 'bg-white border-slate-200 hover:border-emerald-400/50'
+                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : 'border-slate-800'} hover:border-emerald-500/30` 
+                      : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'} hover:border-emerald-400/50`
                   } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''}`}
                 >
                   <div className="flex items-start justify-between gap-1">
@@ -693,8 +698,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         </span>
                       )}
                       {!isEditing && prod.stockCartons !== undefined && prod.stockCartons > 0 && (
-                        <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-1.5 py-0.5 rounded text-[9px] font-black text-indigo-600 dark:text-indigo-400" title="عدد كارتون بالمخزن">
-                          <Package className="w-2 h-2" />
+                        <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-2 py-1 rounded text-xs font-black text-indigo-600 dark:text-indigo-400" title="عدد كارتون بالمخزن">
+                          <Package className="w-3 h-3" />
                           {Number(prod.stockCartons).toLocaleString('en-US', {maximumFractionDigits: 0})}
                         </div>
                       )}
@@ -812,11 +817,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                           <img 
                             src={prod.imageUrl} 
                             alt={prod.productName} 
-                            className="w-[150px] h-[170px] object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white"
+                            className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white`}
                             onError={(e) => (e.currentTarget.style.display = 'none')}
                           />
                         ) : (
-                          <div className={`w-[150px] h-[170px] flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
+                          <div className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
                             <span className="text-5xl font-black opacity-90 drop-shadow-md">{getAvatarProps(prod.productName).initial}</span>
                             <span className="text-[10px] font-bold opacity-75 mt-2 bg-black/20 px-2 py-0.5 rounded">بدون صورة</span>
                           </div>
