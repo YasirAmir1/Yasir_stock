@@ -190,17 +190,21 @@ export const RoutesScreen: React.FC = () => {
                 </tr>
                 {dayRoutes.map(r => {
                   const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
-                  const customerEntriesForDelegate = customerEntries.filter(e => e.delegateName?.trim().toLowerCase() === r.delegateName?.trim().toLowerCase());
-                  const lastEntryForDelegate = customerEntriesForDelegate.sort((a,b) => b.timestamp - a.timestamp)[0];
+                  const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
-                  const hasOrderIn12Hours = lastEntryForDelegate && (Date.now() - lastEntryForDelegate.timestamp < 12 * 60 * 60 * 1000);
+                  
+                  const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
+                  const hasOrderIn12Hours = lastEntry && (Date.now() - lastEntry.timestamp < 12 * 60 * 60 * 1000);
+                  
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
+
+                  if (isHidden) return null;
 
                   return (
                     <tr 
                       key={r.id} 
                       onClick={() => handleRowClick(r)}
-                      className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-800' : 'bg-emerald-300') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
+                      className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-900/80' : 'bg-emerald-200') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
                     >
                       <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
@@ -245,6 +249,65 @@ export const RoutesScreen: React.FC = () => {
           عرض المزيد
         </button>
       )}
+
+      {/* Summary Card */}
+      {(() => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayEntries = allSalesEntries.filter(e => e.dateString === todayStr);
+        const totalWeight = todayEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
+        const totalOrders = todayEntries.length;
+        const visitedCustomers = new Set(todayEntries.map(e => e.customerCode));
+        const unvisitedCount = filteredRoutes.filter(r => !visitedCustomers.has(r.customerCode)).length;
+        
+        return (
+          <div className="grid grid-cols-1 gap-2 mt-6">
+            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-center shadow-sm">
+                <div className="text-[10px] text-slate-500 mb-1">الوزن الكلي</div>
+                <div className="text-sm font-black text-slate-800 dark:text-slate-100">{totalWeight.toFixed(1)}</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Recent Orders Summary Card */}
+      <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <h3 className="p-3 bg-slate-50 dark:bg-slate-700 font-black text-sm text-slate-800 dark:text-slate-100">
+          طلبات آخر 12 ساعة
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-right">
+            <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500">
+              <tr>
+                <th className="px-3 py-2">اسم الزبون</th>
+                <th className="px-3 py-2">كود</th>
+                <th className="px-3 py-2">الوزن (كجم)</th>
+                <th className="px-3 py-2">العنوان</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {allSalesEntries
+                .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
+                .reduce((acc, e) => {
+                  const existing = acc.find(item => item.customerCode === e.customerCode);
+                  if (existing) {
+                    existing.totalWeightKg += e.totalWeightKg;
+                  } else {
+                    acc.push({ customerName: e.customerName, customerCode: e.customerCode, totalWeightKg: e.totalWeightKg, customerAddress: e.customerAddress });
+                  }
+                  return acc;
+                }, [] as any[])
+                .map((item, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                    <td className="px-3 py-2">{item.customerName}</td>
+                    <td className="px-3 py-2">{item.customerCode}</td>
+                    <td className="px-3 py-2 font-mono">{item.totalWeightKg.toFixed(1)}</td>
+                    <td className="px-3 py-2">{item.customerAddress}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };

@@ -74,7 +74,25 @@ export const AdminScreen: React.FC = () => {
     isDataSaverMode,
     toggleDataSaverMode,
     syncData,
+    allSalesEntries,
   } = useSales();
+
+  // Top 5 Delegates Logic
+  const topDelegates = React.useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7); // "2026-09"
+    
+    const entriesInMonth = allSalesEntries.filter(e => e.dateString?.startsWith(currentMonth));
+    
+    const counts: Record<string, number> = {};
+    entriesInMonth.forEach(e => {
+      const name = e.delegateName || 'غير محدد';
+      counts[name] = (counts[name] || 0) + 1;
+    });
+    
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [allSalesEntries]);
 
   // --- Route Management State ---
   const [routeUploadMessage, setRouteUploadMessage] = useState<string | null>(null);
@@ -582,6 +600,31 @@ export const AdminScreen: React.FC = () => {
               {formatWithCommas(parseFloat(totalCompanyTargetWeight.toFixed(1)), true)} كجم
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Top 5 Delegates Card */}
+      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <h3 className="text-sm font-black text-amber-200 flex items-center gap-2">
+          <TrendingUp className="w-5 h-5" />
+          أكثر 5 مندوبين تسجيلاً للفواتير (الشهر الحالي):
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {topDelegates.length > 0 ? (
+            topDelegates.map(([name, count], index) => (
+              <div key={name} className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-900/60 border border-emerald-700/50">
+                <div className="flex items-center gap-2">
+                  <span className={`flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${index === 0 ? 'bg-amber-400 text-slate-900' : 'bg-emerald-700 text-white'}`}>
+                    {index + 1}
+                  </span>
+                  <span className="font-bold text-sm">{name}</span>
+                </div>
+                <span className="font-black text-emerald-300 font-mono text-sm">{count} فاتورة</span>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-slate-400">لا توجد بيانات متاحة لهذا الشهر.</p>
+          )}
         </div>
       </div>
 
