@@ -6,7 +6,7 @@ import { RouteItem } from '../types';
 import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 
 export const RoutesScreen: React.FC = () => {
-  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, addToast } = useSales();
+  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
 
@@ -64,7 +64,7 @@ export const RoutesScreen: React.FC = () => {
   const currentDay = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
 
   const isVisited = (r: RouteItem) => {
-    const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+    const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
     const todayStr = new Date().toISOString().split('T')[0];
     return customerEntries.some(e => e.dateString === todayStr);
   };
@@ -97,7 +97,7 @@ export const RoutesScreen: React.FC = () => {
     setSelectedRowId(r.id);
     
     const todayStr = new Date().toISOString().split('T')[0];
-    const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
+    const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
     const lastInvoiceToday = customerEntries
         .filter(e => e.dateString === todayStr)
         .sort((a,b) => b.timestamp - a.timestamp)[0];
@@ -173,7 +173,6 @@ export const RoutesScreen: React.FC = () => {
               <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">النوع</th>
               <th className="px-3 py-2 border-b dark:border-slate-700">المسار</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">آخر فاتورة</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -185,28 +184,18 @@ export const RoutesScreen: React.FC = () => {
             }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
               <React.Fragment key={day}>
                 <tr>
-                  <td colSpan={6} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
+                  <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
                     {day}
                   </td>
                 </tr>
                 {dayRoutes.map(r => {
-                  const customerEntries = salesEntries.filter(e => e.customerCode === r.customerCode);
-                  const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
+                  const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
+                  const customerEntriesForDelegate = customerEntries.filter(e => e.delegateName?.trim().toLowerCase() === r.delegateName?.trim().toLowerCase());
+                  const lastEntryForDelegate = customerEntriesForDelegate.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
-                  const isVisitedToday = customerEntries.some(e => e.dateString === todayStr);
-                  const hasOrderIn12Hours = lastEntry && (Date.now() - lastEntry.timestamp < 12 * 60 * 60 * 1000);
+                  const hasOrderIn12Hours = lastEntryForDelegate && (Date.now() - lastEntryForDelegate.timestamp < 12 * 60 * 60 * 1000);
                   const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
-                  
-                  const statusIcon = (
-                    <Circle 
-                      className={`w-3 h-3 ${isVisitedToday ? 'text-emerald-500' : 'text-yellow-400'}`} 
-                      fill="currentColor" 
-                    />
-                  );
 
-                  const daysSinceLastVisit = lastEntry ? Math.floor((new Date().getTime() - lastEntry.timestamp) / (1000 * 60 * 60 * 24)) : 999;
-                  const lastEntryDate = lastEntry ? lastEntry.dateString : 'لا يوجد';
-                  
                   return (
                     <tr 
                       key={r.id} 
@@ -216,16 +205,10 @@ export const RoutesScreen: React.FC = () => {
                       <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1">
-                            {statusIcon}
                             <span>{r.customerName}</span>
                             {totalWeightToday > 0 && (
                                 <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
                                     {totalWeightToday.toFixed(1)} كجم
-                                </span>
-                            )}
-                            {daysSinceLastVisit > 3 && (
-                                <span className="flex items-center justify-center w-5 h-5 bg-red-600 text-white rounded-full text-[8px] font-black">
-                                    {daysSinceLastVisit}
                                 </span>
                             )}
                           </div>
@@ -246,7 +229,6 @@ export const RoutesScreen: React.FC = () => {
                       <td className="px-3 py-2">{r.customerCode}</td>
                       <td className="px-3 py-2">{r.customerType}</td>
                       <td className="px-3 py-2">{r.path}</td>
-                      <td className="px-3 py-2">{lastEntryDate}</td>
                     </tr>
                   );
                 })}

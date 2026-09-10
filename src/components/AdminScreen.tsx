@@ -118,7 +118,7 @@ export const AdminScreen: React.FC = () => {
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 20;
+  const rowsPerPage = 10;
   
   const filteredRoutes = routes.filter(r => 
     (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 

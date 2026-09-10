@@ -82,6 +82,7 @@ interface SalesContextType {
   delegateAccounts: DelegateAccount[];
   delegateTargets: DelegateTarget[];
   salesEntries: SalesEntry[];
+  allSalesEntries: SalesEntry[];
   rawSavedEntries: SalesEntry[];
   savedEntries: SalesEntry[];
   categoryReports: CategoryReportItem[];
@@ -561,18 +562,41 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const remaining: SalesEntry[] = [];
+      
+      // Process pending entries in batches
+      let batch = writeBatch(db);
+      let batchCount = 0;
+      const CHUNK_SIZE = 450;
+      let committedCount = 0;
+
       for (const entry of pending) {
         try {
           const entryRef = doc(db, 'sales_entries', entry.id);
-          await setDoc(entryRef, entry, { merge: true });
+          batch.set(entryRef, entry, { merge: true });
+          batchCount++;
+
+          if (batchCount === CHUNK_SIZE) {
+            await batch.commit();
+            batch = writeBatch(db);
+            committedCount += batchCount;
+            batchCount = 0;
+          }
         } catch (err) {
-          console.error('Failed to sync entry:', entry.id, err);
+          console.error('Failed to add entry to batch:', entry.id, err);
           remaining.push(entry);
         }
       }
+
+      if (batchCount > 0) {
+        await batch.commit();
+        committedCount += batchCount;
+      }
+
       savePendingQueue(remaining);
       if (remaining.length === 0 && pending.length > 0) {
-        setUserMessage('تمت مزامنة جميع المبيعات المعلقة مع قاعدة البيانات بنجاح 🔄✅');
+        setUserMessage(`تمت مزامنة ${committedCount} مبيعة معلقة مع قاعدة البيانات بنجاح 🔄✅`);
+      } else if (remaining.length > 0) {
+        setUserMessage(`تمت مزامنة ${committedCount} مبيعة بنجاح، وفشل مزامنة ${remaining.length} مبيعة 🔄⚠️`);
       }
     } catch (e) {
       console.error('Error in syncPendingEntries:', e);
@@ -1697,6 +1721,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         delegateAccounts,
         delegateTargets,
         salesEntries,
+        allSalesEntries,
         rawSavedEntries,
         savedEntries,
         categoryReports,
