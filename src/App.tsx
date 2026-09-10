@@ -229,18 +229,20 @@ const MainAppContent: React.FC = () => {
               </div>
 
               {/* Font Size Toggle Button */}
-              <button
-                onClick={() => setLargeFont(!largeFont)}
-                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
-                  largeFont
-                    ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
-                    : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
-                }`}
-                title="تكبير الخط"
-              >
-                <Type className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
-                <span className="text-[9px] sm:text-[11px] leading-tight">الخط</span>
-              </button>
+              {activeTab === 'products' && (
+                <button
+                  onClick={() => setLargeFont(!largeFont)}
+                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                    largeFont
+                      ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
+                      : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
+                  }`}
+                  title="تكبير الخط"
+                >
+                  <Type className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
+                  <span className="text-[9px] sm:text-[11px] leading-tight">الخط</span>
+                </button>
+              )}
 
               {/* Admin Button (Placed between Calculator and Theme Toggle) */}
               {(currentUser.isAdmin || currentUser.name === 'الأدمن') && (

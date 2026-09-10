@@ -62,6 +62,7 @@ export const RoutesScreen: React.FC = () => {
   }, []);
 
   const currentDay = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
+  const isCompleted = completedDelegates[currentUser?.name || ''] || false;
 
   const isVisited = (r: RouteItem) => {
     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
@@ -263,11 +264,21 @@ export const RoutesScreen: React.FC = () => {
 
       {/* Recent Orders Summary Card */}
       <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <h3 className="p-3 bg-slate-50 dark:bg-slate-700 font-black text-sm text-slate-800 dark:text-slate-100">
+        <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
           طلبات آخر 12 ساعة
         </h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right"><thead className="bg-slate-100 dark:bg-slate-900 text-slate-500"><tr><th className="px-3 py-2"></th><th className="px-3 py-2">اسم الزبون</th><th className="px-3 py-2">كود</th><th className="px-3 py-2">الوزن (كجم)</th><th className="px-3 py-2">العنوان</th></tr></thead><tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+          <table className="w-full text-xs text-right">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
+                <th className="px-3 py-2"></th>
+                <th className="px-3 py-2">اسم الزبون</th>
+                <th className="px-3 py-2">كود</th>
+                <th className="px-3 py-2">الوزن (كجم)</th>
+                <th className="px-3 py-2">العنوان</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
               {allSalesEntries
                 .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
                 .reduce((acc, e) => {
@@ -281,8 +292,9 @@ export const RoutesScreen: React.FC = () => {
                 }, [] as any[])
                 .sort((a, b) => a.totalWeightKg - b.totalWeightKg)
                 .map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                  <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
                     <td className="px-3 py-2">
+                      {!isCompleted && (
                       <button
                         onClick={() => {
                           setPrefilledEntryData({
@@ -297,6 +309,7 @@ export const RoutesScreen: React.FC = () => {
                       >
                         +
                       </button>
+                      )}
                     </td>
                     <td className="px-3 py-2">{item.customerName}</td>
                     <td className="px-3 py-2">{item.customerCode}</td>

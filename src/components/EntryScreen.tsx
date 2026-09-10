@@ -226,6 +226,7 @@ export const EntryScreen: React.FC = () => {
   };
 
   const activeDelegateName = currentUser?.isAdmin ? selectedDelegate : currentUser?.name;
+  const isCompleted = completedDelegates[activeDelegateName || ''] || false;
   
   // حماية آمنة للبحث
   const safeDelegateAccounts = Array.isArray(delegateAccounts) ? delegateAccounts : [];
@@ -884,6 +885,7 @@ export const EntryScreen: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex gap-2">
+                      {!isCompleted && (
                       <button
                         type="button"
                         onClick={() => {
@@ -900,6 +902,7 @@ export const EntryScreen: React.FC = () => {
                       >
                         <Plus className="w-5 h-5" />
                       </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(customerName, entries)}

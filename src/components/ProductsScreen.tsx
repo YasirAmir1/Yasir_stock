@@ -672,11 +672,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 <div
                   key={prod.id || idx}
                   onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
-                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm hover:shadow-md cursor-pointer ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
+                  className={`relative flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
                     isDarkMode 
-                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : 'border-slate-800'} hover:border-emerald-500/30` 
-                      : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'} hover:border-emerald-400/50`
-                  } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''}`}
+                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : 'border-slate-800'}` 
+                      : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'}`
+                  } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''} sm:hover:shadow-md sm:cursor-pointer`}
                 >
                   <div className="flex items-start justify-between gap-1">
                     {/* Category Label and Stock */}

@@ -548,8 +548,8 @@ export const ReportsScreen: React.FC = () => {
 
         <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse text-xs">
-            <thead>
-              <tr className="bg-emerald-100 text-slate-900 font-extrabold border-b-2 border-emerald-300">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
                 <th className="py-3 px-3 w-[8%]">#</th>
                 <th className="py-3 px-3 w-[25%]">الصنف</th>
                 <th className="py-3 px-3 text-center w-[20%]">المبيعات (كجم)</th>
@@ -557,16 +557,14 @@ export const ReportsScreen: React.FC = () => {
                 <th className="py-3 px-3 text-center w-[27%]">نسبة الإنجاز %</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
               {categoryReports.map((item, idx) => (
                 <tr
                   key={item.categoryName}
-                  className={`hover:bg-emerald-50/60 transition-colors ${
-                    item.isAchieved ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'
-                  }`}
+                  className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}
                 >
                   <td className="py-3 px-3 font-bold text-slate-500">{item.categoryId}</td>
-                  <td className="py-3 px-3 font-bold text-slate-900">
+                  <td className="py-3 px-3 font-bold">
                     <div className="flex items-center gap-1.5">
                       <span>{item.categoryName}</span>
                       {item.isAchieved && (
@@ -576,18 +574,18 @@ export const ReportsScreen: React.FC = () => {
                       )}
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-center font-extrabold text-emerald-800 text-sm">
+                  <td className="py-3 px-3 text-center font-extrabold text-sm">
                     {item.dailySalesWeightKg.toFixed(1)}
                   </td>
-                  <td className="py-3 px-3 text-center font-bold text-slate-700 text-sm">
+                  <td className="py-3 px-3 text-center font-bold text-sm">
                     {item.dailyTargetWeightKg.toFixed(1)}
                   </td>
                   <td className="py-3 px-3 text-center">
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-800">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
                         <span>{item.percentage.toFixed(0)}%</span>
                         {item.isAchieved ? (
-                          <span className="text-emerald-700 flex items-center gap-0.5">
+                          <span className="text-emerald-500 flex items-center gap-0.5">
                             <Check className="w-3 h-3 inline" /> مكتمل
                           </span>
                         ) : (
@@ -596,7 +594,7 @@ export const ReportsScreen: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                         <div
                           className={`h-2 rounded-full transition-all duration-300 ${
                             item.isAchieved ? 'bg-amber-500' : 'bg-emerald-600'

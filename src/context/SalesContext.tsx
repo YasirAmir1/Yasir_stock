@@ -92,6 +92,7 @@ interface SalesContextType {
   isLoggedIn: boolean;
   isOnline: boolean;
   pendingSyncCount: number;
+  syncFailureAlert: boolean;
   isDataSaverMode: boolean;
   toggleDarkMode: () => void;
   toggleDataSaverMode: () => void;
@@ -632,6 +633,33 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return false;
     }
   });
+
+  const [syncFailureAlert, setSyncFailureAlert] = useState<boolean>(false);
+
+  // Periodically check connection and pending sync status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (currentUser.isAdmin && navigator.onLine) {
+        const pending = getPendingQueue();
+        if (pending.length > 0) {
+          // If pending entries are older than 2 minutes, trigger alert
+          const now = Date.now();
+          const oldest = pending.reduce((min, p) => Math.min(min, p.timestamp || now), now);
+          if (now - oldest > 120000) {
+            setSyncFailureAlert(true);
+          } else {
+            setSyncFailureAlert(false);
+          }
+        } else {
+          setSyncFailureAlert(false);
+        }
+      } else {
+        setSyncFailureAlert(false);
+      }
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [currentUser.isAdmin]);
 
   const toggleDataSaverMode = () => {
     setIsDataSaverMode(prev => {
@@ -1732,6 +1760,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isOnline,
         pendingSyncCount,
         isDataSaverMode,
+        syncFailureAlert,
         toggleDarkMode,
         toggleDataSaverMode,
         setUserMessage,

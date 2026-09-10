@@ -73,6 +73,7 @@ export const AdminScreen: React.FC = () => {
     restoreBackupData,
     isDataSaverMode,
     toggleDataSaverMode,
+    isDarkMode,
     syncData,
     allSalesEntries,
   } = useSales();
@@ -93,6 +94,28 @@ export const AdminScreen: React.FC = () => {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
   }, [allSalesEntries]);
+
+  const handleResetAllInvoices = async () => {
+    if (!window.confirm("هل أنت متأكد من تصفير فواتير جميع المندوبين لهذا الشهر؟ هذه العملية غير قابلة للتراجع.")) return;
+
+    setBackupStatusMsg('جاري تصفير الفواتير...');
+    try {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const entriesInMonth = allSalesEntries.filter(e => e.dateString?.startsWith(currentMonth));
+      
+      const batch = writeBatch(db);
+      entriesInMonth.forEach(e => {
+          const docRef = doc(db, 'sales_entries', e.id);
+          batch.delete(docRef);
+      });
+      await batch.commit();
+      setBackupStatusMsg('تم تصفير فواتير الشهر الحالي بنجاح.');
+      setTimeout(() => setBackupStatusMsg(null), 3000);
+    } catch (err) {
+      console.error(err);
+      setBackupStatusMsg('حدث خطأ أثناء تصفير الفواتير.');
+    }
+  };
 
   // --- Route Management State ---
   const [routeUploadMessage, setRouteUploadMessage] = useState<string | null>(null);
@@ -563,6 +586,13 @@ export const AdminScreen: React.FC = () => {
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
+        
+        {syncFailureAlert && (
+          <div className="bg-red-600 text-white p-4 rounded-xl font-bold text-center animate-pulse border-2 border-red-800 shadow-lg">
+            ⚠️ تنبيه: فشلت مزامنة البيانات لأكثر من دقيقتين! يرجى التحقق من الاتصال بالإنترنت.
+          </div>
+        )}
+
       {/* Top Banner with Lock Button */}
       <div className="bg-emerald-950 border-2 border-emerald-500/50 rounded-2xl p-4 text-white shadow-xl space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -605,9 +635,17 @@ export const AdminScreen: React.FC = () => {
 
       {/* Top 5 Delegates Card */}
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <h3 className="text-sm font-black text-amber-200 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5" />
-          أكثر 5 مندوبين تسجيلاً للفواتير (الشهر الحالي):
+        <h3 className="text-sm font-black text-amber-200 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" />
+            أكثر 5 مندوبين تسجيلاً للفواتير (الشهر الحالي):
+          </div>
+          <button 
+            onClick={handleResetAllInvoices}
+            className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-[10px] font-bold transition-colors"
+          >
+            تصفير الفواتير
+          </button>
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {topDelegates.length > 0 ? (
@@ -879,15 +917,15 @@ export const AdminScreen: React.FC = () => {
         <div className="border border-emerald-800/60 rounded-xl overflow-hidden bg-slate-900/80">
           <div className="overflow-x-auto">
             <table className="w-full text-right border-collapse text-xs">
-              <thead>
-                <tr className="bg-emerald-900/80 text-emerald-200 font-bold border-b border-emerald-800">
-                  <th className="py-2.5 px-3 w-[10%]">#</th>
-                  <th className="py-2.5 px-3 w-[35%]">اسم الصنف</th>
-                  <th className="py-2.5 px-3 text-center w-[30%]">التاركت اليومي (كجم)</th>
-                  <th className="py-2.5 px-3 text-left w-[25%]">مبيعات اليوم</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-emerald-900/40">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
+                <th className="py-2.5 px-3 w-[10%]">#</th>
+                <th className="py-2.5 px-3 w-[35%]">اسم الصنف</th>
+                <th className="py-2.5 px-3 text-center w-[30%]">التاركت اليومي (كجم)</th>
+                <th className="py-2.5 px-3 text-left w-[25%]">مبيعات اليوم</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                 {DEFAULT_CATEGORIES_LIST.map((catName, idx) => {
                   const currentObj = activeTargets.find(
                     (t) => t.categoryName.toLowerCase() === catName.toLowerCase()
@@ -910,7 +948,7 @@ export const AdminScreen: React.FC = () => {
                   const isInputDisabled = lockStatus.isLocked && !allowForceOverride;
 
                   return (
-                    <tr key={catName} className={idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-900/90'}>
+                    <tr key={catName} className={`transition-colors ${idx % 2 === 0 ? (isDarkMode ? 'bg-slate-800/40' : 'bg-slate-50') : (isDarkMode ? 'bg-slate-900/90' : 'bg-white')} hover:${isDarkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
                       <td className="py-2 px-3 font-bold text-slate-400">{idx + 1}</td>
                       <td className="py-2 px-3 font-bold text-white">
                         <div>{catName}</div>

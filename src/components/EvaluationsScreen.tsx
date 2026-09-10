@@ -364,8 +364,8 @@ export const EvaluationsScreen: React.FC = () => {
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-right border-collapse">
-                <thead>
-                  <tr className="bg-slate-950 text-slate-400 text-[11px] font-bold border-b border-slate-800">
+              <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                  <tr>
                     <th className="p-3.5">المرتبة</th>
                     <th className="p-3.5">اسم المندوب</th>
                     <th className="p-3.5 text-center">الوقت (10%)</th>
@@ -378,7 +378,7 @@ export const EvaluationsScreen: React.FC = () => {
                     <th className="p-3.5 text-center">الإجراءات</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 text-xs font-semibold text-slate-200">
+                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                   {filteredEvaluations.map((item, idx) => {
                     const rank = idx + 1;
                     const isTop = rank === 1;
@@ -386,7 +386,7 @@ export const EvaluationsScreen: React.FC = () => {
                     return (
                       <tr 
                         key={`table_${item.delegateName}_${idx}`} 
-                        className={`transition-colors hover:bg-slate-800/50 ${isTop ? 'bg-emerald-950/40 border-b border-emerald-800/60' : ''}`}
+                        className={`transition-colors hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} ${isTop ? (isDarkMode ? 'bg-emerald-950/60' : 'bg-emerald-50') : ''}`}
                       >
                         <td className="p-3.5">
                           <span className={`w-6 h-6 rounded-lg inline-flex items-center justify-center font-black text-xs ${
