@@ -1287,6 +1287,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       username: 'najikala',
       monthlyTargetKg: 1500,
     });
+    setSelectedDelegate('الكل');
+    setPrefilledEntryData(null);
+    setShowQuickAdd(false);
+    setActiveTab('entry');
     setUserMessage('تم تسجيل الخروج بنجاح');
   };
 

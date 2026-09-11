@@ -188,6 +188,20 @@ export const AdminScreen: React.FC = () => {
     setCurrentPage(1);
   };
 
+  const exportRoutesToExcel = () => {
+    const data = filteredRoutes.map(r => ({
+      'كود الزبون': r.customerCode,
+      'اسم الزبون': r.customerName,
+      'العنوان': r.customerAddress,
+      'المسار': r.path,
+      'حالة الزيارة': allSalesEntries.some(e => e.customerName === r.customerName && e.dateString === selectedDate) ? 'تمت الزيارة' : 'لم تتم'
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Routes");
+    XLSX.writeFile(workbook, `routes_export_${selectedDate}.xlsx`);
+  };
+
   const [globalNotifText, setGlobalNotifText] = useState<string>('');
   const [globalNotifMessage, setGlobalNotifMessage] = useState<string | null>(null);
 
@@ -1494,13 +1508,16 @@ export const AdminScreen: React.FC = () => {
               <option value="الأربعاء">الأربعاء</option>
               <option value="الخميس">الخميس</option>
             </select>
-            <input 
-              type="text" 
-              value={searchQuery} 
-              onChange={e => setSearchQuery(e.target.value)} 
-              placeholder="بحث عن اسم محل..." 
-              className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}
-            />
+            <div className="flex w-full gap-2">
+              <input 
+                type="text" 
+                value={searchQuery} 
+                onChange={e => setSearchQuery(e.target.value)} 
+                placeholder="بحث عن اسم محل..." 
+                className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}
+              />
+              <button onClick={exportRoutesToExcel} className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded-lg transition-colors">تصدير المسار</button>
+            </div>
           </div>
           
           <div className="overflow-x-auto rounded-xl border border-slate-700">
@@ -1511,10 +1528,11 @@ export const AdminScreen: React.FC = () => {
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
+                  <th className="px-3 py-2 border-b border-slate-700">حالة الزيارة</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700 bg-slate-950 text-slate-300">
-                {Object.entries(sortedRoutes.reduce((acc, r) => {
+                {Object.entries(paginatedRoutes.reduce((acc, r) => {
                   const day = r.path || 'غير مصنف';
                   if (!acc[day]) acc[day] = [];
                   acc[day].push(r);
@@ -1522,7 +1540,7 @@ export const AdminScreen: React.FC = () => {
                 }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
                   <React.Fragment key={day}>
                     <tr>
-                      <td colSpan={4} className="px-3 py-2 bg-slate-800 text-emerald-400 font-bold">
+                      <td colSpan={5} className="px-3 py-2 bg-slate-800 text-emerald-400 font-bold">
                         {day}
                       </td>
                     </tr>
@@ -1532,6 +1550,11 @@ export const AdminScreen: React.FC = () => {
                         <td className="px-3 py-2">{r.customerName}</td>
                         <td className="px-3 py-2">{r.customerAddress}</td>
                         <td className="px-3 py-2">{r.path}</td>
+                        <td className="px-3 py-2">
+                           {allSalesEntries.some(e => e.customerName === r.customerName && e.dateString === selectedDate) 
+                             ? <span className="text-emerald-400 font-bold">تمت الزيارة</span> 
+                             : <span className="text-red-400 font-bold">لم تتم</span>}
+                        </td>
                       </tr>
                     ))}
                   </React.Fragment>
