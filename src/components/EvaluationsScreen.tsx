@@ -111,15 +111,6 @@ export const EvaluationsScreen: React.FC = () => {
                 <Clock className="w-3.5 h-3.5" />
                 <span>يومي</span>
               </button>
-              <button
-                onClick={() => setPeriodType('weekly')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                  periodType === 'weekly' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <BarChart2 className="w-3.5 h-3.5" />
-                <span>أسبوعي</span>
-              </button>
             </div>
 
             <div className="flex items-center gap-2 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700 shadow-md">
@@ -219,48 +210,6 @@ export const EvaluationsScreen: React.FC = () => {
 
       {/* 4. قسم التحكم في عرض النتائج (بطاقات أو جدول) + البحث */}
       <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900/90 p-3 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-3 text-white font-black text-base">
-            <Users className="w-5 h-5 text-indigo-500" />
-            <h3>قائمة تقييم أداء المندوبين ({selectedDate})</h3>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            {/* أزرار التبديل بين البطاقات والجدول */}
-            <div className="flex items-center p-1 bg-slate-950 rounded-xl border border-slate-800">
-              <button
-                onClick={() => setViewMode('cards')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'cards' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>بطاقات</span>
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'table' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <TableIcon className="w-3.5 h-3.5" />
-                <span>جدول تفصيلي</span>
-              </button>
-            </div>
-
-            {/* مربع البحث */}
-            <div className="relative w-full sm:w-56">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="بحث باسم المندوب..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-3 pr-9 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-        </div>
 
         {/* عرض البطاقات (Grid Cards) */}
         {viewMode === 'cards' ? (

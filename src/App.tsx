@@ -48,6 +48,7 @@ const MainAppContent: React.FC = () => {
     pendingSyncCount,
     activeTab,
     setActiveTab,
+    setShowQuickAdd,
   } = useSales();
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
@@ -383,7 +384,10 @@ const MainAppContent: React.FC = () => {
 
           {/* PRODUCTS TAB (المنتجات) */}
           <button
-            onClick={() => setActiveTab('products')}
+            onClick={() => {
+              setShowQuickAdd(false);
+              setActiveTab('products');
+            }}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'products'
                 ? isDarkMode

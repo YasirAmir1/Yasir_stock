@@ -151,9 +151,9 @@ interface SalesContextType {
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
-  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null;
+  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', lastInvoiceToday?: SalesEntry } | null;
   showQuickAdd: boolean;
-  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null) => void;
+  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', lastInvoiceToday?: SalesEntry } | null) => void;
   setShowQuickAdd: (show: boolean) => void;
   activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
   setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
@@ -1280,6 +1280,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsLoggedIn(false);
     localStorage.setItem('app_is_logged_in', 'false');
     localStorage.removeItem('app_current_user');
+    setCurrentUser({
+      name: 'ناجي خلف',
+      roleName: 'مندوب مبيعات',
+      isAdmin: false,
+      username: 'najikala',
+      monthlyTargetKg: 1500,
+    });
     setUserMessage('تم تسجيل الخروج بنجاح');
   };
 

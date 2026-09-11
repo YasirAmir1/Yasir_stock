@@ -638,7 +638,7 @@ export const EntryScreen: React.FC = () => {
       return;
     }
     
-    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
+    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة', 'نسبة الخصم'];
     const rows = safeSavedEntries.map(entry => [
       entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
       entry.delegateName || 'غير محدد',
@@ -650,7 +650,8 @@ export const EntryScreen: React.FC = () => {
       entry.quantity.toString(),
       entry.pieceWeightKg.toString(),
       entry.totalWeightKg.toString(),
-      entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+      entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد',
+      `${entry.discountPercentage || 0}%`
     ]);
     
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -848,7 +849,11 @@ export const EntryScreen: React.FC = () => {
                 return weightB - weightA;
               })
               .map(([customerName, entries]) => (
-              <div key={customerName} className={`border-2 rounded-xl p-0 shadow-md overflow-hidden ${isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400'}`}>
+              <div key={customerName} className={`border-2 rounded-xl p-0 shadow-md overflow-hidden ${
+                (entries[0].discountPercentage && entries[0].discountPercentage > 0)
+                  ? (isDarkMode ? 'bg-amber-900/40 border-amber-600' : 'bg-amber-50 border-amber-400')
+                  : (isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400')
+              }`}>
                 <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex items-center justify-between gap-2 flex-wrap rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -860,6 +865,11 @@ export const EntryScreen: React.FC = () => {
                       <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
                         {entries[0].priceMode === 'wholesale' ? <Package className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
                         {entries[0].priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}
+                      </span>
+                    )}
+                    {(entries[0].discountPercentage && entries[0].discountPercentage > 0) && (
+                      <span className="px-2 py-0.5 text-[10px] rounded-md border font-black bg-red-100 text-red-800 border-red-300 flex items-center gap-1 whitespace-nowrap">
+                        خصم {entries[0].discountPercentage}%
                       </span>
                     )}
                   </div>

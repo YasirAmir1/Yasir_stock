@@ -76,6 +76,7 @@ export const AdminScreen: React.FC = () => {
     isDarkMode,
     syncData,
     allSalesEntries,
+    syncFailureAlert,
   } = useSales();
 
   // Top 5 Delegates Logic
@@ -587,12 +588,6 @@ export const AdminScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
         
-        {syncFailureAlert && (
-          <div className="bg-red-600 text-white p-4 rounded-xl font-bold text-center animate-pulse border-2 border-red-800 shadow-lg">
-            ⚠️ تنبيه: فشلت مزامنة البيانات لأكثر من دقيقتين! يرجى التحقق من الاتصال بالإنترنت.
-          </div>
-        )}
-
       {/* Top Banner with Lock Button */}
       <div className="bg-emerald-950 border-2 border-emerald-500/50 rounded-2xl p-4 text-white shadow-xl space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">

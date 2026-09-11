@@ -30,11 +30,40 @@ interface ProductsScreenProps {
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
   const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
+  const [discountPercentage, setDiscountPercentage] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const suggestedProducts = useMemo(() => {
+    if (!prefilledEntryData || !prefilledEntryData.customerName) return [];
+    
+    const customerEntries = rawSavedEntries.filter(e => e.customerName === prefilledEntryData.customerName);
+    const productFrequency: Record<string, number> = {};
+    customerEntries.forEach(e => {
+        productFrequency[e.productName] = (productFrequency[e.productName] || 0) + 1;
+    });
+
+    const frequentProducts = Object.entries(productFrequency)
+        .filter(([_, freq]) => freq >= 3)
+        .map(([name]) => name);
+    
+    // Filter out already added products in this session (this is hard since ProductsScreen doesn't hold cart)
+    // We'll just suggest frequent products.
+    return productsList.filter(p => frequentProducts.includes(p.productName)).slice(0, 5);
+  }, [prefilledEntryData, rawSavedEntries, productsList]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
   const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
+
+  const discountOptions = [0, 1, 1.5, 2, 2.5, 2.9];
+
+  // ... (rest of the component)
+
+  // In Products Grid loop calculation:
+  const getDiscountedPrice = (price: number) => {
+    if (discountPercentage === 0) return price;
+    return price * (1 - discountPercentage / 100);
+  };
 
   React.useEffect(() => {
     if (prefilledEntryData) {
@@ -389,7 +418,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         customerName: trimmedCustomerName,
         customerCode: String(customerCode || '').trim(),
         customerAddress: String(customerAddress || '').trim(),
-        priceMode: priceMode
+        priceMode: priceMode,
+        discountPercentage: discountPercentage
       });
     }
 
@@ -497,6 +527,35 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       {/* Sales Daily Completion Card */}
       {/* Moved to ReportsScreen */}
 
+      {/* Search and Discount Bar */}
+      <div className="flex flex-col gap-3">
+        {showQuickAdd && prefilledEntryData && (
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
+             <select 
+               value={discountPercentage} 
+               onChange={(e) => setDiscountPercentage(Number(e.target.value))}
+               className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+             >
+               <option value={0}>بدون تخفيض</option>
+               {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
+             </select>
+          </div>
+        )}
+        
+        {/* Search on a single line */}
+        <div className="relative w-full">
+          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="بحث عن منتج..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-3 pr-10 py-2 sm:py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </div>
+      </div>
+
       {/* Quick Add Customer Info Box */}
       {showQuickAdd && (
         <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
@@ -571,8 +630,20 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         </div>
       )}
 
-      {/* Search and Filter Bar */}
+      {/* Discount and Search Bar */}
       <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+           <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
+           <select 
+             value={discountPercentage} 
+             onChange={(e) => setDiscountPercentage(Number(e.target.value))}
+             className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+           >
+             <option value={0}>بدون تخفيض</option>
+             {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
+           </select>
+        </div>
+        
         {/* Search on a single line */}
         <div className="relative w-full">
           <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -588,6 +659,19 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
             }`}
           />
         </div>
+        
+        {suggestedProducts.length > 0 && (
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+             <h4 className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-2">اقتراحات للزبون:</h4>
+             <div className="flex gap-2 overflow-x-auto pb-1">
+               {suggestedProducts.map(p => (
+                 <button key={p.id} className="px-3 py-1 bg-white dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-full text-xs font-bold shrink-0">
+                   {p.productName}
+                 </button>
+               ))}
+             </div>
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
           {/* Price toggle moved up */}
@@ -889,17 +973,17 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         />
                       ) : (
                         <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                          {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 0})}
+                          {getDiscountedPrice(Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0))).toLocaleString('en-US', {maximumFractionDigits: 2})}
                         </span>
                       )}
                     </div>
                     
-                    <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
-                      <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
-                      <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                        {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 0})}
-                      </span>
-                    </div>
+                      <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
+                        <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
+                        <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
+                          {getDiscountedPrice(Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1))).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                        </span>
+                      </div>
                   </div>
                   
                   {/* Quick Add Section */}
