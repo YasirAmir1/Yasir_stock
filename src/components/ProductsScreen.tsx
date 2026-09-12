@@ -136,6 +136,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [imageUploadError, setImageUploadError] = useState('');
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن';
+  const shouldShowDiscount = prefilledEntryData ? (prefilledEntryData.lastInvoiceToday?.discountPercentage || 0) > 0 : true;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -529,7 +530,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
       {/* Search and Discount Bar */}
       <div className="flex flex-col gap-3">
-        {showQuickAdd && prefilledEntryData && (
+        {showQuickAdd && prefilledEntryData && (prefilledEntryData.lastInvoiceToday?.discountPercentage || 0) > 0 && (
           <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
              <select 
@@ -632,6 +633,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
       {/* Discount and Search Bar */}
       <div className="flex flex-col gap-3">
+        {shouldShowDiscount && (
         <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
            <select 
@@ -643,6 +645,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
              {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
            </select>
         </div>
+        )}
         
         {/* Search on a single line */}
         <div className="relative w-full">

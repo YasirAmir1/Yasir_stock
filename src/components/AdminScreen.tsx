@@ -77,6 +77,7 @@ export const AdminScreen: React.FC = () => {
     syncData,
     allSalesEntries,
     syncFailureAlert,
+    selectedDate,
   } = useSales();
 
   // Top 5 Delegates Logic
