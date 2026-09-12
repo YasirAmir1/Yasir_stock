@@ -160,7 +160,7 @@ export const AdminScreen: React.FC = () => {
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 10;
+  const rowsPerPage = 50;
   
   const filteredRoutes = routes.filter(r => 
     (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
@@ -1488,6 +1488,37 @@ export const AdminScreen: React.FC = () => {
 
         {/* View Routes */}
         <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2 p-2 bg-slate-950 rounded-lg border border-slate-700">
+            {(() => {
+              const currentMonth = new Date().toISOString().slice(0, 7);
+              const entriesInMonth = allSalesEntries.filter(e => e.dateString?.startsWith(currentMonth));
+              
+              const visitedCustomers = new Set();
+              entriesInMonth.forEach(e => visitedCustomers.add(e.customerName));
+              
+              const totalCustomers = routes.length || 1;
+              const visitedCount = visitedCustomers.size;
+              const notVisitedCount = Math.max(0, totalCustomers - visitedCount);
+              const percentage = Math.round((visitedCount / totalCustomers) * 100);
+
+              return (
+                <>
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-400">إجمالي الزبائن</div>
+                    <div className="text-lg font-bold text-white">{totalCustomers}</div>
+                  </div>
+                  <div className="text-center border-l border-slate-700">
+                    <div className="text-[10px] text-slate-400">الزيارات (تمت/لم تتم)</div>
+                    <div className="text-sm font-bold text-emerald-400">{visitedCount} / {notVisitedCount}</div>
+                  </div>
+                  <div className="text-center border-l border-slate-700">
+                    <div className="text-[10px] text-slate-400">نسبة الإنجاز</div>
+                    <div className="text-lg font-bold text-emerald-400">{percentage}%</div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
           <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
             <MapIcon className="w-4 h-4 text-emerald-400" />
             استعراض وفلترة المسارات
