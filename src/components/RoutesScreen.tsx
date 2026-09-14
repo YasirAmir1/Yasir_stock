@@ -72,7 +72,7 @@ export const RoutesScreen: React.FC = () => {
 
   const filteredRoutes = routes.filter(r => {
     if (currentUser?.isAdmin) {
-       return (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
+       return (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true) && 
               (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
               (searchQuery ? r.customerName.includes(searchQuery) : true);
     } else {
@@ -80,13 +80,30 @@ export const RoutesScreen: React.FC = () => {
        const currentDelegateCode = String(currentUser?.delegateCode || '').trim();
        
        if (!currentDelegateCode) {
-           // If delegate code is missing, do not show any routes
-           return false;
+           return (
+             <div className="text-center py-10">
+               <AlertCircle className="w-12 h-12 mx-auto text-amber-500 mb-2" />
+               <p className="text-slate-600 dark:text-slate-400 font-bold">لا يوجد كود مندوب مرتبط بهذا الحساب.</p>
+             </div>
+           );
        }
 
-       return String(r.delegateCode || '').trim() === currentDelegateCode &&
-              r.path?.includes(currentDay) &&
-              (searchQuery ? r.customerName.includes(searchQuery) : true);
+       const filtered = routes.filter(r => 
+           String(r.delegateCode || '').trim() === currentDelegateCode &&
+           (routeFilterDay ? r.path?.includes(routeFilterDay) : r.path?.includes(currentDay)) &&
+           (searchQuery ? r.customerName.includes(searchQuery) : true)
+       );
+
+       if (filtered.length === 0) {
+           return (
+             <div className="text-center py-10">
+               <AlertCircle className="w-12 h-12 mx-auto text-slate-400 mb-2" />
+               <p className="text-slate-600 dark:text-slate-400 font-bold">لا توجد مسارات مرتبطة بهذا الكود.</p>
+             </div>
+           );
+       }
+
+       return filtered;
     }
   }).sort((a, b) => {
     // Primary: Position (descending, latest moved to top)
@@ -166,7 +183,7 @@ export const RoutesScreen: React.FC = () => {
           <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
             <option value="">كل المندوبين</option>
             {delegatesList.map(d => (
-              <option key={d} value={d}>{d}</option>
+              <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
             ))}
           </select>
           <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -204,7 +221,7 @@ export const RoutesScreen: React.FC = () => {
                     {day}
                   </td>
                 </tr>
-                {dayRoutes.sort((a, b) => a.delegateName.localeCompare(b.delegateName)).map(r => { // Sort routes by delegate name
+                {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
                   const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
                   const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
