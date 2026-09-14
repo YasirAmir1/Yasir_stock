@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, updateDoc, doc } from 'firebase/firestore';
 import { RouteItem } from '../types';
-import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp } from 'lucide-react';
 
 export const RoutesScreen: React.FC = () => {
   const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
@@ -76,11 +76,25 @@ export const RoutesScreen: React.FC = () => {
               (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
               (searchQuery ? r.customerName.includes(searchQuery) : true);
     } else {
-       return r.delegateName.trim() === currentUser?.name.trim() &&
+       // Strict matching using delegateCode as the primary identifier
+       const currentDelegateCode = String(currentUser?.delegateCode || '').trim();
+       
+       if (!currentDelegateCode) {
+           // If delegate code is missing, do not show any routes
+           return false;
+       }
+
+       return String(r.delegateCode || '').trim() === currentDelegateCode &&
               r.path?.includes(currentDay) &&
               (searchQuery ? r.customerName.includes(searchQuery) : true);
     }
   }).sort((a, b) => {
+    // Primary: Position (descending, latest moved to top)
+    const aPos = a.position || 0;
+    const bPos = b.position || 0;
+    if (aPos !== bPos) return bPos - aPos;
+
+    // Secondary: Visited
     const aVisited = isVisited(a);
     const bVisited = isVisited(b);
     if (aVisited === bVisited) return 0;
@@ -92,6 +106,15 @@ export const RoutesScreen: React.FC = () => {
 
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
+  };
+
+  const moveToTop = async (r: RouteItem) => {
+    try {
+      await updateDoc(doc(db, 'routes', r.id), { position: Date.now() });
+      addToast({ message: 'تم تصعيد المحل للأعلى بنجاح', type: 'success' });
+    } catch (e) {
+      addToast({ message: 'حدث خطأ أثناء التصعيد', type: 'info' });
+    }
   };
 
   const handleOrderClick = (r: RouteItem) => {
@@ -166,20 +189,22 @@ export const RoutesScreen: React.FC = () => {
       )}
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
               const day = r.path || 'غير مصنف';
               if (!acc[day]) acc[day] = [];
               acc[day].push(r);
               return acc;
-            }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
+            }, {} as Record<string, RouteItem[]>))
+            .sort((a, b) => a[0].localeCompare(b[0])) // Sort paths (days) alphabetically
+            .map(([day, dayRoutes]) => (
               <React.Fragment key={day}>
                 <tr>
                   <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
                     {day}
                   </td>
                 </tr>
-                {dayRoutes.map(r => {
+                {dayRoutes.sort((a, b) => a.delegateName.localeCompare(b.delegateName)).map(r => { // Sort routes by delegate name
                   const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
                   const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -202,6 +227,13 @@ export const RoutesScreen: React.FC = () => {
                       <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); moveToTop(r); }} 
+                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
+                              title="تصعيد للأعلى"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
                             <span>{r.customerName}</span>
                             {totalWeightToday > 0 && (
                                 <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
@@ -215,6 +247,7 @@ export const RoutesScreen: React.FC = () => {
                       <td className="px-3 py-2">{r.customerCode}</td>
                       <td className="px-3 py-2">{r.customerType}</td>
                       <td className="px-3 py-2">{r.path}</td>
+                      <td className="px-3 py-2 text-[9px] text-slate-500">{r.delegateName}</td>
                     </tr>
                   );
                 })}

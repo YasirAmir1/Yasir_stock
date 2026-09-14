@@ -4,6 +4,7 @@ export interface UserAccount {
   isAdmin: boolean;
   username: string;
   monthlyTargetKg: number;
+  delegateCode?: string; // Add this
 }
 
 export interface Category {
@@ -24,6 +25,7 @@ export interface DelegateAccount {
   username: string;
   password: string;
   delegateName: string;
+  delegateCode?: string; // Add this
   monthlyTargetKg: number;
   isAdmin: boolean;
   targetSetTimestamp?: number;
@@ -144,7 +146,9 @@ export interface RouteItem {
   customerAddress: string;
   customerType: 'مفرد' | 'جملة';
   delegateName: string;
+  delegateCode?: string; // New field
   path: string;
+  position?: number;
 }
 
 

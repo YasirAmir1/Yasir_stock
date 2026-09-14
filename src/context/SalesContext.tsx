@@ -38,12 +38,12 @@ export const DEFAULT_CATEGORIES_LIST = [
 
 export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'YASIR', password: '377377', delegateName: 'الأدمن', monthlyTargetKg: 0, isAdmin: true },
-  { username: 'najikala', password: '1111', delegateName: 'ناجي خلف', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'kldkala', password: '2222', delegateName: 'خلدون جمال', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'najikala', password: '1111', delegateName: 'ناجي خلف', delegateCode: '60037899', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'kldkala', password: '2222', delegateName: 'خلدون جمال', delegateCode: '60032667', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', delegateCode: '60037329', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', delegateCode: '60042244', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', delegateCode: '60042245', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
 ];
@@ -1269,6 +1269,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isAdmin: matched.isAdmin,
         username: matched.username,
         monthlyTargetKg: matched.monthlyTargetKg,
+        delegateCode: matched.delegateCode,
       };
       loginAccount(userAcc);
       return { success: true };

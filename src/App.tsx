@@ -16,6 +16,7 @@ import { DelegatePanelModal } from './components/DelegatePanelModal';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
 import { RoutesScreen } from './components/RoutesScreen';
+import { BottomNav } from './components/BottomNav';
 import {
   FileText,
   BarChart2,
@@ -54,6 +55,7 @@ const MainAppContent: React.FC = () => {
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showDelegateModal, setShowDelegateModal] = useState(false);
   const [largeFont, setLargeFont] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -151,15 +153,36 @@ const MainAppContent: React.FC = () => {
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <span className="font-extrabold text-xs leading-tight">
-                  {currentUser.name}
-                </span>
+                <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xs leading-tight">
+                        {currentUser.name}
+                    </span>
+                    {currentUser.delegateCode && (
+                        <div className="relative">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
+                                className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                            >
+                                {currentUser.delegateCode.slice(-2)}
+                            </button>
+                            {showTooltip && (
+                                <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                                    <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                    </p>
+                                    <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
                 <span
                   className={`text-[10px] font-bold ${
                     isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                   }`}
                 >
-                  {currentUser.roleName}
+                  كود المندوب: {currentUser.delegateCode || 'غير متوفر'}
                 </span>
               </div>
             </div>
@@ -174,15 +197,36 @@ const MainAppContent: React.FC = () => {
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <span className="font-extrabold text-xs leading-tight">
-                  {currentUser.name}
-                </span>
+                <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xs leading-tight">
+                        {currentUser.name}
+                    </span>
+                    {currentUser.delegateCode && (
+                        <div className="relative">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
+                                className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                            >
+                                {currentUser.delegateCode.slice(-2)}
+                            </button>
+                            {showTooltip && (
+                                <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                                    <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                    </p>
+                                    <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
                 <span
                   className={`text-[10px] font-bold ${
                     isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                   }`}
                 >
-                  {currentUser.roleName}
+                  كود المندوب: {currentUser.delegateCode || 'غير متوفر'}
                 </span>
               </div>
 
@@ -308,9 +352,9 @@ const MainAppContent: React.FC = () => {
           </div>
         </div>
 
-        {/* Navigation Tabs (Always sticky at top) */}
+        {/* Navigation Tabs (Always sticky at top - Hidden on Mobile) */}
         <div
-          className={`sticky top-0 z-45 backdrop-blur-md transition-colors border-b ${
+          className={`sticky top-0 z-45 backdrop-blur-md transition-colors border-b hidden sm:flex ${
             isDarkMode
               ? 'bg-slate-900/95 border-slate-800 text-white shadow-lg'
               : 'bg-white/95 border-slate-200 text-slate-900 shadow-md'
@@ -429,7 +473,7 @@ const MainAppContent: React.FC = () => {
       )}
 
       {/* Main Screen Body */}
-      <main className="flex-1 pb-12 pt-2">
+      <main className="flex-1 pb-20 sm:pb-12 pt-2">
         {activeTab === 'entry' && <EntryScreen />}
         {activeTab === 'routes' && <RoutesScreen />}
         {activeTab === 'reports' && <ReportsScreen />}
@@ -437,6 +481,14 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
         {activeTab === 'admin' && <AdminScreen />}
       </main>
+
+      {/* Bottom Navigation (Mobile Only) */}
+      <BottomNav 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        isDarkMode={isDarkMode} 
+        setShowQuickAdd={setShowQuickAdd} 
+      />
 
       {/* Footer */}
       <footer

@@ -421,6 +421,7 @@ export const AdminScreen: React.FC = () => {
   const [accountDelNameInput, setAccountDelNameInput] = useState('');
   const [accountUsernameInput, setAccountUsernameInput] = useState('');
   const [accountPasswordInput, setAccountPasswordInput] = useState('');
+  const [accountDelegateCodeInput, setAccountDelegateCodeInput] = useState('');
   const [editingAccountUsername, setEditingAccountUsername] = useState<string | null>(null);
   const [editingIsAdmin, setEditingIsAdmin] = useState(false);
 
@@ -572,10 +573,11 @@ export const AdminScreen: React.FC = () => {
     }
   };
 
-  const handleStartEditAccount = (acc: { username: string; password: string; delegateName: string; isAdmin: boolean }) => {
+  const handleStartEditAccount = (acc: { username: string; password: string; delegateName: string; isAdmin: boolean; delegateCode?: string }) => {
     setAccountDelNameInput(acc.delegateName);
     setAccountUsernameInput(acc.username);
     setAccountPasswordInput(acc.password);
+    setAccountDelegateCodeInput(acc.delegateCode || '');
     setEditingAccountUsername(acc.username);
     setEditingIsAdmin(acc.isAdmin);
   };
@@ -584,6 +586,7 @@ export const AdminScreen: React.FC = () => {
     setAccountDelNameInput('');
     setAccountUsernameInput('');
     setAccountPasswordInput('');
+    setAccountDelegateCodeInput('');
     setEditingAccountUsername(null);
     setEditingIsAdmin(false);
   };
@@ -606,6 +609,7 @@ export const AdminScreen: React.FC = () => {
         delegateName: delName,
         monthlyTargetKg: 0,
         isAdmin: editingIsAdmin,
+        delegateCode: accountDelegateCodeInput.trim() || undefined,
       });
 
       setSaveFeedbackMessage(
@@ -1081,6 +1085,17 @@ export const AdminScreen: React.FC = () => {
                 required
               />
             </div>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">كود المندوب</label>
+            <input
+              type="text"
+              value={accountDelegateCodeInput}
+              onChange={(e) => setAccountDelegateCodeInput(e.target.value)}
+              placeholder="كود المندوب"
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs focus:border-emerald-500 focus:outline-none"
+            />
           </div>
 
           <div className="flex items-center gap-2">
