@@ -148,6 +148,7 @@ interface SalesContextType {
   fetchUnifiedDataFromFirestore: () => Promise<void>;
   productsList: ProductItem[];
   importProductsFromExcel: (file: File) => Promise<void>;
+  importRoutesFromExcel: (file: File) => Promise<void>;
   updateProduct: (id: string, updatedData: Partial<ProductItem>) => void;
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -385,6 +386,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('Error importing excel:', error);
       setUserMessage('حدث خطأ أثناء قراءة ملف الإكسل. تأكد من صحة الملف.');
     }
+  };
+
+  const importRoutesFromExcel = async (file: File) => {
+    // ... need to define this, maybe just empty function for now to fix the crash
+    console.log("Importing routes not fully implemented yet");
   };
 
   const updateProduct = async (id: string, updatedData: Partial<ProductItem>) => {
@@ -1819,6 +1825,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         checkAndTriggerMilestoneToasts,
         productsList,
         importProductsFromExcel,
+        importRoutesFromExcel,
         updateProduct,
         addProduct,
         deleteProduct,

@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, updateDoc, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { RouteItem } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export const RoutesScreen: React.FC = () => {
   const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+  const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
 
   /*
   useEffect(() => {
@@ -43,9 +45,25 @@ export const RoutesScreen: React.FC = () => {
       });
       setCompletedDelegates(completed);
     });
+    
+    // Load manual visits
+    const delegateCode = String(currentUser?.delegateCode || '').trim();
+    if (delegateCode) {
+        const visitsQ = query(collection(db, 'daily_visits'), where('date', '==', today), where('delegateCode', '==', delegateCode));
+        const unsubVisits = onSnapshot(visitsQ, (snap) => {
+            const v: Record<string, boolean> = {};
+            snap.forEach(d => {
+                v[d.data().customerCode] = true;
+            });
+            setManualVisits(v);
+        });
+        return () => { unsub(); unsubVisits(); };
+    }
+    
     return () => unsub();
-  }, []);
-  const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.name || '');
+  }, [currentUser]);
+
+  const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.delegateCode || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -67,7 +85,8 @@ export const RoutesScreen: React.FC = () => {
   const isVisited = (r: RouteItem) => {
     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
     const todayStr = new Date().toISOString().split('T')[0];
-    return customerEntries.some(e => e.dateString === todayStr);
+    const hasSale = customerEntries.some(e => e.dateString === todayStr);
+    return hasSale || !!manualVisits[r.customerCode];
   };
 
   const filteredRoutes = routes.filter(r => {
@@ -121,6 +140,29 @@ export const RoutesScreen: React.FC = () => {
 
   const finalRoutes = filteredRoutes;
 
+  const toggleVisit = async (r: RouteItem) => {
+    const today = new Date().toISOString().split('T')[0];
+    const delegateCode = String(currentUser?.delegateCode || '').trim();
+    if (!delegateCode) return;
+
+    const docId = `${delegateCode}_${today}_${r.customerCode}`;
+    const docRef = doc(db, 'daily_visits', docId);
+
+    if (manualVisits[r.customerCode]) {
+        // Remove visit
+        await deleteDoc(docRef);
+        addToast({ message: 'تم إلغاء الزيارة', type: 'info' });
+    } else {
+        // Add visit
+        await setDoc(docRef, {
+            date: today,
+            delegateCode,
+            customerCode: r.customerCode
+        });
+        addToast({ message: 'تم تسجيل الزيارة', type: 'success' });
+    }
+  };
+
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
   };
@@ -154,9 +196,57 @@ export const RoutesScreen: React.FC = () => {
     setActiveTab('products');
   };
 
+  const handleUploadRoutes = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+
+      const batch = writeBatch(db);
+      const routesSnap = await getDocs(collection(db, 'routes'));
+      routesSnap.forEach(r => batch.delete(r.ref));
+
+      jsonData.forEach((row: any) => {
+        const keys = Object.keys(row);
+        const newRoute = {
+          customerName: row[keys[0]] || '',
+          customerCode: row[keys[1]] || '',
+          path: row[keys[2]] || '',
+          delegateName: row[keys[3]] || '',
+          customerType: row[keys[4]] || 'مفرد',
+          customerAddress: row[keys[5]] || '',
+          delegateCode: String(row[keys[6]] || '').trim(), // Column G
+        };
+        
+        const routeRef = doc(collection(db, 'routes'));
+        batch.set(routeRef, newRoute);
+      });
+      
+      await batch.commit();
+      addToast({ message: 'تم استيراد المسارات بنجاح ✅', type: 'success' });
+    } catch (e) {
+      console.error('Error importing routes:', e);
+      addToast({ message: 'فشل استيراد المسارات.', type: 'info' });
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
+      
+      {currentUser?.isAdmin && (
+        <div className="flex justify-center mb-4">
+          <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <Upload className="w-4 h-4" />
+            رفع المسار
+            <input type="file" accept=".xlsx, .xls" onChange={handleUploadRoutes} className="hidden" />
+          </label>
+        </div>
+      )}
       
       {/* Dashboard Widget */}
       {(() => {
@@ -250,6 +340,20 @@ export const RoutesScreen: React.FC = () => {
                               title="تصعيد للأعلى"
                             >
                               <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); toggleVisit(r); }}
+                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isVisited(r) ? 'text-emerald-500' : 'text-slate-400'}`}
+                              title="تبديل حالة الزيارة"
+                            >
+                              {isVisited(r) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
+                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
+                              title="طلب جديد"
+                            >
+                              <ShoppingBag className="w-4 h-4" />
                             </button>
                             <span>{r.customerName}</span>
                             {totalWeightToday > 0 && (
