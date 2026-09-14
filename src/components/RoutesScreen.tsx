@@ -101,7 +101,7 @@ export const RoutesScreen: React.FC = () => {
           ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
           : r.path?.includes(currentDay);
 
-      const searchMatch = searchQuery ? r.customerName?.includes(searchQuery) : true;
+      const searchMatch = searchQuery ? (r.customerName?.includes(searchQuery) || r.delegateName?.includes(searchQuery)) : true;
 
       return delegateMatch && dayMatch && searchMatch;
     }).sort((a, b) => {
