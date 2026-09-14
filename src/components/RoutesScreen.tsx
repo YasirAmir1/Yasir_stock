@@ -90,40 +90,17 @@ export const RoutesScreen: React.FC = () => {
   };
 
   const filteredRoutes = routes.filter(r => {
-    if (currentUser?.isAdmin) {
-       return (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true) && 
-              (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
-              (searchQuery ? r.customerName.includes(searchQuery) : true);
-    } else {
-       // Strict matching using delegateCode as the primary identifier
-       const currentDelegateCode = String(currentUser?.delegateCode || '').trim();
-       
-       if (!currentDelegateCode) {
-           return (
-             <div className="text-center py-10">
-               <AlertCircle className="w-12 h-12 mx-auto text-amber-500 mb-2" />
-               <p className="text-slate-600 dark:text-slate-400 font-bold">لا يوجد كود مندوب مرتبط بهذا الحساب.</p>
-             </div>
-           );
-       }
+    const delegateMatch = currentUser?.isAdmin
+        ? (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true)
+        : String(r.delegateCode || '').trim() === String(currentUser?.delegateCode || '').trim();
 
-       const filtered = routes.filter(r => 
-           String(r.delegateCode || '').trim() === currentDelegateCode &&
-           (routeFilterDay ? r.path?.includes(routeFilterDay) : r.path?.includes(currentDay)) &&
-           (searchQuery ? r.customerName.includes(searchQuery) : true)
-       );
+    const dayMatch = currentUser?.isAdmin
+        ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
+        : r.path?.includes(currentDay);
 
-       if (filtered.length === 0) {
-           return (
-             <div className="text-center py-10">
-               <AlertCircle className="w-12 h-12 mx-auto text-slate-400 mb-2" />
-               <p className="text-slate-600 dark:text-slate-400 font-bold">لا توجد مسارات مرتبطة بهذا الكود.</p>
-             </div>
-           );
-       }
+    const searchMatch = searchQuery ? r.customerName?.includes(searchQuery) : true;
 
-       return filtered;
-    }
+    return delegateMatch && dayMatch && searchMatch;
   }).sort((a, b) => {
     // Primary: Position (descending, latest moved to top)
     const aPos = a.position || 0;
@@ -296,84 +273,90 @@ export const RoutesScreen: React.FC = () => {
       )}
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الاسم ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-            {Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
-              const day = r.path || 'غير مصنف';
-              if (!acc[day]) acc[day] = [];
-              acc[day].push(r);
-              return acc;
-            }, {} as Record<string, RouteItem[]>))
-            .sort((a, b) => a[0].localeCompare(b[0])) // Sort paths (days) alphabetically
-            .map(([day, dayRoutes]) => (
-              <React.Fragment key={day}>
-                <tr>
-                  <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
-                    {day}
-                  </td>
-                </tr>
-                {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
-                  const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
-                  const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  
-                  // The hiding logic is reactive because it depends on allSalesEntries,
-                  // which comes from useSales() and causes a re-render when it updates.
-                  const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
-                  const hasOrderIn12Hours = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
-                  
-                  const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
+        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الزبون ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+            {finalRoutes.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center py-10 text-slate-500 font-bold">لا توجد محلات مجدولة لهذا اليوم.</td>
+              </tr>
+            ) : (
+              Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
+                const day = r.path || 'غير مصنف';
+                if (!acc[day]) acc[day] = [];
+                acc[day].push(r);
+                return acc;
+              }, {} as Record<string, RouteItem[]>))
+              .sort((a, b) => a[0].localeCompare(b[0])) // Sort paths (days) alphabetically
+              .map(([day, dayRoutes]) => (
+                <React.Fragment key={day}>
+                  <tr>
+                    <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
+                      {day}
+                    </td>
+                  </tr>
+                  {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
+                    const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
+                    const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    
+                    // The hiding logic is reactive because it depends on allSalesEntries,
+                    // which comes from useSales() and causes a re-render when it updates.
+                    const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
+                    const hasOrderIn12Hours = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
+                    
+                    const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
 
-                  if (isHidden) return null;
+                    if (isHidden) return null;
 
-                  return (
-                    <tr 
-                      key={r.id} 
-                      onClick={() => handleRowClick(r)}
-                      className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-900/80' : 'bg-emerald-200') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
-                    >
-                      <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); moveToTop(r); }} 
-                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
-                              title="تصعيد للأعلى"
-                            >
-                              <ArrowUp className="w-3 h-3" />
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); toggleVisit(r); }}
-                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isVisited(r) ? 'text-emerald-500' : 'text-slate-400'}`}
-                              title="تبديل حالة الزيارة"
-                            >
-                              {isVisited(r) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
-                              className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
-                              title="طلب جديد"
-                            >
-                              <ShoppingBag className="w-4 h-4" />
-                            </button>
-                            <span>{r.customerName}</span>
-                            {totalWeightToday > 0 && (
-                                <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
-                                    {totalWeightToday.toFixed(1)} كجم
-                                </span>
-                            )}
+                    return (
+                      <tr 
+                        key={r.id} 
+                        onClick={() => handleRowClick(r)}
+                        className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-900/80' : 'bg-emerald-200') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
+                      >
+                        <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); moveToTop(r); }} 
+                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
+                                title="تصعيد للأعلى"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); toggleVisit(r); }}
+                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isVisited(r) ? 'text-emerald-500' : 'text-slate-400'}`}
+                                title="تبديل حالة الزيارة"
+                              >
+                                {isVisited(r) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
+                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
+                                title="طلب جديد"
+                              >
+                                <ShoppingBag className="w-4 h-4" />
+                              </button>
+                              
+                              {totalWeightToday > 0 && (
+                                  <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
+                                      {totalWeightToday.toFixed(1)} كجم
+                                  </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">{r.customerAddress}</td>
-                      <td className="px-3 py-2">{r.customerCode}</td>
-                      <td className="px-3 py-2">{r.customerType}</td>
-                      <td className="px-3 py-2">{r.path}</td>
-                      <td className="px-3 py-2 text-[9px] text-slate-500">{r.delegateName}</td>
-                    </tr>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+                        </td>
+                        <td className="px-3 py-2">{r.customerAddress}</td>
+                        <td className="px-3 py-2">{r.customerCode}</td>
+                        <td className="px-3 py-2">{r.customerType}</td>
+                        <td className="px-3 py-2">{r.path}</td>
+                        <td className="px-3 py-2 text-[9px] text-slate-500">{r.delegateName}</td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))
+            )}
           </tbody>
         </table>
       </div>
