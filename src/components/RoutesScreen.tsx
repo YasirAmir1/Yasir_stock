@@ -281,10 +281,10 @@ export const RoutesScreen: React.FC = () => {
       )}
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">الزبون ({finalRoutes.length})</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">الكود</th><th className="px-3 py-2 border-b dark:border-slate-700">النوع</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم المندوب</th><th className="px-3 py-2 border-b dark:border-slate-700">كود المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {finalRoutes.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-slate-500 font-bold">لا توجد محلات مجدولة لهذا اليوم.</td>
+                <td colSpan={7} className="text-center py-10 text-slate-500 font-bold">لا توجد محلات مجدولة لهذا اليوم.</td>
               </tr>
             ) : (
               Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
@@ -297,17 +297,14 @@ export const RoutesScreen: React.FC = () => {
               .map(([day, dayRoutes]) => (
                 <React.Fragment key={day}>
                   <tr>
-                    <td colSpan={5} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
+                    <td colSpan={7} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
                       {day}
                     </td>
                   </tr>
                   {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
                     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
-                    const lastEntry = customerEntries.sort((a,b) => b.timestamp - a.timestamp)[0];
                     const todayStr = new Date().toISOString().split('T')[0];
                     
-                    // The hiding logic is reactive because it depends on allSalesEntries,
-                    // which comes from useSales() and causes a re-render when it updates.
                     const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
                     const hasOrderIn12Hours = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
                     
@@ -354,11 +351,12 @@ export const RoutesScreen: React.FC = () => {
                             </div>
                           </div>
                         </td>
+                        <td className="px-3 py-2">{r.customerName}</td>
                         <td className="px-3 py-2">{r.customerAddress}</td>
-                        <td className="px-3 py-2">{r.customerCode}</td>
-                        <td className="px-3 py-2">{r.customerType}</td>
                         <td className="px-3 py-2">{r.path}</td>
+                        <td className="px-3 py-2">{r.customerType}</td>
                         <td className="px-3 py-2 text-[9px] text-slate-500">{r.delegateName}</td>
+                        <td className="px-3 py-2">{r.delegateCode}</td>
                       </tr>
                     );
                   })}
