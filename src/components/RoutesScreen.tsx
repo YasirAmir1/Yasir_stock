@@ -79,7 +79,7 @@ export const RoutesScreen: React.FC = () => {
     return () => unsubRoutes();
   }, []);
 
-  const currentDay = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
+  const currentDay = new Intl.DateTimeFormat('ar', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
   const isCompleted = completedDelegates[currentUser?.name || ''] || false;
 
   const isVisited = (r: RouteItem) => {
@@ -90,6 +90,8 @@ export const RoutesScreen: React.FC = () => {
   };
 
   const filteredRoutes = routes.filter(r => {
+    if (!currentUser?.isAdmin && !currentUser?.delegateCode) return false;
+
     const delegateMatch = currentUser?.isAdmin
         ? (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true)
         : String(r.delegateCode || '').trim() === String(currentUser?.delegateCode || '').trim();
