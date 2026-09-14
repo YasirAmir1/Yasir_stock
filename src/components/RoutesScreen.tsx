@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
@@ -82,40 +82,42 @@ export const RoutesScreen: React.FC = () => {
   const currentDay = new Intl.DateTimeFormat('ar', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
   const isCompleted = completedDelegates[currentUser?.name || ''] || false;
 
-  const isVisited = (r: RouteItem) => {
+  const isVisited = React.useCallback((r: RouteItem) => {
     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
     const todayStr = new Date().toISOString().split('T')[0];
     const hasSale = customerEntries.some(e => e.dateString === todayStr);
     return hasSale || !!manualVisits[r.customerCode];
-  };
+  }, [allSalesEntries, manualVisits]);
 
-  const filteredRoutes = routes.filter(r => {
-    if (!currentUser?.isAdmin && !currentUser?.delegateCode) return false;
+  const filteredRoutes = useMemo(() => {
+    return routes.filter(r => {
+      if (!currentUser?.isAdmin && !currentUser?.delegateCode) return false;
 
-    const delegateMatch = currentUser?.isAdmin
-        ? (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true)
-        : String(r.delegateCode || '').trim() === String(currentUser?.delegateCode || '').trim();
+      const delegateMatch = currentUser?.isAdmin
+          ? (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true)
+          : String(r.delegateCode || '').trim() === String(currentUser?.delegateCode || '').trim();
 
-    const dayMatch = currentUser?.isAdmin
-        ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
-        : r.path?.includes(currentDay);
+      const dayMatch = currentUser?.isAdmin
+          ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
+          : r.path?.includes(currentDay);
 
-    const searchMatch = searchQuery ? r.customerName?.includes(searchQuery) : true;
+      const searchMatch = searchQuery ? r.customerName?.includes(searchQuery) : true;
 
-    return delegateMatch && dayMatch && searchMatch;
-  }).sort((a, b) => {
-    // Primary: Position (descending, latest moved to top)
-    const aPos = a.position || 0;
-    const bPos = b.position || 0;
-    if (aPos !== bPos) return bPos - aPos;
+      return delegateMatch && dayMatch && searchMatch;
+    }).sort((a, b) => {
+      // Primary: Position (descending, latest moved to top)
+      const aPos = a.position || 0;
+      const bPos = b.position || 0;
+      if (aPos !== bPos) return bPos - aPos;
 
-    // Secondary: Visited
-    const aVisited = isVisited(a);
-    const bVisited = isVisited(b);
-    if (aVisited === bVisited) return 0;
-    // Unvisited (false) should come before Visited (true)
-    return aVisited ? 1 : -1;
-  });
+      // Secondary: Visited
+      const aVisited = isVisited(a);
+      const bVisited = isVisited(b);
+      if (aVisited === bVisited) return 0;
+      // Unvisited (false) should come before Visited (true)
+      return aVisited ? 1 : -1;
+    });
+  }, [routes, currentUser, routeFilterDelegate, routeFilterDay, currentDay, searchQuery, isVisited]);
 
   const finalRoutes = filteredRoutes;
 
@@ -251,9 +253,13 @@ export const RoutesScreen: React.FC = () => {
         <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
             <option value="">كل المندوبين</option>
-            {delegatesList.map(d => (
-              <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
-            ))}
+            {delegatesList && delegatesList.length > 0 ? (
+              delegatesList.map(d => (
+                <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
+              ))
+            ) : (
+              <option disabled>لا يوجد مندوبون</option>
+            )}
           </select>
           <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
             <option value="">كل الأيام</option>
