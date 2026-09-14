@@ -70,14 +70,27 @@ export const RoutesScreen: React.FC = () => {
   const [displayLimit, setDisplayLimit] = useState(20);
 
   useEffect(() => {
-    const routesQ = query(collection(db, 'routes'));
+    if (!currentUser) return;
+    
+    let routesQ;
+    if (currentUser.isAdmin) {
+        routesQ = query(collection(db, 'routes'));
+    } else {
+        const delegateCode = String(currentUser.delegateCode || '').trim();
+        if (!delegateCode) {
+            setRoutes([]);
+            return;
+        }
+        routesQ = query(collection(db, 'routes'), where('delegateCode', '==', delegateCode));
+    }
+
     const unsubRoutes = onSnapshot(routesQ, (snap) => {
       const loaded: RouteItem[] = [];
       snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as RouteItem));
       setRoutes(loaded);
     });
     return () => unsubRoutes();
-  }, []);
+  }, [currentUser]);
 
   const currentDay = new Intl.DateTimeFormat('ar', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
   const isCompleted = completedDelegates[currentUser?.name || ''] || false;
@@ -91,19 +104,14 @@ export const RoutesScreen: React.FC = () => {
 
   const filteredRoutes = useMemo(() => {
     return routes.filter(r => {
-      if (!currentUser?.isAdmin && !currentUser?.delegateCode) return false;
-
-      const delegateMatch = currentUser?.isAdmin
-          ? (routeFilterDelegate ? String(r.delegateCode || '').trim() === String(routeFilterDelegate || '').trim() : true)
-          : String(r.delegateCode || '').trim() === String(currentUser?.delegateCode || '').trim();
-
+      // Delegate matching is now handled by the Firestore query for non-admins
       const dayMatch = currentUser?.isAdmin
           ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
           : r.path?.includes(currentDay);
 
       const searchMatch = searchQuery ? (r.customerName?.includes(searchQuery) || r.delegateName?.includes(searchQuery)) : true;
 
-      return delegateMatch && dayMatch && searchMatch;
+      return dayMatch && searchMatch;
     }).sort((a, b) => {
       // Primary: Position (descending, latest moved to top)
       const aPos = a.position || 0;
@@ -117,9 +125,18 @@ export const RoutesScreen: React.FC = () => {
       // Unvisited (false) should come before Visited (true)
       return aVisited ? 1 : -1;
     });
-  }, [routes, currentUser, routeFilterDelegate, routeFilterDay, currentDay, searchQuery, isVisited]);
+  }, [routes, currentUser, routeFilterDay, currentDay, searchQuery, isVisited]);
 
   const finalRoutes = filteredRoutes;
+
+  if (!currentUser?.isAdmin && !currentUser?.delegateCode) {
+      return (
+          <div className="text-center py-10">
+            <AlertCircle className="w-12 h-12 mx-auto text-amber-500 mb-2" />
+            <p className="text-slate-600 dark:text-slate-400 font-bold">لا يتوفر كود مندوب لهذا المستخدم.</p>
+          </div>
+      );
+  }
 
   const toggleVisit = async (r: RouteItem) => {
     const today = new Date().toISOString().split('T')[0];
