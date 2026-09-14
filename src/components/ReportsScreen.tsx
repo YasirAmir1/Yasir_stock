@@ -15,6 +15,44 @@ import {
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
 
+// --- Monthly Admin Report Component ---
+const MonthlyAdminReport: React.FC<{ salesEntries: any[] }> = ({ salesEntries }) => {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const entriesInMonth = salesEntries.filter(e => e.dateString?.startsWith(currentMonth));
+  
+  const totalWeight = entriesInMonth.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+  const totalInvoices = new Set(entriesInMonth.map(e => e.invoiceId || e.id)).size;
+  
+  const productCounts: Record<string, number> = {};
+  entriesInMonth.forEach(e => {
+    productCounts[e.productName] = (productCounts[e.productName] || 0) + (e.quantity || 0);
+  });
+  
+  let mostSoldProduct = { name: 'لا يوجد', quantity: 0 };
+  Object.entries(productCounts).forEach(([name, quantity]) => {
+    if (quantity > mostSoldProduct.quantity) {
+        mostSoldProduct = { name, quantity };
+    }
+  });
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-900 border border-slate-700 rounded-2xl text-white shadow-lg">
+      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
+        <div className="text-[10px] text-emerald-200 font-bold">إجمالي المبيعات (الشهر)</div>
+        <div className="text-lg font-black text-white">{totalWeight.toFixed(1)} كجم</div>
+      </div>
+      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
+        <div className="text-[10px] text-emerald-200 font-bold">عدد الفواتير الكلي</div>
+        <div className="text-lg font-black text-white">{totalInvoices}</div>
+      </div>
+      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
+        <div className="text-[10px] text-emerald-200 font-bold">المنتج الأكثر مبيعاً</div>
+        <div className="text-lg font-black text-white">{mostSoldProduct.name}</div>
+      </div>
+    </div>
+  );
+};
+
 export const ReportsScreen: React.FC = () => {
   // Added state for Sales History move
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
@@ -258,6 +296,7 @@ export const ReportsScreen: React.FC = () => {
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       
       {/* Reports Content */}
+      {currentUser.isAdmin && <MonthlyAdminReport salesEntries={salesEntries} />}
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
         <div className="bg-amber-400 border-2 border-amber-500 rounded-2xl p-4 shadow-xl text-slate-950 space-y-2 animate-bounce-short print:hidden">

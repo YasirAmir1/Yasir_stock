@@ -209,17 +209,6 @@ export const RoutesScreen: React.FC = () => {
                                 </span>
                             )}
                           </div>
-                          {!hasOrderIn12Hours && !(completedDelegates[currentUser?.name || ''] || false) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOrderClick(r);
-                              }}
-                              className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[9px] font-black hover:bg-emerald-500"
-                            >
-                              طلب
-                            </button>
-                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2">{r.customerAddress}</td>
@@ -243,20 +232,27 @@ export const RoutesScreen: React.FC = () => {
         </button>
       )}
 
-      {/* Summary Card */}
-      {(() => {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayEntries = allSalesEntries.filter(e => e.dateString === todayStr);
-        const totalWeight = todayEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
-        const totalOrders = todayEntries.length;
-        const visitedCustomers = new Set(todayEntries.map(e => e.customerCode));
-        const unvisitedCount = filteredRoutes.filter(r => !visitedCustomers.has(r.customerCode)).length;
-        
+      {/* Summary Card removed */}
+
+      {/* Admin Monthly Stats Card */}
+      {currentUser?.isAdmin && (() => {
+        const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+        const successfulVisits = new Set(
+          allSalesEntries
+            .filter(e => e.dateString && e.dateString.startsWith(currentMonth))
+            .map(e => e.customerCode)
+        ).size;
+        const plannedVisits = new Set(routes.map(r => r.customerCode)).size;
+
         return (
-          <div className="grid grid-cols-1 gap-2 mt-6">
-            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-center shadow-sm">
-                <div className="text-[10px] text-slate-500 mb-1">الوزن الكلي</div>
-                <div className="text-sm font-black text-slate-800 dark:text-slate-100">{totalWeight.toFixed(1)}</div>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800 text-center shadow-sm">
+                <div className="text-[10px] text-emerald-700 dark:text-emerald-300 mb-1">زيارات ناجحة (هذا الشهر)</div>
+                <div className="text-sm font-black text-emerald-900 dark:text-emerald-100">{successfulVisits}</div>
+            </div>
+            <div className="bg-sky-50 dark:bg-sky-900/20 p-3 rounded-xl border border-sky-200 dark:border-sky-800 text-center shadow-sm">
+                <div className="text-[10px] text-sky-700 dark:text-sky-300 mb-1">زيارات مخططة (الكل)</div>
+                <div className="text-sm font-black text-sky-900 dark:text-sky-100">{plannedVisits}</div>
             </div>
           </div>
         );
@@ -265,13 +261,12 @@ export const RoutesScreen: React.FC = () => {
       {/* Recent Orders Summary Card */}
       <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-          طلبات آخر 12 ساعة
+          طلبات اليوم
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
               <tr>
-                <th className="px-3 py-2"></th>
                 <th className="px-3 py-2">اسم الزبون</th>
                 <th className="px-3 py-2">كود</th>
                 <th className="px-3 py-2">الوزن (كجم)</th>
@@ -286,31 +281,13 @@ export const RoutesScreen: React.FC = () => {
                   if (existing) {
                     existing.totalWeightKg += e.totalWeightKg;
                   } else {
-                    acc.push({ customerName: e.customerName, customerCode: e.customerCode, totalWeightKg: e.totalWeightKg, customerAddress: e.customerAddress });
+                    acc.push({ customerName: e.customerName, customerCode: e.customerCode, totalWeightKg: e.totalWeightKg, customerAddress: e.customerAddress, customerType: e.customerType });
                   }
                   return acc;
                 }, [] as any[])
                 .sort((a, b) => a.totalWeightKg - b.totalWeightKg)
                 .map((item, idx) => (
                   <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                    <td className="px-3 py-2">
-                      {!isCompleted && (
-                      <button
-                        onClick={() => {
-                          setPrefilledEntryData({
-                            customerCode: item.customerCode,
-                            customerName: item.customerName,
-                            customerAddress: item.customerAddress
-                          });
-                          setShowQuickAdd(true);
-                          setActiveTab('products');
-                        }}
-                        className="w-6 h-6 flex items-center justify-center bg-emerald-600 text-white rounded-full font-black hover:bg-emerald-500"
-                      >
-                        +
-                      </button>
-                      )}
-                    </td>
                     <td className="px-3 py-2">{item.customerName}</td>
                     <td className="px-3 py-2">{item.customerCode}</td>
                     <td className="px-3 py-2 font-mono">{item.totalWeightKg.toFixed(1)}</td>

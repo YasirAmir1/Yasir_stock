@@ -13,6 +13,7 @@ import {
   DelegateEvaluation,
   DailyEvaluationRecord,
   ProductItem,
+  RouteItem
 } from '../types';
 
 export const DEFAULT_CATEGORIES_LIST = [
@@ -155,6 +156,7 @@ interface SalesContextType {
   showQuickAdd: boolean;
   setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', lastInvoiceToday?: SalesEntry } | null) => void;
   setShowQuickAdd: (show: boolean) => void;
+  routes: RouteItem[];
   activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
   setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
 }
@@ -225,7 +227,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [dailyEvaluationsHistory, setDailyEvaluationsHistory] = useState<DailyEvaluationRecord[]>([]);
   const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
+
+  useEffect(() => {
+    const q = query(collection(db, 'routes'));
+    const unsub = onSnapshot(q, (snap) => {
+      const loaded: RouteItem[] = [];
+      snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as RouteItem));
+      setRoutes(loaded);
+    });
+    return () => unsub();
+  }, []);
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
@@ -1814,6 +1827,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         showQuickAdd,
         setPrefilledEntryData,
         setShowQuickAdd,
+        routes,
         activeTab,
         setActiveTab,
         setDailyEvaluationsHistory,

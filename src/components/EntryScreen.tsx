@@ -36,6 +36,9 @@ export const EntryScreen: React.FC = () => {
       setCustomerName(prefilledEntryData.customerName);
       setCustomerCode(prefilledEntryData.customerCode);
       setCustomerAddress(prefilledEntryData.customerAddress);
+      if (prefilledEntryData.customerType) {
+        setInvoicePriceMode(prefilledEntryData.customerType === 'مفرد' ? 'retail' : 'wholesale');
+      }
       setPrefilledEntryData(null);
     }
   }, [prefilledEntryData, setPrefilledEntryData]);
@@ -125,6 +128,9 @@ export const EntryScreen: React.FC = () => {
 
   const handleStartEdit = (entry: SalesEntry) => {
     setEditingEntryId(entry.id);
+    if (entry.priceMode) {
+      setInvoicePriceMode(entry.priceMode);
+    }
     const grams = entry.pieceWeightKg ? Math.round(entry.pieceWeightKg * 1000) : 0;
     setEditFormData({
       productName: entry.productName,
@@ -752,8 +758,19 @@ export const EntryScreen: React.FC = () => {
         </div>
       )}
 
-
-
+      {/* Daily Stats Summary for Admin */}
+      {currentUser?.isAdmin && (
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
+            <div className="text-[10px] text-slate-400 font-bold">عدد الفواتير اليوم</div>
+            <div className="text-xl font-black">{new Set(safeSavedEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]).map(e => e.customerName)).size}</div>
+          </div>
+          <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
+            <div className="text-[10px] text-slate-400 font-bold">إجمالي المبيعات اليوم</div>
+            <div className="text-xl font-black">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم</div>
+          </div>
+        </div>
+      )}
 
       {/* Saved Sales List Table */}
       <div className="space-y-2 pt-2">

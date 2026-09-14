@@ -26,8 +26,29 @@ import {
   TrendingUp,
   Map as MapIcon,
   ClipboardList,
-  Bell
+  Bell,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+
+const CollapsibleCard: React.FC<{ title: string; children: React.ReactNode; icon?: React.ReactNode }> = ({ title, children, icon }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl overflow-hidden shadow-md">
+      <button 
+        className="w-full flex items-center justify-between p-4 font-black text-emerald-200 text-sm hover:bg-emerald-900/50 transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div className="flex items-center gap-2">
+            {icon}
+            {title}
+        </div>
+        {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+      {isOpen && <div className="p-4 bg-slate-900/50 border-t border-emerald-800/80">{children}</div>}
+    </div>
+  );
+};
 
 interface RouteItem {
   id: string;
@@ -54,7 +75,6 @@ interface NoteItem {
 }
 
 export const AdminScreen: React.FC = () => {
-  const [emailScheduleStatus, setEmailScheduleStatus] = useState<string | null>(null);
   const {
     currentUser,
     rawSavedEntries,
@@ -71,13 +91,12 @@ export const AdminScreen: React.FC = () => {
     unlockDelegateTargetManually,
     exportBackupData,
     restoreBackupData,
-    isDataSaverMode,
-    toggleDataSaverMode,
     isDarkMode,
     syncData,
     allSalesEntries,
-    syncFailureAlert,
     selectedDate,
+    isDataSaverMode,
+    toggleDataSaverMode
   } = useSales();
 
   // Top 5 Delegates Logic
@@ -345,7 +364,7 @@ export const AdminScreen: React.FC = () => {
   };
 
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => currentUser.isAdmin);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!currentUser?.isAdmin);
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -644,19 +663,7 @@ export const AdminScreen: React.FC = () => {
       </div>
 
       {/* Top 5 Delegates Card */}
-      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <h3 className="text-sm font-black text-amber-200 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5" />
-            أكثر 5 مندوبين تسجيلاً للفواتير (الشهر الحالي):
-          </div>
-          <button 
-            onClick={handleResetAllInvoices}
-            className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-[10px] font-bold transition-colors"
-          >
-            تصفير الفواتير
-          </button>
-        </h3>
+      <CollapsibleCard title="أكثر 5 مندوبين تسجيلاً للفواتير (الشهر الحالي)" icon={<TrendingUp className="w-5 h-5 text-amber-200" />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {topDelegates.length > 0 ? (
             topDelegates.map(([name, count], index) => (
@@ -674,7 +681,15 @@ export const AdminScreen: React.FC = () => {
             <p className="text-xs text-slate-400">لا توجد بيانات متاحة لهذا الشهر.</p>
           )}
         </div>
-      </div>
+        <div className="mt-4">
+          <button 
+            onClick={handleResetAllInvoices}
+            className="w-full px-2 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-bold transition-colors"
+          >
+            تصفير الفواتير للشهر الحالي
+          </button>
+        </div>
+      </CollapsibleCard>
 
       {/* 1. Delegate Picker Bar */}
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-3.5 text-white space-y-2 shadow-md">
@@ -1263,46 +1278,6 @@ export const AdminScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* 7. Weekly Email Backup Scheduling */}
-      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
-            7. جدولة إرسال النسخة الاحتياطية الأسبوعية للبريد الإلكتروني:
-          </h3>
-        </div>
-        <p className="text-xs text-slate-300">
-          جدولة تلقائية لترحيل وإرسال نسخة أسبوعية من بيانات Firestore للبريد الإداري المحدد.
-        </p>
-
-        {emailScheduleStatus && (
-          <div className="p-2.5 bg-emerald-900/80 border border-emerald-500 rounded-lg text-xs font-bold text-emerald-200 text-center">
-            {emailScheduleStatus}
-          </div>
-        )}
-
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          const emailInput = (e.currentTarget.elements.namedItem('backupEmail') as HTMLInputElement)?.value;
-          if (emailInput) {
-            setEmailScheduleStatus(`✔️ تمت جدول إرسال النسخة الاحتياطية الأسبوعية إلى (${emailInput}) بنجاح!`);
-          }
-        }} className="flex flex-col sm:flex-row items-center gap-2 pt-1">
-          <input
-            type="email"
-            name="backupEmail"
-            placeholder="أدخل البريد الإلكتروني الإداري (e.g. admin@company.com)"
-            required
-            className="flex-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs focus:border-emerald-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg transition-colors cursor-pointer"
-          >
-            تفعيل الجدولة الأسبوعية
-          </button>
-        </form>
-      </div>
 
       {/* 8. Monthly Sales Report Export (Excel/CSV) */}
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
@@ -1371,7 +1346,38 @@ export const AdminScreen: React.FC = () => {
           </button>
         </div>
       </div>
-      {/* 11. Add New Delegate Account */}
+
+      {/* Admin Note Section */}
+      <CollapsibleCard title="إدارة ملاحظات المندوبين" icon={<Bell className="w-5 h-5 text-amber-200" />}>
+        <div className="space-y-3">
+          <input
+            placeholder="كود الزبون"
+            value={noteCustomerCode}
+            onChange={(e) => setNoteCustomerCode(e.target.value)}
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs"
+          />
+          <textarea
+            placeholder="نص الملاحظة"
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs"
+          />
+          <input
+            type="number"
+            placeholder="مدة الصلاحية (بالساعات)"
+            value={noteExpiryHours}
+            onChange={(e) => setNoteExpiryHours(e.target.value)}
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs"
+          />
+          <button
+            onClick={handleSaveAdminNote}
+            className="w-full py-2 bg-emerald-600 rounded-lg text-xs font-bold"
+          >
+            حفظ الملاحظة
+          </button>
+          {noteMessage && <p className="text-center text-xs text-emerald-300">{noteMessage}</p>}
+        </div>
+      </CollapsibleCard>
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
         <div className="flex items-center gap-2 mb-2">
           <Shield className="w-5 h-5 text-emerald-400" />

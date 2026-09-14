@@ -29,7 +29,7 @@ interface ProductsScreenProps {
 }
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
-  const { currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
+  const { routes, currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
   const [discountPercentage, setDiscountPercentage] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -65,17 +65,23 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     return price * (1 - discountPercentage / 100);
   };
 
+  const [customerName, setCustomerName] = useState('');
+  const [customerCode, setCustomerCode] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>('مفرد');
+
+  const determinedCustomerType = useMemo(() => {
+    if (!customerCode) return null;
+    const route = routes.find(r => r.customerCode === customerCode);
+    return route ? route.customerType : 'مفرد';
+  }, [routes, customerCode]);
+
   React.useEffect(() => {
-    if (prefilledEntryData) {
-      setCustomerName(prefilledEntryData.customerName);
-      setCustomerCode(prefilledEntryData.customerCode);
-      setCustomerAddress(prefilledEntryData.customerAddress);
-      if (prefilledEntryData.customerType) {
-        setCustomerType(prefilledEntryData.customerType);
-        setPriceMode(prefilledEntryData.customerType === 'جملة' ? 'wholesale' : 'retail');
-      }
+    if (determinedCustomerType) {
+      setCustomerType(determinedCustomerType);
+      setPriceMode(determinedCustomerType === 'جملة' ? 'wholesale' : 'retail');
     }
-  }, [prefilledEntryData, setPrefilledEntryData, setPriceMode]);
+  }, [determinedCustomerType]);
 
   React.useEffect(() => {
     localStorage.setItem('pref_priceMode', priceMode);
@@ -88,11 +94,22 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   React.useEffect(() => {
     localStorage.setItem('pref_mobileGridCols', mobileGridCols);
   }, [mobileGridCols]);
-  const [customerName, setCustomerName] = useState('');
-  const [customerCode, setCustomerCode] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>('مفرد');
+
+
+
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (prefilledEntryData) {
+      setCustomerName(prefilledEntryData.customerName);
+      setCustomerCode(prefilledEntryData.customerCode);
+      setCustomerAddress(prefilledEntryData.customerAddress);
+      if (prefilledEntryData.customerType) {
+        setCustomerType(prefilledEntryData.customerType);
+      }
+    }
+  }, [prefilledEntryData]);
+
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem('app_selected_quantities');
@@ -604,18 +621,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300">العنوان</label>
                 <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded-md">
-                    <button
-                        onClick={() => setPriceMode('retail')}
-                        className={`px-2 py-0.5 rounded-sm text-[8px] font-black transition-all ${priceMode === 'retail' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
-                    >
-                        مفرد
-                    </button>
-                    <button
-                        onClick={() => setPriceMode('wholesale')}
-                        className={`px-2 py-0.5 rounded-sm text-[8px] font-black transition-all ${priceMode === 'wholesale' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
-                    >
-                        جملة
-                    </button>
+                    <span className={`px-2 py-0.5 rounded-sm text-[8px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        {customerType}
+                    </span>
                 </div>
               </div>
               <input
