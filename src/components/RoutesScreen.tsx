@@ -448,57 +448,6 @@ export const RoutesScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Delegate-wise Breakdown Card */}
-      <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-          طلبات المندوبين (تفصيلي - مجمع لكل زبون)
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
-            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-              <tr>
-                <th className="px-3 py-2">اسم الزبون</th>
-                <th className="px-3 py-2">نوع الفاتورة</th>
-                <th className="px-3 py-2">كود الزبون</th>
-                <th className="px-3 py-2">العنوان</th>
-                <th className="px-3 py-2">المبلغ الكلي</th>
-                <th className="px-3 py-2">الوزن الكلي (كجم)</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-              {useMemo(() => {
-                const todayEntries = allSalesEntries.filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000);
-                const groups: Record<string, any> = {};
-                
-                todayEntries.forEach(e => {
-                    const key = `${e.customerCode}_${e.customerType}`;
-                    
-                    if (!groups[key]) {
-                        groups[key] = {
-                            customerName: e.customerName,
-                            customerType: e.customerType,
-                            customerCode: e.customerCode,
-                            customerAddress: e.customerAddress,
-                            totalWeight: 0
-                        };
-                    }
-                    groups[key].totalWeight += e.totalWeightKg || 0;
-                });
-                
-                return Object.values(groups);
-              }, [allSalesEntries]).map((e: any, idx: number) => (
-                  <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                    <td className="px-3 py-2">{e.customerName}</td>
-                    <td className="px-3 py-2">{e.customerType}</td>
-                    <td className="px-3 py-2">{e.customerCode}</td>
-                    <td className="px-3 py-2">{e.customerAddress}</td>
-                    <td className="px-3 py-2 font-mono">غير متوفر</td>
-                    <td className="px-3 py-2 font-mono">{e.totalWeight.toFixed(1)}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );
