@@ -76,12 +76,12 @@ export const RoutesScreen: React.FC = () => {
     if (currentUser.isAdmin) {
         routesQ = query(collection(db, 'routes'));
     } else {
-        const delegateCode = String(currentUser.delegateCode || '').trim();
-        if (!delegateCode) {
+        const delegateName = String(currentUser.name || '').trim();
+        if (!delegateName) {
             setRoutes([]);
             return;
         }
-        routesQ = query(collection(db, 'routes'), where('delegateCode', '==', delegateCode));
+        routesQ = query(collection(db, 'routes'), where('delegateName', '==', delegateName));
     }
 
     const unsubRoutes = onSnapshot(routesQ, (snap) => {
@@ -350,13 +350,6 @@ export const RoutesScreen: React.FC = () => {
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); moveToTop(r); }} 
-                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
-                                title="تصعيد للأعلى"
-                              >
-                                <ArrowUp className="w-3 h-3" />
-                              </button>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
                                 className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
