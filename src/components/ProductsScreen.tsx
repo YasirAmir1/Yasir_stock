@@ -92,9 +92,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     }
   }, [determinedCustomerType, prefilledEntryData]);
 
-  React.useEffect(() => {
-    localStorage.setItem('pref_priceMode', priceMode);
-  }, [priceMode]);
+  // Removed localStorage sync for priceMode to prevent override
 
   React.useEffect(() => {
     localStorage.setItem('pref_sortBy', sortBy);
