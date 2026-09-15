@@ -922,6 +922,7 @@ export const EntryScreen: React.FC = () => {
                             customerName: entries[0].customerName, 
                             customerCode: entries[0].customerCode || '', 
                             customerAddress: entries[0].customerAddress || '',
+                            customerInvoiceType: entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد',
                             lastInvoiceToday: { priceMode: entries[0].priceMode }
                           });
                           setShowQuickAdd(true);

@@ -82,11 +82,15 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   }, [routes, customerCode]);
 
   React.useEffect(() => {
-    if (determinedCustomerType) {
+    if (prefilledEntryData?.customerInvoiceType) {
+      const mode = prefilledEntryData.customerInvoiceType === 'جملة' ? 'wholesale' : 'retail';
+      setPriceMode(mode);
+      setCustomerType(prefilledEntryData.customerInvoiceType);
+    } else if (determinedCustomerType && !prefilledEntryData) {
       setCustomerType(determinedCustomerType);
       setPriceMode(determinedCustomerType === 'جملة' ? 'wholesale' : 'retail');
     }
-  }, [determinedCustomerType]);
+  }, [determinedCustomerType, prefilledEntryData]);
 
   React.useEffect(() => {
     localStorage.setItem('pref_priceMode', priceMode);
@@ -396,7 +400,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     setEditingId(null);
   };
 
-  const handleSaveQuickAdd = () => {
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [saveSummary, setSaveSummary] = useState<{ total: number, itemCount: number } | null>(null);
+
+  const prepareSave = () => {
     setErrorMessage(null);
     const trimmedCustomerName = customerName.trim();
     if (!trimmedCustomerName) {
@@ -406,15 +413,41 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
     const itemsToSave = [];
     const entries = Object.entries(selectedQuantities);
-    if (entries.length === 0) {
-      setErrorMessage('تنبيه: لم تقم بإضافة أي منتج للزبون.');
-      return;
-    }
+    
+    let total = 0;
+    let itemCount = 0;
 
     for (const [prodId, qtyStr] of entries) {
       let q = parseInt(qtyStr, 10);
       if (isNaN(q) || q <= 0) continue;
       
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+      
+      const unit = entryModes[prodId] || 'piece';
+      const enteredQty = q;
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
+      
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      const discountedPrice = price * (1 - (discountPercentage || 0) / 100);
+      total += (discountedPrice * q);
+      itemCount += 1;
+    }
+
+    setSaveSummary({ total, itemCount });
+    setShowConfirmDialog(true);
+  };
+
+  const handleSaveQuickAdd = () => {
+    // Re-calculating items for the actual save
+    const trimmedCustomerName = customerName.trim();
+    const itemsToSave = [];
+    const entries = Object.entries(selectedQuantities);
+    for (const [prodId, qtyStr] of entries) {
+      let q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
       
@@ -446,11 +479,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       });
     }
 
-    // Check for diverse products (using Set to count unique product names)
-    const uniqueProducts = new Set(itemsToSave.map(item => item.productName));
-    // Check for minimum amount
-    // Removed restriction of 3 products and 25000 price as requested
-
     if (itemsToSave.length > 0) {
       saveSalesEntries(itemsToSave);
       setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
@@ -460,6 +488,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       setCustomerAddress('');
       setErrorMessage(null);
       setShowQuickAdd(false);
+      setShowConfirmDialog(false);
+      setSaveSummary(null);
     }
   };
 
@@ -475,98 +505,55 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
   return (
     <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300">
-      {/* Header & Description */}
-      {isAdmin && (
-        <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
-        }`}>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-emerald-600/20 flex items-center justify-center border border-emerald-500/30">
-              <Package className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+      
+      {/* Sticky Header Container */}
+      <div className="sticky top-0 z-40 bg-slate-100/90 dark:bg-emerald-950/90 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 shadow-sm space-y-3">
+        {/* Quick Add Customer Info Box with Price Mode Indicator */}
+        {showQuickAdd && (
+          <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+              </span>
+              <button onClick={() => setShowQuickAdd(false)} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-black tracking-tight">قائمة المنتجات والأصناف</h2>
-              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                استعراض تفاصيل المنتجات، كود المنتج، عدد الكارتون، ووزن القطعة الواحدة. (يمكن للأدمن التعديل المباشر للأصناف)
-              </p>
-            </div>
-          </div>
 
-          {/* Admin Excel Upload & Add Product Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowImageUploadModal(true)}
-              className="cursor-pointer px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              title="إضافة صور المنتجات"
-            >
-              <ImagePlus className="w-3 h-3" />
-              <span>إضافة صور المنتجات</span>
-            </button>
-            <button
-              onClick={() => {
-                if(window.confirm('هل أنت متأكد من حذف جميع المنتجات؟ لا يمكن التراجع عن هذا الإجراء.')){
-                  deleteAllProducts();
-                }
-              }}
-              className="cursor-pointer px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              title="حذف جميع المنتجات"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>حذف الكل</span>
-            </button>
-            <button
-              onClick={() => {
-                addProduct();
-                setSelectedCategoryFilter('الكل');
-                setSearchTerm('');
-              }}
-              className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-            >
-              <Plus className="w-3 h-3" />
-              <span>إضافة منتج</span>
-            </button>
-            <div className="flex flex-col gap-1 items-center">
-              <label className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 w-full justify-center">
-                <Upload className="w-3 h-3" />
-                <span>رفع إكسل</span>
-                <input
-                  type="file"
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
+            {/* Discount Bar */}
+            <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 mb-3">
+               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
+               <select 
+                 value={discountPercentage} 
+                 onChange={(e) => setDiscountPercentage(Number(e.target.value))}
+                 className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+               >
+                 <option value={0}>بدون تخفيض</option>
+                 {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
+               </select>
+            </div>
+
+            {errorMessage && (
+              <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
+                <span>{errorMessage}</span>
+                <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
+                إضافة سريعة للمنتجات (الزبون: {customerName})
+              </h3>
               <button
-                onClick={downloadExcelTemplate}
-                className={`text-[9px] font-bold underline transition-colors hover:text-emerald-500 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}
+                onClick={prepareSave}
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
               >
-                تحميل نموذج الإكسل
+                حفظ المنتجات
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Sales Daily Completion Card */}
-      {/* Moved to ReportsScreen */}
-
-      {/* Search and Discount Bar */}
-      <div className="flex flex-col gap-3">
-        {showQuickAdd && prefilledEntryData && (prefilledEntryData.lastInvoiceToday?.discountPercentage || 0) > 0 && (
-          <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
-             <select 
-               value={discountPercentage} 
-               onChange={(e) => setDiscountPercentage(Number(e.target.value))}
-               className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-             >
-               <option value={0}>بدون تخفيض</option>
-               {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
-             </select>
-          </div>
         )}
-        
-        {/* Search on a single line */}
+
+        {/* Search Bar */}
         <div className="relative w-full">
           <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -577,11 +564,69 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
             className="w-full pl-3 pr-10 py-2 sm:py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
+
+        {/* Header & Description */}
+        {isAdmin && (
+          <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
+          }`}>
+            {/* ... admin header content ... */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-600/20 flex items-center justify-center border border-emerald-500/30">
+                <Package className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-black tracking-tight">قائمة المنتجات والأصناف</h2>
+              </div>
+            </div>
+
+            {/* Admin Excel Upload & Add Product Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={addProduct}
+                className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <Plus className="w-3 h-3" />
+                <span>إضافة منتج</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Search and Discount Bar */}
+      
+      {/* Confirm Dialog */}
+      {showConfirmDialog && saveSummary && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-white'}`}>
+            <h3 className="text-lg font-black mb-4">تأكيد حفظ المنتجات</h3>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between items-center text-sm font-bold">
+                <span>عدد الأصناف:</span>
+                <span>{saveSummary.itemCount}</span>
+              </div>
+              <div className="flex justify-between items-center text-lg font-black text-emerald-500">
+                <span>الإجمالي:</span>
+                <span>{saveSummary.total.toLocaleString()} د.ع</span>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowConfirmDialog(false)} className={`flex-1 py-2.5 rounded-xl font-bold ${isDarkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>إلغاء</button>
+              <button onClick={handleSaveQuickAdd} className="flex-1 py-2.5 rounded-xl font-black bg-emerald-600 hover:bg-emerald-500 text-white">حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quick Add Customer Info Box */}
       {showQuickAdd && (
         <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
+          <div className="mb-2 flex items-center justify-between">
+            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+              السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+            </span>
+          </div>
           {errorMessage && (
             <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
               <span>{errorMessage}</span>
