@@ -3,7 +3,7 @@ import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { RouteItem } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export const RoutesScreen: React.FC = () => {
@@ -377,7 +377,19 @@ export const RoutesScreen: React.FC = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2">{r.customerName}</td>
+                        <td className="px-3 py-2 flex items-center gap-2">
+                          <button 
+                              onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.customerAddress || r.customerName)}`, '_blank');
+                              }}
+                              className="p-1 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-full"
+                              title="عرض على الخريطة"
+                          >
+                              <MapPin className="w-4 h-4" />
+                          </button>
+                          {r.customerName}
+                        </td>
                         <td className="px-3 py-2">{r.customerAddress}</td>
                         <td className="px-3 py-2">{r.path}</td>
                         <td className="px-3 py-2">{r.customerType}</td>
