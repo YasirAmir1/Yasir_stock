@@ -321,9 +321,9 @@ export const RoutesScreen: React.FC = () => {
                           const addresses = dayRoutes.map(r => encodeURIComponent(r.customerAddress)).join('|');
                           window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dayRoutes[0]?.customerAddress || '')}&waypoints=${addresses}`, '_blank');
                         }}
-                        className="px-2 py-1 bg-emerald-600 text-white rounded text-[10px]"
+                        className="p-1 bg-emerald-600 text-white rounded-full"
                       >
-                        عرض على الخريطة
+                        <MapPin className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
