@@ -51,7 +51,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     return productsList.filter(p => frequentProducts.includes(p.productName)).slice(0, 5);
   }, [prefilledEntryData, rawSavedEntries, productsList]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
-  const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
+  const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => {
+    if (prefilledEntryData?.lastInvoiceToday?.priceMode) {
+      return prefilledEntryData.lastInvoiceToday.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+    }
+    return (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail';
+  });
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
