@@ -314,17 +314,8 @@ export const RoutesScreen: React.FC = () => {
               .map(([day, dayRoutes]) => (
                 <React.Fragment key={day}>
                   <tr>
-                    <td colSpan={7} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'} flex items-center justify-between`}>
+                    <td colSpan={7} className={`px-3 py-2 font-bold ${isDarkMode ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-emerald-700'}`}>
                       {day}
-                      <button 
-                        onClick={() => {
-                          const addresses = dayRoutes.map(r => encodeURIComponent(r.customerAddress)).join('|');
-                          window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dayRoutes[0]?.customerAddress || '')}&waypoints=${addresses}`, '_blank');
-                        }}
-                        className="p-1 bg-emerald-600 text-white rounded-full"
-                      >
-                        <MapPin className="w-4 h-4" />
-                      </button>
                     </td>
                   </tr>
                   {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
