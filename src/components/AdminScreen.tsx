@@ -1581,7 +1581,9 @@ export const AdminScreen: React.FC = () => {
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
                   <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
-                  <th className="px-3 py-2 border-b border-slate-700">حالة الزيارة</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerType')}>نوع الزبون</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateCode')}>كود المندوب</th>
+                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>اسم المندوب</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700 bg-slate-950 text-slate-300">
@@ -1603,11 +1605,9 @@ export const AdminScreen: React.FC = () => {
                         <td className="px-3 py-2">{r.customerName}</td>
                         <td className="px-3 py-2">{r.customerAddress}</td>
                         <td className="px-3 py-2">{r.path}</td>
-                        <td className="px-3 py-2">
-                           {allSalesEntries.some(e => e.customerName === r.customerName && e.dateString === selectedDate) 
-                             ? <span className="text-emerald-400 font-bold">تمت الزيارة</span> 
-                             : <span className="text-red-400 font-bold">لم تتم</span>}
-                        </td>
+                        <td className="px-3 py-2">{r.customerType}</td>
+                        <td className="px-3 py-2">{r.delegateCode}</td>
+                        <td className="px-3 py-2">{r.delegateName}</td>
                       </tr>
                     ))}
                   </React.Fragment>
