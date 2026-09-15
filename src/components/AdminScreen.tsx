@@ -1582,7 +1582,6 @@ export const AdminScreen: React.FC = () => {
                   <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
                   <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
                   <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerType')}>نوع الزبون</th>
-                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateCode')}>كود المندوب</th>
                   <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>اسم المندوب</th>
                 </tr>
               </thead>
@@ -1595,7 +1594,7 @@ export const AdminScreen: React.FC = () => {
                 }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
                   <React.Fragment key={day}>
                     <tr>
-                      <td colSpan={7} className="px-2 py-1 bg-slate-800 text-emerald-400 font-bold">
+                      <td colSpan={6} className="px-2 py-1 bg-slate-800 text-emerald-400 font-bold">
                         {day}
                       </td>
                     </tr>
@@ -1606,7 +1605,6 @@ export const AdminScreen: React.FC = () => {
                         <td className="px-2 py-1">{r.customerAddress}</td>
                         <td className="px-2 py-1">{r.path}</td>
                         <td className="px-2 py-1">{r.customerType}</td>
-                        <td className="px-2 py-1">{r.delegateCode}</td>
                         <td className="px-2 py-1">{r.delegateName}</td>
                       </tr>
                     ))}

@@ -36,7 +36,9 @@ export const EntryScreen: React.FC = () => {
       setCustomerName(prefilledEntryData.customerName);
       setCustomerCode(prefilledEntryData.customerCode);
       setCustomerAddress(prefilledEntryData.customerAddress);
-      if (prefilledEntryData.customerType) {
+      if (prefilledEntryData.lastInvoiceToday) {
+        setInvoicePriceMode(prefilledEntryData.lastInvoiceToday.priceMode || 'retail');
+      } else if (prefilledEntryData.customerType) {
         setInvoicePriceMode(prefilledEntryData.customerType === 'مفرد' ? 'retail' : 'wholesale');
       }
       setPrefilledEntryData(null);
