@@ -358,13 +358,6 @@ export const RoutesScreen: React.FC = () => {
                                 <ArrowUp className="w-3 h-3" />
                               </button>
                               <button 
-                                onClick={(e) => { e.stopPropagation(); toggleVisit(r); }}
-                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isVisited(r) ? 'text-emerald-500' : 'text-slate-400'}`}
-                                title="تبديل حالة الزيارة"
-                              >
-                                {isVisited(r) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                              </button>
-                              <button 
                                 onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
                                 className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
                                 title="طلب جديد"

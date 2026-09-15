@@ -1574,16 +1574,16 @@ export const AdminScreen: React.FC = () => {
           </div>
           
           <div className="overflow-x-auto rounded-xl border border-slate-700">
-            <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+            <table className="w-full text-[9px] sm:text-[10px] text-right whitespace-nowrap">
               <thead className="bg-slate-800 text-slate-300 font-bold">
                 <tr>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerType')}>نوع الزبون</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateCode')}>كود المندوب</th>
-                  <th className="px-3 py-2 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>اسم المندوب</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('customerType')}>نوع الزبون</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateCode')}>كود المندوب</th>
+                  <th className="px-2 py-1 border-b border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>اسم المندوب</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700 bg-slate-950 text-slate-300">
@@ -1595,19 +1595,19 @@ export const AdminScreen: React.FC = () => {
                 }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
                   <React.Fragment key={day}>
                     <tr>
-                      <td colSpan={5} className="px-3 py-2 bg-slate-800 text-emerald-400 font-bold">
+                      <td colSpan={7} className="px-2 py-1 bg-slate-800 text-emerald-400 font-bold">
                         {day}
                       </td>
                     </tr>
                     {dayRoutes.map(r => (
                       <tr key={r.id} className="hover:bg-slate-800 transition-colors">
-                        <td className="px-3 py-2">{r.customerCode}</td>
-                        <td className="px-3 py-2">{r.customerName}</td>
-                        <td className="px-3 py-2">{r.customerAddress}</td>
-                        <td className="px-3 py-2">{r.path}</td>
-                        <td className="px-3 py-2">{r.customerType}</td>
-                        <td className="px-3 py-2">{r.delegateCode}</td>
-                        <td className="px-3 py-2">{r.delegateName}</td>
+                        <td className="px-2 py-1">{r.customerCode}</td>
+                        <td className="px-2 py-1">{r.customerName}</td>
+                        <td className="px-2 py-1">{r.customerAddress}</td>
+                        <td className="px-2 py-1">{r.path}</td>
+                        <td className="px-2 py-1">{r.customerType}</td>
+                        <td className="px-2 py-1">{r.delegateCode}</td>
+                        <td className="px-2 py-1">{r.delegateName}</td>
                       </tr>
                     ))}
                   </React.Fragment>
