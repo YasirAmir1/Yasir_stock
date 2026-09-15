@@ -921,7 +921,8 @@ export const EntryScreen: React.FC = () => {
                           setPrefilledEntryData({ 
                             customerName: entries[0].customerName, 
                             customerCode: entries[0].customerCode || '', 
-                            customerAddress: entries[0].customerAddress || '' 
+                            customerAddress: entries[0].customerAddress || '',
+                            lastInvoiceToday: { priceMode: entries[0].priceMode }
                           });
                           setShowQuickAdd(true);
                           setActiveTab('products');
