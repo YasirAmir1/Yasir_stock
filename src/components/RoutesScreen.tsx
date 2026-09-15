@@ -7,7 +7,7 @@ import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square
 import * as XLSX from 'xlsx';
 
 export const RoutesScreen: React.FC = () => {
-  const { currentUser, delegatesList = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
+  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
@@ -149,7 +149,7 @@ export const RoutesScreen: React.FC = () => {
     if (manualVisits[r.customerCode]) {
         // Remove visit
         await deleteDoc(docRef);
-        addToast({ message: 'تم إلغاء الزيارة', type: 'info' });
+        addToast({ message: 'تم إلغاء الزيارة', type: 'info', delegateName: currentUser?.name || '', title: 'إلغاء زيارة', percentage: 0 });
     } else {
         // Add visit
         await setDoc(docRef, {
@@ -157,7 +157,7 @@ export const RoutesScreen: React.FC = () => {
             delegateCode,
             customerCode: r.customerCode
         });
-        addToast({ message: 'تم تسجيل الزيارة', type: 'success' });
+        addToast({ message: 'تم تسجيل الزيارة', type: 'success', delegateName: currentUser?.name || '', title: 'زيارة جديدة', percentage: 0 });
     }
   };
 
@@ -168,9 +168,9 @@ export const RoutesScreen: React.FC = () => {
   const moveToTop = async (r: RouteItem) => {
     try {
       await updateDoc(doc(db, 'routes', r.id), { position: Date.now() });
-      addToast({ message: 'تم تصعيد المحل للأعلى بنجاح', type: 'success' });
+      addToast({ message: 'تم تصعيد المحل للأعلى بنجاح', type: 'success', delegateName: currentUser?.name || '', title: 'تصعيد', percentage: 0 });
     } catch (e) {
-      addToast({ message: 'حدث خطأ أثناء التصعيد', type: 'info' });
+      addToast({ message: 'حدث خطأ أثناء التصعيد', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
     }
   };
 
@@ -225,10 +225,10 @@ export const RoutesScreen: React.FC = () => {
       });
       
       await batch.commit();
-      addToast({ message: 'تم استيراد المسارات بنجاح ✅', type: 'success' });
+      addToast({ message: 'تم استيراد المسارات بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'استيراد', percentage: 0 });
     } catch (e) {
       console.error('Error importing routes:', e);
-      addToast({ message: 'فشل استيراد المسارات.', type: 'info' });
+      addToast({ message: 'فشل استيراد المسارات.', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
     }
   };
 
@@ -270,8 +270,8 @@ export const RoutesScreen: React.FC = () => {
         <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
             <option value="">كل المندوبين</option>
-            {delegatesList && delegatesList.length > 0 ? (
-              delegatesList.map(d => (
+            {delegateAccounts && delegateAccounts.length > 0 ? (
+              delegateAccounts.map(d => (
                 <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
               ))
             ) : (
@@ -474,7 +474,7 @@ export const RoutesScreen: React.FC = () => {
                     <td className="px-3 py-2">{e.customerType}</td>
                     <td className="px-3 py-2">{e.customerCode}</td>
                     <td className="px-3 py-2">{e.customerAddress}</td>
-                    <td className="px-3 py-2 font-mono">{e.totalPrice.toLocaleString()}</td>
+                    <td className="px-3 py-2 font-mono">---</td>
                     <td className="px-3 py-2 font-mono">{e.totalWeightKg.toFixed(1)}</td>
                   </tr>
                 ))}

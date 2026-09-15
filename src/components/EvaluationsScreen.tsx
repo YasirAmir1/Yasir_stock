@@ -83,18 +83,18 @@ export const EvaluationsScreen: React.FC = () => {
     <div className="space-y-6 max-w-7xl mx-auto pb-12 p-2 text-right" dir="rtl">
       
       {/* 1. HEADER BANNER */}
-      <div className="p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl border border-indigo-500/30 text-white shadow-2xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl border border-indigo-500/30 text-white shadow-lg space-y-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-500/20 border border-amber-500/40 rounded-2xl text-amber-400 shadow-inner">
-              <Award className="w-8 h-8" />
+            <div className="p-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-400 shadow-inner">
+              <Award className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black flex items-center gap-2">
                 <span>تقييمات وأداء المندوبين</span>
-                <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
               </h1>
-              <p className="text-xs sm:text-sm text-slate-300 font-semibold mt-1">
+              <p className="text-[10px] sm:text-xs text-slate-300 font-semibold mt-0.5">
                 نظام تقييم معتمد بناءً على 6 معايير (الوقت - المبيعات - الايتمات - القطع - الكراتين - الأصناف)
               </p>
             </div>
@@ -130,50 +130,98 @@ export const EvaluationsScreen: React.FC = () => {
       </div>
 
       {/* 2. البطاقات الست المعبرة عن المعايير وأوزانها في الأعلى */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-cyan-400 font-bold">وزن 10%</span>
-            <span className="text-xs font-bold text-white block">وقت الإدخال</span>
+      {currentUser.isAdmin && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-cyan-400 font-bold">وزن 10%</span>
+              <span className="text-xs font-bold text-white block">وقت الإدخال</span>
+            </div>
+            <Clock className="w-4 h-4 text-cyan-400" />
           </div>
-          <Clock className="w-4 h-4 text-cyan-400" />
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-purple-400 font-bold">وزن 20%</span>
-            <span className="text-xs font-bold text-white block">حجم المبيعات</span>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-purple-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">حجم المبيعات</span>
+            </div>
+            <Scale className="w-4 h-4 text-purple-400" />
           </div>
-          <Scale className="w-4 h-4 text-purple-400" />
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-blue-400 font-bold">وزن 20%</span>
-            <span className="text-xs font-bold text-white block">عدد الايتمات</span>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-blue-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">عدد الايتمات</span>
+            </div>
+            <Boxes className="w-4 h-4 text-blue-400" />
           </div>
-          <Boxes className="w-4 h-4 text-blue-400" />
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-emerald-400 font-bold">وزن 20%</span>
-            <span className="text-xs font-bold text-white block">عدد القطع</span>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-emerald-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">عدد القطع</span>
+            </div>
+            <Layers className="w-4 h-4 text-emerald-400" />
           </div>
-          <Layers className="w-4 h-4 text-emerald-400" />
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-amber-400 font-bold">وزن 20%</span>
-            <span className="text-xs font-bold text-white block">الكراتين المباعة</span>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-amber-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">الكراتين المباعة</span>
+            </div>
+            <TrendingUp className="w-4 h-4 text-amber-400" />
           </div>
-          <TrendingUp className="w-4 h-4 text-amber-400" />
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-rose-400 font-bold">وزن 30%</span>
-            <span className="text-xs font-bold text-white block">أصناف 100%+</span>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-rose-400 font-bold">وزن 30%</span>
+              <span className="text-xs font-bold text-white block">أصناف 100%+</span>
+            </div>
+            <Award className="w-4 h-4 text-rose-400" />
           </div>
-          <Award className="w-4 h-4 text-rose-400" />
         </div>
-      </div>
+      )}
+      {currentUser.isAdmin && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-cyan-400 font-bold">وزن 10%</span>
+              <span className="text-xs font-bold text-white block">وقت الإدخال</span>
+            </div>
+            <Clock className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-purple-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">حجم المبيعات</span>
+            </div>
+            <Scale className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-blue-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">عدد الايتمات</span>
+            </div>
+            <Boxes className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-emerald-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">عدد القطع</span>
+            </div>
+            <Layers className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-amber-400 font-bold">وزن 20%</span>
+              <span className="text-xs font-bold text-white block">الكراتين المباعة</span>
+            </div>
+            <TrendingUp className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-rose-400 font-bold">وزن 30%</span>
+              <span className="text-xs font-bold text-white block">أصناف 100%+</span>
+            </div>
+            <Award className="w-4 h-4 text-rose-400" />
+          </div>
+        </div>
+      )}
 
       {/* 3. المندوب الأول في اليوم */}
       {bestDelegate ? (
