@@ -144,6 +144,7 @@ export interface RouteItem {
   customerCode: string;
   customerName: string;
   customerAddress: string;
+  customerPhone?: string; // Add this field
   customerType: 'مفرد' | 'جملة';
   delegateName: string;
   delegateCode?: string; // New field
