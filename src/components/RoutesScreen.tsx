@@ -418,12 +418,13 @@ export const RoutesScreen: React.FC = () => {
       {/* Recent Orders Summary Card */}
       <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-          طلبات اليوم
+          طلبات اليوم لجميع المندوبين
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
               <tr>
+                <th className="px-3 py-2">المندوب</th>
                 <th className="px-3 py-2">اسم الزبون</th>
                 <th className="px-3 py-2">كود</th>
                 <th className="px-3 py-2">الوزن (كجم)</th>
@@ -433,22 +434,48 @@ export const RoutesScreen: React.FC = () => {
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
               {allSalesEntries
                 .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
-                .reduce((acc, e) => {
-                  const existing = acc.find(item => item.customerCode === e.customerCode);
-                  if (existing) {
-                    existing.totalWeightKg += e.totalWeightKg;
-                  } else {
-                    acc.push({ customerName: e.customerName, customerCode: e.customerCode, totalWeightKg: e.totalWeightKg, customerAddress: e.customerAddress, customerType: e.customerType });
-                  }
-                  return acc;
-                }, [] as any[])
-                .sort((a, b) => a.totalWeightKg - b.totalWeightKg)
-                .map((item, idx) => (
+                .map((e, idx) => (
                   <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                    <td className="px-3 py-2">{item.customerName}</td>
-                    <td className="px-3 py-2">{item.customerCode}</td>
-                    <td className="px-3 py-2 font-mono">{item.totalWeightKg.toFixed(1)}</td>
-                    <td className="px-3 py-2">{item.customerAddress}</td>
+                    <td className="px-3 py-2">{e.delegateName || 'غير معروف'}</td>
+                    <td className="px-3 py-2">{e.customerName}</td>
+                    <td className="px-3 py-2">{e.customerCode}</td>
+                    <td className="px-3 py-2 font-mono">{e.totalWeightKg.toFixed(1)}</td>
+                    <td className="px-3 py-2">{e.customerAddress}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Delegate-wise Breakdown Card */}
+      <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
+          طلبات المندوبين (تفصيلي)
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-right">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
+                <th className="px-3 py-2">اسم الزبون</th>
+                <th className="px-3 py-2">نوع الفاتورة</th>
+                <th className="px-3 py-2">كود</th>
+                <th className="px-3 py-2">العنوان</th>
+                <th className="px-3 py-2">المبلغ الكلي</th>
+                <th className="px-3 py-2">الوزن الكلي</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+              {allSalesEntries
+                .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
+                .map((e, idx) => (
+                  <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                    <td className="px-3 py-2">{e.customerName}</td>
+                    <td className="px-3 py-2">{e.customerType}</td>
+                    <td className="px-3 py-2">{e.customerCode}</td>
+                    <td className="px-3 py-2">{e.customerAddress}</td>
+                    <td className="px-3 py-2 font-mono">{e.totalPrice.toLocaleString()}</td>
+                    <td className="px-3 py-2 font-mono">{e.totalWeightKg.toFixed(1)}</td>
                   </tr>
                 ))}
             </tbody>
