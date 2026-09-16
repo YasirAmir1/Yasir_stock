@@ -94,7 +94,7 @@ export const EvaluationsScreen: React.FC = () => {
                 <span>تقييمات وأداء المندوبين</span>
                 <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
               </h1>
-              <p className="text-[10px] sm:text-xs text-slate-300 font-semibold mt-0.5">
+              <p className="text-[9px] sm:text-[10px] text-slate-300 font-semibold mt-0.5">
                 نظام تقييم معتمد بناءً على 6 معايير (الوقت - المبيعات - الايتمات - القطع - الكراتين - الأصناف)
               </p>
             </div>

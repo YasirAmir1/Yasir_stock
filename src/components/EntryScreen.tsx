@@ -873,28 +873,30 @@ export const EntryScreen: React.FC = () => {
                   ? (isDarkMode ? 'bg-amber-900/40 border-amber-600' : 'bg-amber-50 border-amber-400')
                   : (isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400')
               }`}>
-                <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex items-center justify-between gap-2 flex-wrap rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
-                  <div className="flex items-center gap-2">
+                <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex flex-col gap-2 rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-500">
                       {entries[0]?.customerCode || '---'}
                     </span>
                     <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
                     {entries[0]?.priceMode && (
-                      <span className={`px-2 py-0.5 text-[10px] rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                      <span className={`px-2 py-0.5 rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
                         {entries[0].priceMode === 'wholesale' ? <Package className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
                         {entries[0].priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}
                       </span>
                     )}
                     {(entries[0].discountPercentage && entries[0].discountPercentage > 0) && (
-                      <span className="px-2 py-0.5 text-[10px] rounded-md border font-black bg-red-100 text-red-800 border-red-300 flex items-center gap-1 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded-md border font-black bg-red-100 text-red-800 border-red-300 flex items-center gap-1 whitespace-nowrap">
                         خصم {entries[0].discountPercentage}%
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <div className={`px-3 py-1.5 rounded-lg border flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2 ${isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'}`}>
-                      <span className="text-xs sm:text-sm font-bold">المندوب: {entries[0]?.delegateName || 'غير محدد'}</span>
+                    <div className={`px-2 py-0.5 rounded-md border flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-1 ${isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'}`}>
+                      <span className="text-[10px] font-bold">المندوب: {entries[0]?.delegateName || 'غير محدد'}</span>
                       {entries[0]?.timestamp && (
                         <span className={`text-[9px] font-bold whitespace-nowrap sm:border-r sm:pr-2 ${isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'}`} dir="ltr">
                           {new Date(entries[0].timestamp).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
@@ -902,10 +904,10 @@ export const EntryScreen: React.FC = () => {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="bg-emerald-600 text-white text-sm sm:text-base font-black px-3 py-1.5 rounded-lg border border-emerald-700 shadow-md">
+                      <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-emerald-700 shadow-md">
                         {formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم
                       </span>
-                      <span className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 py-1.5 rounded-lg border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
+                      <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
                         {formatWithCommas(entries.reduce((sum, e) => {
                           const prod = productsList.find(p => p.productName === e.productName);
                           const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
@@ -917,7 +919,7 @@ export const EntryScreen: React.FC = () => {
                       {!isCompleted && (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={() => { 
                           setPrefilledEntryData({ 
                             customerName: entries[0].customerName, 
                             customerCode: entries[0].customerCode || '', 
@@ -928,19 +930,19 @@ export const EntryScreen: React.FC = () => {
                           setShowQuickAdd(true);
                           setActiveTab('products');
                         }}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
+                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
                         title="إضافة منتج للفاتورة"
                       >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
                       </button>
                       )}
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(customerName, entries)}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'}`}
+                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'}`}
                         title="طباعة الفاتورة"
                       >
-                        <Printer className="w-5 h-5" />
+                        <Printer className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
@@ -949,15 +951,15 @@ export const EntryScreen: React.FC = () => {
                             entries.forEach(e => deleteSalesEntry(e.id));
                           }
                         }}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
+                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
                         title="حذف الفاتورة بالكامل"
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 </h4>
-                <div className="flex flex-col px-2 pb-2 pt-1">
+                <div className="flex flex-col px-2 pb-1 pt-0.5">
                   {entries.map((entry, index) => {
               const isEditing = editingEntryId === entry.id;
 
@@ -1062,7 +1064,7 @@ export const EntryScreen: React.FC = () => {
               return (
                 <div
                   key={`saved_${entry.id || 'item'}_${index}`}
-                  className={`py-2.5 px-3 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs transition-colors ${isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50'}`}
+                  className={`py-1 px-2 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] transition-colors ${isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50'}`}
                 >
                   <div className="flex-1 flex flex-col gap-1 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
@@ -1101,19 +1103,19 @@ export const EntryScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleStartEdit(entry)}
-                          className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/50' : 'text-amber-600 hover:text-amber-800 hover:bg-amber-100'}`}
+                          className={`p-1 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/50' : 'text-amber-600 hover:text-amber-800 hover:bg-amber-100'}`}
                           title="تعديل هذا الإدخال"
                         >
-                          <Pencil className="w-4 h-4" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
-                        className={`p-1.5 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
+                        className={`p-1 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
                         title="حذف السجل"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>

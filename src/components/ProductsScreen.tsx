@@ -169,7 +169,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [imageUploadError, setImageUploadError] = useState('');
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن';
-  const shouldShowDiscount = prefilledEntryData ? (prefilledEntryData.lastInvoiceToday?.discountPercentage || 0) > 0 : true;
+  const discountVal = prefilledEntryData?.lastInvoiceToday?.discountPercentage || 0;
+  const isNewInvoice = !!prefilledEntryData;
+  const isEditingSavedInvoiceWithDiscount = discountVal > 0.1;
+  const shouldShowDiscount = isNewInvoice || isEditingSavedInvoiceWithDiscount;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -557,17 +560,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           </div>
         )}
 
-        {/* Search Bar */}
-        <div className="relative w-full">
-          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="بحث عن منتج..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-3 pr-10 py-2 sm:py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
 
         {/* Header & Description */}
         {isAdmin && (
@@ -709,21 +701,18 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         </div>
         )}
         
-        {/* Search on a single line */}
-        <div className="relative w-full">
-          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="بحث باسم المنتج أو الكود..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className={`w-full pr-10 pl-4 py-3 rounded-xl border text-xs sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-700 text-white placeholder-slate-500'
-                : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
-            }`}
-          />
+        {/* Search Bar */}
+        <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+           <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+           <input 
+             type="text"
+             value={searchTerm}
+             onChange={(e) => setSearchTerm(e.target.value)}
+             placeholder="بحث عن منتج (اسم، كود، صنف)..."
+             className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+           />
         </div>
+        
         
         {suggestedProducts.length > 0 && (
           <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">

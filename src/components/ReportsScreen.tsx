@@ -305,7 +305,7 @@ export const ReportsScreen: React.FC = () => {
             <span>🏆 إشعار إنجاز الهدف (100%) - تهانينا!</span>
           </div>
 
-          <p className="text-xs font-bold text-slate-900">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-900">
             قام المندوب ({activeDelegateName}) بتجاوز أو تحقيق الهدف 100% في الأصناف التالية:
           </p>
 
@@ -589,8 +589,7 @@ export const ReportsScreen: React.FC = () => {
           <table className="w-full text-right border-collapse text-xs">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
               <tr>
-                <th className="py-3 px-3 w-[8%]">#</th>
-                <th className="py-3 px-3 w-[25%]">الصنف</th>
+                <th className="py-3 px-3 w-[33%]">الصنف</th>
                 <th className="py-3 px-3 text-center w-[20%]">المبيعات (كجم)</th>
                 <th className="py-3 px-3 text-center w-[20%]">التاركت (كجم)</th>
                 <th className="py-3 px-3 text-center w-[27%]">نسبة الإنجاز %</th>
@@ -602,7 +601,6 @@ export const ReportsScreen: React.FC = () => {
                   key={item.categoryName}
                   className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}
                 >
-                  <td className="py-3 px-3 font-bold text-slate-500">{item.categoryId}</td>
                   <td className="py-3 px-3 font-bold">
                     <div className="flex items-center gap-1.5">
                       <span>{item.categoryName}</span>
