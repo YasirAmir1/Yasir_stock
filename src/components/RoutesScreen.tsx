@@ -415,40 +415,6 @@ export const RoutesScreen: React.FC = () => {
         );
       })()}
 
-      {/* Recent Orders Summary Card */}
-      <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <h3 className={`p-3 font-black text-sm ${isDarkMode ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-          طلبات اليوم لجميع المندوبين
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
-            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-              <tr>
-                <th className="px-3 py-2">المندوب</th>
-                <th className="px-3 py-2">اسم الزبون</th>
-                <th className="px-3 py-2">كود</th>
-                <th className="px-3 py-2">الوزن (كجم)</th>
-                <th className="px-3 py-2">العنوان</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-              {allSalesEntries
-                .filter(e => Date.now() - e.timestamp < 12 * 60 * 60 * 1000)
-                .map((e, idx) => (
-                  <tr key={idx} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                    <td className="px-3 py-2">{e.delegateName || 'غير معروف'}</td>
-                    <td className="px-3 py-2">{e.customerName}</td>
-                    <td className="px-3 py-2">{e.customerCode}</td>
-                    <td className="px-3 py-2 font-mono">{e.totalWeightKg.toFixed(1)}</td>
-                    <td className="px-3 py-2">{e.customerAddress}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      </div>
     </div>
   );
 };

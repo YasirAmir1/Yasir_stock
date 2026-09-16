@@ -52,9 +52,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   }, [prefilledEntryData, rawSavedEntries, productsList]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
   const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => {
-    if (prefilledEntryData?.lastInvoiceToday?.priceMode) {
-      return prefilledEntryData.lastInvoiceToday.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+    if (prefilledEntryData?.customerType) {
+      return prefilledEntryData.customerType === 'جملة' ? 'wholesale' : 'retail';
     }
+    // Fallback to localStorage
     return (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail';
   });
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
@@ -82,10 +83,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   }, [routes, customerCode]);
 
   React.useEffect(() => {
-    if (prefilledEntryData?.customerInvoiceType) {
-      const mode = prefilledEntryData.customerInvoiceType === 'جملة' ? 'wholesale' : 'retail';
+    if (prefilledEntryData?.customerType) {
+      const mode = prefilledEntryData.customerType === 'جملة' ? 'wholesale' : 'retail';
       setPriceMode(mode);
-      setCustomerType(prefilledEntryData.customerInvoiceType);
+      setCustomerType(prefilledEntryData.customerType);
     } else if (determinedCustomerType && !prefilledEntryData) {
       setCustomerType(determinedCustomerType);
       setPriceMode(determinedCustomerType === 'جملة' ? 'wholesale' : 'retail');
