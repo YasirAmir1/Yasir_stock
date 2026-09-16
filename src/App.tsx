@@ -182,7 +182,7 @@ const MainAppContent: React.FC = () => {
                     isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                   }`}
                 >
-                  كود المندوب: {currentUser.delegateCode || 'غير متوفر'}
+                  {currentUser.delegateCode || 'غير متوفر'}
                 </span>
               </div>
             </div>
@@ -226,7 +226,7 @@ const MainAppContent: React.FC = () => {
                     isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                   }`}
                 >
-                  كود المندوب: {currentUser.delegateCode || 'غير متوفر'}
+                  {currentUser.delegateCode || 'غير متوفر'}
                 </span>
               </div>
 
