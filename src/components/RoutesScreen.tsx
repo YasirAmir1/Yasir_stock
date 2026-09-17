@@ -142,11 +142,17 @@ export const RoutesScreen: React.FC = () => {
                 customerName: entry.customerName,
                 customerCode: entry.customerCode || '',
                 totalWeight: 0,
+                totalAmount: 0,
                 customerType: entry.customerType || 'مفرد',
                 customerAddress: entry.customerAddress || ''
             };
         }
         orders[key].totalWeight += entry.totalWeightKg;
+        
+        // Find product price
+        const prod = productsList.find(p => p.productName === entry.productName);
+        const price = prod ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        orders[key].totalAmount += (price * entry.quantity);
       });
     return Object.values(orders);
   }, [allSalesEntries]);

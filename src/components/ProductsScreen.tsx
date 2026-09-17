@@ -948,6 +948,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                           <img 
                             src={prod.imageUrl} 
                             alt={prod.productName} 
+                            loading="lazy"
                             className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white`}
                             onError={(e) => (e.currentTarget.style.display = 'none')}
                           />
