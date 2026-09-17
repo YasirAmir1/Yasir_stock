@@ -183,6 +183,10 @@ export const RoutesScreen: React.FC = () => {
     }
   };
 
+  const handleRowClick = (r: RouteItem) => {
+    setSelectedRowId(r.id);
+  };
+
   const handleRowClickOrder = (order: any) => {
     setSelectedInvoice(order);
   };
@@ -257,16 +261,6 @@ export const RoutesScreen: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
-      
-      {currentUser?.isAdmin && (
-        <div className="flex justify-center mb-4">
-          <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold cursor-pointer">
-            <Upload className="w-4 h-4" />
-            رفع المسار
-            <input type="file" accept=".xlsx, .xls" onChange={handleUploadRoutes} className="hidden" />
-          </label>
-        </div>
-      )}
       
       {/* Dashboard Widget */}
       {(() => {

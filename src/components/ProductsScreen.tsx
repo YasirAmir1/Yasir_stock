@@ -31,6 +31,7 @@ interface ProductsScreenProps {
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
   const { routes, currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   
   const suggestedProducts = useMemo(() => {
     if (!prefilledEntryData || !prefilledEntryData.customerName) return [];
@@ -55,8 +56,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     if (typeToUse) {
       return typeToUse === 'جملة' ? 'wholesale' : 'retail';
     }
-    // Fallback to localStorage
-    return (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail';
+    // Default to retail
+    return 'retail';
   });
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
@@ -64,10 +65,17 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
   // ... (rest of the component)
 
-  const [customerName, setCustomerName] = useState('');
-  const [customerCode, setCustomerCode] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>('مفرد');
+  const [customerName, setCustomerName] = useState(() => localStorage.getItem('autosave_customerName') || '');
+  const [customerCode, setCustomerCode] = useState(() => localStorage.getItem('autosave_customerCode') || '');
+  const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('autosave_customerAddress') || '');
+  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>(() => (localStorage.getItem('autosave_customerType') as 'مفرد' | 'جملة') || 'مفرد');
+
+  React.useEffect(() => {
+    localStorage.setItem('autosave_customerName', customerName);
+    localStorage.setItem('autosave_customerCode', customerCode);
+    localStorage.setItem('autosave_customerAddress', customerAddress);
+    localStorage.setItem('autosave_customerType', customerType);
+  }, [customerName, customerCode, customerAddress, customerType]);
 
   const determinedCustomerType = useMemo(() => {
     if (!customerCode) return null;
@@ -678,16 +686,19 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       <div className="flex flex-col gap-3">
         
         {/* Search Bar */}
-        <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-           <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-           <input 
-             type="text"
-             value={searchTerm}
-             onChange={(e) => setSearchTerm(e.target.value)}
-             placeholder="بحث عن منتج (اسم، كود، صنف)..."
-             className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
-           />
-        </div>
+        {showSearch && (
+          <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+             <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+             <input 
+               type="text"
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               placeholder="بحث عن منتج (اسم، كود، صنف)..."
+               className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+               autoFocus
+             />
+          </div>
+        )}
         
         
         {suggestedProducts.length > 0 && (
@@ -703,13 +714,19 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-1 items-center justify-between">
           {/* Price toggle moved up */}
           <div className="hidden"></div>
           
           {categoriesList.length > 2 && (
             <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
               <div className="flex items-center gap-1.5 flex-wrap">
+                <button 
+                  onClick={() => setShowSearch(!showSearch)}
+                  className={`p-2 rounded-lg ${showSearch ? 'bg-emerald-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700')}`}
+                >
+                  <Search className="w-4 h-4" />
+                </button>
                 <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الصنف:</span>
                 {categoriesList.map(cat => (
                   <button
@@ -1017,7 +1034,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   </div>
                   
                   {/* Quick Add Section */}
-                  {!isEditing && (
+                  {!isEditing && showQuickAdd && (
                     <div className="mt-0.5 flex items-center gap-2">
                       {addingQuantityId === prod.id ? (
                         <div className="grid grid-cols-5 gap-1 w-full bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">

@@ -3,7 +3,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, Printer, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -422,14 +422,6 @@ export const ReportsScreen: React.FC = () => {
             تقرير مبيعات ({activeDelegateName})
           </h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => window.print()}
-              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs rounded-xl border border-emerald-500/50 flex items-center gap-1.5 transition-all shadow print:hidden"
-              title="طباعة التقرير أو تصديره إلى PDF"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>طباعة / PDF</span>
-            </button>
             <span className="px-3 py-1 bg-emerald-500 text-slate-950 font-black text-xs rounded-full">
               نسبة الإنجاز الكلية: {totalPct.toFixed(1)}%
             </span>

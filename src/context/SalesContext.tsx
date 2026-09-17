@@ -856,6 +856,16 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         delegateName,
       });
     }
+    
+    if (prevPct <= 100 && newPct > 100) {
+      addToast({
+        type: 'success',
+        title: 'تجاوزت الهدف اليومي! 🚀',
+        message: `أنت رائع يا (${delegateName})! لقد تجاوزت هدفك اليومي بنسبة (${newPct.toFixed(0)}%). استمر في هذا الأداء الرائع!`,
+        percentage: newPct,
+        delegateName,
+      });
+    }
   };
 
   useEffect(() => {
