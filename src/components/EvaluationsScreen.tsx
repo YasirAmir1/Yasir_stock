@@ -232,8 +232,12 @@ export const EvaluationsScreen: React.FC = () => {
                   key={`card_${item.delegateName}_${idx}`}
                   className={`p-4 rounded-2xl border transition-all shadow-md space-y-3 ${
                     isTop 
-                      ? 'bg-emerald-950/60 border-emerald-500/60 ring-1 ring-emerald-500/40 shadow-emerald-950/30' 
-                      : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                      ? (isDarkMode 
+                          ? 'bg-emerald-950/60 border-emerald-500/60 ring-1 ring-emerald-500/40 shadow-emerald-950/30' 
+                          : 'bg-emerald-100 border-emerald-300 ring-1 ring-emerald-400 shadow-emerald-200/50')
+                      : (isDarkMode
+                          ? 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                          : 'bg-slate-50 border-slate-200 hover:border-slate-300')
                   }`}
                 >
                   {/* رأس البطاقة */}
@@ -247,7 +251,7 @@ export const EvaluationsScreen: React.FC = () => {
                         #{rank}
                       </div>
                       <div>
-                        <h4 className="font-black text-sm text-white flex items-center gap-2">
+                        <h4 className={`font-black text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'} flex items-center gap-2`}>
                           {item.delegateName}
                           {isTop && <span className="text-[9px] bg-emerald-800/60 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-500/40">الأول</span>}
                         </h4>
@@ -255,7 +259,7 @@ export const EvaluationsScreen: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-black font-mono text-amber-400 bg-slate-950 px-2.5 py-1 rounded-xl border border-slate-800">
+                      <div className={`text-sm font-black font-mono ${isDarkMode ? 'text-amber-400 bg-slate-950 border-slate-800' : 'text-amber-700 bg-slate-200 border-slate-300'} px-2.5 py-1 rounded-xl border`}>
                         {item.totalScore}%
                       </div>
                     </div>

@@ -417,14 +417,13 @@ export const RoutesScreen: React.FC = () => {
                             <th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th>
                             <th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th>
                             <th className="px-3 py-2 border-b dark:border-slate-700">الوزن الكلي للفاتورة (كجم)</th>
-                            <th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th>
                             <th className="px-3 py-2 border-b dark:border-slate-700">عنوان الزبون</th>
                         </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                         {todayOrders.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="text-center py-6 text-slate-500 font-bold">لا توجد طلبات اليوم.</td>
+                                <td colSpan={4} className="text-center py-6 text-slate-500 font-bold">لا توجد طلبات اليوم.</td>
                             </tr>
                         ) : (
                             todayOrders.map((order: any, idx: number) => (
@@ -432,7 +431,6 @@ export const RoutesScreen: React.FC = () => {
                                     <td className="px-3 py-2">{order.customerName}</td>
                                     <td className="px-3 py-2">{order.customerCode}</td>
                                     <td className="px-3 py-2">{order.totalWeight.toFixed(2)}</td>
-                                    <td className="px-3 py-2">{order.customerType}</td>
                                     <td className="px-3 py-2">{order.customerAddress}</td>
                                 </tr>
                             ))
