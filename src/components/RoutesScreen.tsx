@@ -7,7 +7,10 @@ import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square
 import * as XLSX from 'xlsx';
 
 export const RoutesScreen: React.FC = () => {
-  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = useSales();
+  const salesContext = useSales();
+  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = salesContext;
+  const productsList = salesContext.productsList || [];
+
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
@@ -433,7 +436,7 @@ export const RoutesScreen: React.FC = () => {
                             </tr>
                         ) : (
                             todayOrders.map((order: any, idx: number) => (
-                                <tr key={idx} onClick={() => handleRowClickOrder(order)} className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800">
+                                <tr key={idx} onClick={() => handleRowClickOrder(order)} className={`cursor-pointer transition-all hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} ${selectedInvoice?.customerCode === order.customerCode ? 'bg-red-100 dark:bg-red-900/30' : ''}`}>
                                     <td className="px-3 py-2">{order.customerName}</td>
                                     <td className="px-3 py-2">{order.customerCode}</td>
                                     <td className="px-3 py-2">{order.totalWeight.toFixed(2)}</td>
@@ -476,7 +479,12 @@ export const RoutesScreen: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-black text-emerald-800 dark:text-emerald-200 mb-4">تفاصيل الفاتورة</h3>
             <div className="space-y-3 text-sm">
-                <p><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedInvoice.customerName}</p>
+                <p className="flex items-center gap-2"><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedInvoice.customerName}
+                {selectedInvoice.customerPhone && (
+                  <a href={`tel:${selectedInvoice.customerPhone}`} className="text-emerald-600 hover:text-emerald-500">
+                    <Phone className="w-4 h-4" />
+                  </a>
+                )}</p>
                 <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedInvoice.customerCode}</p>
                 <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toFixed(2)} كجم</p>
                 <p><span className="font-bold text-slate-500">مبلغ الفاتورة الكلي:</span> {selectedInvoice.totalAmount.toFixed(2)}</p>
