@@ -87,12 +87,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     }
   }, [determinedCustomerType, prefilledEntryData]);
 
-  React.useEffect(() => {
-    if (prefilledEntryData?.lastInvoiceToday?.discountPercentage) {
-      setDiscountPercentage(prefilledEntryData.lastInvoiceToday.discountPercentage);
-    }
-  }, [prefilledEntryData]);
-
   // Removed localStorage sync for priceMode to prevent override
 
   React.useEffect(() => {
@@ -1009,7 +1003,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         />
                       ) : (
                         <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                          {getDiscountedPrice(Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0))).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                          {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
                         </span>
                       )}
                     </div>
@@ -1017,7 +1011,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
                         <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
                         <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                          {getDiscountedPrice(Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1))).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                          {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 2})}
                         </span>
                       </div>
                   </div>

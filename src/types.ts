@@ -4,7 +4,10 @@ export interface UserAccount {
   isAdmin: boolean;
   username: string;
   monthlyTargetKg: number;
-  delegateCode?: string; // Add this
+  delegateCode?: string;
+  email?: string;
+  delegateName?: string;
+  targetSetTimestamp?: number;
 }
 
 export interface Category {

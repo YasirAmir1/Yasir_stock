@@ -153,9 +153,9 @@ interface SalesContextType {
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
-  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: SalesEntry } | null;
+  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry> } | null;
   showQuickAdd: boolean;
-  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: SalesEntry } | null) => void;
+  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry> } | null) => void;
   setShowQuickAdd: (show: boolean) => void;
   routes: RouteItem[];
   activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
