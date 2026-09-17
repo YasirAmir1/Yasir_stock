@@ -557,7 +557,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 <Upload className="w-3 h-3" />
                 <span>رفع جرد</span>
               </button>
-              <input id="excel-upload" type="file" className="hidden" accept=".csv" onChange={handleFileUpload} />
+              <input id="excel-upload" type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} />
               
               <button
                 onClick={() => setShowImageUploadModal(true)}

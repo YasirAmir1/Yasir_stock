@@ -2,8 +2,8 @@ import React from 'react';
 import { FileText, BarChart2, Package, Award, MapPin } from 'lucide-react';
 
 interface BottomNavProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
+  setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
   isDarkMode: boolean;
   setShowQuickAdd?: (show: boolean) => void;
 }
@@ -28,7 +28,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, i
               key={tab.id}
               onClick={() => {
                 if (tab.id === 'products' && setShowQuickAdd) setShowQuickAdd(false);
-                setActiveTab(tab.id);
+                setActiveTab(tab.id as 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin');
               }}
               className={`flex flex-col items-center justify-center p-1 text-[10px] font-bold transition-colors ${isActive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-700') : (isDarkMode ? 'text-slate-500' : 'text-slate-500')}`}
             >

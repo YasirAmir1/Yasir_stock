@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { RouteItem } from '../types';
 import { db } from '../lib/firebase';
 import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
@@ -50,14 +51,6 @@ const CollapsibleCard: React.FC<{ title: string; children: React.ReactNode; icon
   );
 };
 
-interface RouteItem {
-  id: string;
-  customerCode: string;
-  customerName: string;
-  customerAddress: string;
-  delegateName: string;
-  path: string;
-}
 
 interface AlertItem {
   id: string;

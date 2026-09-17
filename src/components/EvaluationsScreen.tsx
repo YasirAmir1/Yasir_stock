@@ -176,52 +176,6 @@ export const EvaluationsScreen: React.FC = () => {
           </div>
         </div>
       )}
-      {currentUser.isAdmin && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-cyan-400 font-bold">وزن 10%</span>
-              <span className="text-xs font-bold text-white block">وقت الإدخال</span>
-            </div>
-            <Clock className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-purple-400 font-bold">وزن 20%</span>
-              <span className="text-xs font-bold text-white block">حجم المبيعات</span>
-            </div>
-            <Scale className="w-4 h-4 text-purple-400" />
-          </div>
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-blue-400 font-bold">وزن 20%</span>
-              <span className="text-xs font-bold text-white block">عدد الايتمات</span>
-            </div>
-            <Boxes className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-emerald-400 font-bold">وزن 20%</span>
-              <span className="text-xs font-bold text-white block">عدد القطع</span>
-            </div>
-            <Layers className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-amber-400 font-bold">وزن 20%</span>
-              <span className="text-xs font-bold text-white block">الكراتين المباعة</span>
-            </div>
-            <TrendingUp className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-2xl flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[10px] text-rose-400 font-bold">وزن 30%</span>
-              <span className="text-xs font-bold text-white block">أصناف 100%+</span>
-            </div>
-            <Award className="w-4 h-4 text-rose-400" />
-          </div>
-        </div>
-      )}
 
       {/* 3. المندوب الأول في اليوم */}
       {bestDelegate ? (

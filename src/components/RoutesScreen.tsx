@@ -67,6 +67,7 @@ export const RoutesScreen: React.FC = () => {
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [displayLimit, setDisplayLimit] = useState(20);
 
   useEffect(() => {
@@ -182,8 +183,8 @@ export const RoutesScreen: React.FC = () => {
     }
   };
 
-  const handleRowClick = (r: RouteItem) => {
-    setSelectedRowId(r.id);
+  const handleRowClickOrder = (order: any) => {
+    setSelectedInvoice(order);
   };
 
   const moveToTop = async (r: RouteItem) => {
@@ -433,7 +434,7 @@ export const RoutesScreen: React.FC = () => {
                             </tr>
                         ) : (
                             todayOrders.map((order: any, idx: number) => (
-                                <tr key={idx}>
+                                <tr key={idx} onClick={() => handleRowClickOrder(order)} className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800">
                                     <td className="px-3 py-2">{order.customerName}</td>
                                     <td className="px-3 py-2">{order.customerCode}</td>
                                     <td className="px-3 py-2">{order.totalWeight.toFixed(2)}</td>
@@ -470,6 +471,28 @@ export const RoutesScreen: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* Invoice Details Modal */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedInvoice(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-emerald-800 dark:text-emerald-200 mb-4">تفاصيل الفاتورة</h3>
+            <div className="space-y-3 text-sm">
+                <p><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedInvoice.customerName}</p>
+                <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedInvoice.customerCode}</p>
+                <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toFixed(2)} كجم</p>
+                <p><span className="font-bold text-slate-500">نوع الزبون:</span> {selectedInvoice.customerType}</p>
+                <p><span className="font-bold text-slate-500">العنوان:</span> {selectedInvoice.customerAddress}</p>
+            </div>
+            <button 
+                onClick={() => setSelectedInvoice(null)}
+                className="w-full mt-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors"
+            >
+                إغلاق
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
