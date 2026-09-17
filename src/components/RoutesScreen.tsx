@@ -129,6 +129,27 @@ export const RoutesScreen: React.FC = () => {
 
   const finalRoutes = filteredRoutes;
 
+  const todayOrders = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const orders: Record<string, any> = {};
+    allSalesEntries
+      .filter(e => e.dateString === today)
+      .forEach(entry => {
+        const key = entry.customerCode || entry.customerName;
+        if (!orders[key]) {
+            orders[key] = {
+                customerName: entry.customerName,
+                customerCode: entry.customerCode || '',
+                totalWeight: 0,
+                customerType: entry.customerType || 'مفرد',
+                customerAddress: entry.customerAddress || ''
+            };
+        }
+        orders[key].totalWeight += entry.totalWeightKg;
+      });
+    return Object.values(orders);
+  }, [allSalesEntries]);
+
   if (!currentUser?.isAdmin && !currentUser?.delegateCode) {
       return (
           <div className="text-center py-10">
@@ -390,6 +411,41 @@ export const RoutesScreen: React.FC = () => {
       )}
 
       {/* Summary Card removed */}
+
+      {/* Today's Orders Table */}
+      <div className="mt-8">
+            <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">طلبات اليوم للمندوبين</h3>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+                    <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                        <tr>
+                            <th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th>
+                            <th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th>
+                            <th className="px-3 py-2 border-b dark:border-slate-700">الوزن الكلي للفاتورة (كجم)</th>
+                            <th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th>
+                            <th className="px-3 py-2 border-b dark:border-slate-700">عنوان الزبون</th>
+                        </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+                        {todayOrders.length === 0 ? (
+                            <tr>
+                                <td colSpan={5} className="text-center py-6 text-slate-500 font-bold">لا توجد طلبات اليوم.</td>
+                            </tr>
+                        ) : (
+                            todayOrders.map((order: any, idx: number) => (
+                                <tr key={idx}>
+                                    <td className="px-3 py-2">{order.customerName}</td>
+                                    <td className="px-3 py-2">{order.customerCode}</td>
+                                    <td className="px-3 py-2">{order.totalWeight.toFixed(2)}</td>
+                                    <td className="px-3 py-2">{order.customerType}</td>
+                                    <td className="px-3 py-2">{order.customerAddress}</td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
       {/* Admin Monthly Stats Card */}
       {currentUser?.isAdmin && (() => {

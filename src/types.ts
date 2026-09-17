@@ -48,7 +48,6 @@ export interface SalesEntry {
   delegateName: string;
   timestamp: number;
   dateString: string;
-  discountPercentage?: number;
 }
 
 export interface GridRow {

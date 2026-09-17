@@ -30,7 +30,6 @@ interface ProductsScreenProps {
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
   const { routes, currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
-  const [discountPercentage, setDiscountPercentage] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   
   const suggestedProducts = useMemo(() => {
@@ -62,15 +61,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
-  const discountOptions = [0, 1, 1.5, 2, 2.5, 2.9];
 
   // ... (rest of the component)
-
-  // In Products Grid loop calculation:
-  const getDiscountedPrice = (price: number) => {
-    if (discountPercentage === 0) return price;
-    return price * (1 - discountPercentage / 100);
-  };
 
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState('');
@@ -168,11 +160,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [imageUploadBase64, setImageUploadBase64] = useState('');
   const [imageUploadError, setImageUploadError] = useState('');
 
-  const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن';
-  const discountVal = prefilledEntryData?.lastInvoiceToday?.discountPercentage || 0;
+  const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
   const isNewInvoice = !!prefilledEntryData;
-  const isEditingSavedInvoiceWithDiscount = discountVal > 0.1;
-  const shouldShowDiscount = isNewInvoice || isEditingSavedInvoiceWithDiscount;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -441,7 +430,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       }
       
       const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
-      const discountedPrice = price * (1 - (discountPercentage || 0) / 100);
+      const discountedPrice = price;
       total += (discountedPrice * q);
       itemCount += 1;
     }
@@ -484,8 +473,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         customerName: trimmedCustomerName,
         customerCode: String(customerCode || '').trim(),
         customerAddress: String(customerAddress || '').trim(),
-        priceMode: priceMode,
-        discountPercentage: discountPercentage
+        priceMode: priceMode
       });
     }
 
@@ -530,16 +518,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               </button>
             </div>
 
-            {/* Discount Bar */}
-            {(prefilledEntryData?.lastInvoiceToday?.discountPercentage || 0) > 0 ? (
-              <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 mb-3">
-                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">نسبة التخفيض الثابتة:</span>
-                 <span className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700">
-                   {prefilledEntryData?.lastInvoiceToday?.discountPercentage}%
-                 </span>
-              </div>
-            ) : null}
-
             {errorMessage && (
               <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
                 <span>{errorMessage}</span>
@@ -578,6 +556,23 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
             {/* Admin Excel Upload & Add Product Buttons */}
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => document.getElementById('excel-upload')?.click()}
+                className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <Upload className="w-3 h-3" />
+                <span>رفع جرد</span>
+              </button>
+              <input id="excel-upload" type="file" className="hidden" accept=".csv" onChange={handleFileUpload} />
+              
+              <button
+                onClick={() => setShowImageUploadModal(true)}
+                className="cursor-pointer px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <ImagePlus className="w-3 h-3" />
+                <span>تغيير صورة</span>
+              </button>
+
               <button
                 onClick={addProduct}
                 className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
@@ -687,19 +682,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
       {/* Discount and Search Bar */}
       <div className="flex flex-col gap-3">
-        {shouldShowDiscount && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-           <label className="text-xs font-bold text-slate-700 dark:text-slate-300">تخفيض الأسعار (%):</label>
-           <select 
-             value={discountPercentage} 
-             onChange={(e) => setDiscountPercentage(Number(e.target.value))}
-             className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-           >
-             <option value={0}>بدون تخفيض</option>
-             {discountOptions.slice(1).map(d => <option key={d} value={d}>{d}%</option>)}
-           </select>
-        </div>
-        )}
         
         {/* Search Bar */}
         <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
