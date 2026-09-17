@@ -473,7 +473,7 @@ export const RoutesScreen: React.FC = () => {
                 <p><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedInvoice.customerName}</p>
                 <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedInvoice.customerCode}</p>
                 <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toFixed(2)} كجم</p>
-                <p><span className="font-bold text-slate-500">نوع الزبون:</span> {selectedInvoice.customerType}</p>
+                <p><span className="font-bold text-slate-500">مبلغ الفاتورة الكلي:</span> {selectedInvoice.totalAmount.toFixed(2)}</p>
                 <p><span className="font-bold text-slate-500">العنوان:</span> {selectedInvoice.customerAddress}</p>
             </div>
             <button 
