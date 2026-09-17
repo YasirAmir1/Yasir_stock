@@ -51,11 +51,18 @@ const MainAppContent: React.FC = () => {
     setActiveTab,
     setShowQuickAdd,
   } = useSales();
+  const [isLoading, setIsLoading] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showDelegateModal, setShowDelegateModal] = useState(false);
   const [largeFont, setLargeFont] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+
+  const handleTabChange = (tab: string) => {
+    setIsLoading(true);
+    setActiveTab(tab as any);
+    setTimeout(() => setIsLoading(false), 500);
+  };
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -67,6 +74,11 @@ const MainAppContent: React.FC = () => {
         isDarkMode ? 'bg-emerald-950 text-slate-100' : 'bg-slate-100 text-slate-900'
       }`}
     >
+      {isLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
       {/* Offline / Sync Banner */}
       {!isOnline && currentUser?.isAdmin && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50">
@@ -362,7 +374,7 @@ const MainAppContent: React.FC = () => {
         >
           <div className="max-w-5xl mx-auto px-1 sm:px-4 flex flex-wrap">
             <button
-            onClick={() => setActiveTab('entry')}
+            onClick={() => handleTabChange('entry')}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'entry'
                 ? isDarkMode
@@ -378,7 +390,7 @@ const MainAppContent: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('routes')}
+            onClick={() => handleTabChange('routes')}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'routes'
                 ? isDarkMode
@@ -394,7 +406,7 @@ const MainAppContent: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('reports')}
+            onClick={() => handleTabChange('reports')}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'reports'
                 ? isDarkMode
@@ -411,7 +423,7 @@ const MainAppContent: React.FC = () => {
 
           {/* EVALUATIONS TAB (تقييمات) */}
           <button
-            onClick={() => setActiveTab('evaluations')}
+            onClick={() => handleTabChange('evaluations')}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'evaluations'
                 ? isDarkMode
@@ -430,7 +442,7 @@ const MainAppContent: React.FC = () => {
           <button
             onClick={() => {
               setShowQuickAdd(false);
-              setActiveTab('products');
+              handleTabChange('products');
             }}
             className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'products'

@@ -486,8 +486,8 @@ export const RoutesScreen: React.FC = () => {
                   </a>
                 )}</p>
                 <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedInvoice.customerCode}</p>
-                <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toFixed(2)} كجم</p>
-                <p><span className="font-bold text-slate-500">مبلغ الفاتورة الكلي:</span> {selectedInvoice.totalAmount.toFixed(2)}</p>
+                <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} كجم</p>
+                <p><span className="font-bold text-slate-500">مبلغ الفاتورة الكلي:</span> {selectedInvoice.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
                 <p><span className="font-bold text-slate-500">العنوان:</span> {selectedInvoice.customerAddress}</p>
             </div>
             <button 
