@@ -80,7 +80,7 @@ const MainAppContent: React.FC = () => {
             {/* Background circle */}
             <div className="absolute w-32 h-32 border-[12px] border-slate-200 rounded-full"></div>
             {/* Gradient progress circle */}
-            <div className="absolute w-32 h-32 border-[12px] border-transparent border-t-emerald-500 border-r-green-700 rounded-full animate-spin"></div>
+            <div className="absolute w-32 h-32 border-[12px] border-transparent border-t-emerald-400 border-r-emerald-700 rounded-full animate-spin"></div>
             {/* Text */}
             <span className="text-xs font-black text-slate-700 leading-none text-center">كالة تكريت</span>
           </div>
