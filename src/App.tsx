@@ -517,8 +517,7 @@ const MainAppContent: React.FC = () => {
             : 'bg-slate-200 border-slate-300 text-slate-700'
         }`}
       >
-         برمجة وتصميم  |  مهندس ياسر المعجون  |  كالة فرع صلاح الدين
-      </footer>
+تصميم وبرمجة  |  مهندس ياسر المعجون  |  كالة فرع صلاح الدين      </footer>
     </div>
   );
 };
