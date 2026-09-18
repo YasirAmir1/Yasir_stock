@@ -88,8 +88,8 @@ export const AdminScreen: React.FC = () => {
     syncData,
     allSalesEntries,
     selectedDate,
-    isDataSaverMode,
-    toggleDataSaverMode
+    isPowerSavingMode,
+    togglePowerSavingMode
   } = useSales();
 
   // Top 5 Delegates Logic
@@ -1338,19 +1338,19 @@ export const AdminScreen: React.FC = () => {
           </h3>
         </div>
         <p className="text-xs text-slate-300 leading-relaxed">
-          تفعيل وضع توفير البيانات لتقليل استهلاك الإنترنت للمندوبين في المناطق ذات التغطية الضعيفة (يقوم بتعطيل مزامنة الخلفية التلقائية وتحديثات الصور غير الضرورية).
+          تفعيل وضع توفير الطاقة لتقليل استهلاك موارد الجهاز والإنترنت للمندوبين (يقوم بتقليل مزامنة الخلفية التلقائية وتحديثات الصور غير الضرورية).
         </p>
         <div className="flex items-center justify-between bg-slate-900 p-3 rounded-xl border border-slate-700">
           <span className="font-bold text-xs text-slate-200">
-            حالة توفير البيانات: <span className={isDataSaverMode ? 'text-emerald-400' : 'text-slate-400'}>{isDataSaverMode ? 'مفعل (نشط)' : 'معطل'}</span>
+            حالة وضع توفير الطاقة: <span className={isPowerSavingMode ? 'text-emerald-400' : 'text-slate-400'}>{isPowerSavingMode ? 'مفعل (نشط)' : 'معطل'}</span>
           </span>
           <button
-            onClick={toggleDataSaverMode}
+            onClick={togglePowerSavingMode}
             className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              isDataSaverMode ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              isPowerSavingMode ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
             }`}
           >
-            {isDataSaverMode ? 'إيقاف وضع توفير البيانات' : 'تفعيل وضع توفير البيانات'}
+            {isPowerSavingMode ? 'إيقاف وضع توفير الطاقة' : 'تفعيل وضع توفير الطاقة'}
           </button>
         </div>
       </div>

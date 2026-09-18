@@ -94,9 +94,9 @@ interface SalesContextType {
   isOnline: boolean;
   pendingSyncCount: number;
   syncFailureAlert: boolean;
-  isDataSaverMode: boolean;
+  isPowerSavingMode: boolean;
   toggleDarkMode: () => void;
-  toggleDataSaverMode: () => void;
+  togglePowerSavingMode: () => void;
   setUserMessage: (msg: string | null) => void;
   loginAccount: (acc: UserAccount) => void;
   loginWithCredentials: (username: string, password: string) => { success: boolean; error?: string };
@@ -645,7 +645,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
-  const [isDataSaverMode, setIsDataSaverMode] = useState<boolean>(() => {
+  const [isPowerSavingMode, setIsPowerSavingMode] = useState<boolean>(() => {
     try {
       return localStorage.getItem('is_data_saver_mode') === 'true';
     } catch {
@@ -680,13 +680,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(interval);
   }, [currentUser.isAdmin]);
 
-  const toggleDataSaverMode = () => {
-    setIsDataSaverMode(prev => {
+  const togglePowerSavingMode = () => {
+    setIsPowerSavingMode(prev => {
       const next = !prev;
       try {
         localStorage.setItem('is_data_saver_mode', String(next));
       } catch {}
-      setUserMessage(next ? 'تم تفعيل وضع توفير البيانات 📶📉' : 'تم إيقاف وضع توفير البيانات 📶📈');
+      setUserMessage(next ? 'تم تفعيل وضع توفير الطاقة 🔋🔌' : 'تم إيقاف وضع توفير الطاقة 🔋🔋');
       return next;
     });
   };
@@ -694,12 +694,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // 5-minute periodic background polling / data refresh
   useEffect(() => {
     const pollingInterval = setInterval(() => {
-      if (navigator.onLine && !isDataSaverMode) {
+      if (navigator.onLine && !isPowerSavingMode) {
         syncPendingEntries();
       }
     }, 5 * 60 * 1000);
     return () => clearInterval(pollingInterval);
-  }, [isDataSaverMode]);
+  }, [isPowerSavingMode]);
 
   useEffect(() => {
     const unsubAll = onSnapshot(collection(db, 'sales_entries'), (snapshot) => {
@@ -1800,10 +1800,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isLoggedIn,
         isOnline,
         pendingSyncCount,
-        isDataSaverMode,
+        isPowerSavingMode,
         syncFailureAlert,
         toggleDarkMode,
-        toggleDataSaverMode,
+        togglePowerSavingMode,
         setUserMessage,
         loginAccount,
         loginWithCredentials,

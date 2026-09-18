@@ -75,8 +75,15 @@ const MainAppContent: React.FC = () => {
       }`}
     >
       {isLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-md">
+          <div className="relative w-32 h-32 flex items-center justify-center animate-pulse">
+            {/* Background circle */}
+            <div className="absolute w-32 h-32 border-[12px] border-slate-200 rounded-full"></div>
+            {/* Gradient progress circle */}
+            <div className="absolute w-32 h-32 border-[12px] border-transparent border-t-emerald-500 border-r-green-700 rounded-full animate-spin"></div>
+            {/* Text */}
+            <span className="text-xs font-black text-slate-700 leading-none text-center">كالة تكريت</span>
+          </div>
         </div>
       )}
       {/* Offline / Sync Banner */}
