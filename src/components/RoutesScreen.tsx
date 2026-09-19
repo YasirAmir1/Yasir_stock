@@ -316,7 +316,7 @@ export const RoutesScreen: React.FC = () => {
             type="text" 
             value={searchQuery} 
             onChange={e => setSearchQuery(e.target.value)} 
-            placeholder="بحث عن اسم محل..." 
+            placeholder="بحث عن اسم محل أو زبون..." 
             className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
           />
         </div>

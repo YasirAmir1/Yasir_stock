@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
@@ -19,6 +20,21 @@ import { PullToRefresh } from './PullToRefresh';
 const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], currentUser: any }> = ({ salesEntries, productsList, currentUser }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
+  const reportRef = useRef<HTMLDivElement>(null);
+  
+  const handleDownload = async () => {
+    if (reportRef.current) {
+      const canvas = await html2canvas(reportRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 2
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.png`;
+      link.href = dataUrl;
+      link.click();
+    }
+  };
   
   const getDelegateSales = (priceMode: 'retail' | 'wholesale') => {
     const data: Record<string, { count: number, weight: number, amount: number }> = {};
@@ -112,8 +128,10 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
   return (
     <div className="space-y-4 p-4">
-        {/* Retail Sales Table */}
-        <div className="bg-slate-800 rounded-xl p-4 text-white">
+        <button onClick={handleDownload} className="bg-blue-600 text-white p-2 rounded-lg font-bold w-full">تحميل التقرير اليومي كصورة</button>
+        <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
+            {/* Retail Sales Table */}
+            <div className="bg-slate-800 rounded-xl p-4 text-white">
             <h3 className="font-bold mb-2">جدول مبيعات المفرد (لليوم)</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
@@ -204,7 +222,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 </tbody>
             </table>
         </div>
-
+        </div>
+        
         {/* Specific Categories Sales Table */}
         {currentUser.isAdmin && (
         <div className="bg-indigo-900 rounded-xl p-4 text-white">
