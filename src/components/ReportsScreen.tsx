@@ -67,6 +67,34 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const retailSales = getGroupedSales('retail');
   const wholesaleSales = getGroupedSales('wholesale');
 
+  const getAllSales = () => {
+      const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
+      entriesToday.forEach(e => {
+          const invId = e.invoiceId || e.id;
+          if (!delegates[e.delegateName]) {
+              delegates[e.delegateName] = { invoices: new Set(), weight: 0, amount: 0 };
+          }
+          delegates[e.delegateName].invoices.add(invId);
+          delegates[e.delegateName].weight += (e.totalWeightKg || 0);
+          
+          const prod = productsList.find(p => p.productName === e.productName);
+          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+          delegates[e.delegateName].amount += (price * (e.quantity || 0));
+      });
+      
+      return Object.entries(delegates).map(([name, data]) => ({
+          name,
+          count: data.invoices.size,
+          weight: data.weight,
+          amount: data.amount
+      }));
+  };
+
+  const allSales = getAllSales();
+
+  const totalRetail = retailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+  const totalWholesale = wholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+
   return (
     <div className="space-y-4 p-4">
         {/* Retail Sales Table */}
@@ -109,6 +137,43 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 <tbody>
                     {wholesaleSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700">
+                            <td className="p-2">{s.name}</td>
+                            <td className="p-2">{s.count}</td>
+                            <td className="p-2">{s.weight.toFixed(1)}</td>
+                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+
+        {/* Total Sales Summary */}
+        <div className="bg-emerald-900 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center">
+            <div className="bg-emerald-800 p-2 rounded-lg">
+                <h4 className="font-bold text-xs text-emerald-200">إجمالي المفرد</h4>
+                <div className="text-sm font-black">{totalRetail.weight.toFixed(1)} كجم | {formatWithCommas(totalRetail.amount, true)}</div>
+            </div>
+            <div className="bg-emerald-800 p-2 rounded-lg">
+                <h4 className="font-bold text-xs text-emerald-200">إجمالي الجملة</h4>
+                <div className="text-sm font-black">{totalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(totalWholesale.amount, true)}</div>
+            </div>
+        </div>
+
+        {/* All Sales Summary Table */}
+        <div className="bg-amber-900 rounded-xl p-4 text-white">
+            <h3 className="font-bold mb-2">جدول مبيعات الكل (مفرد + جملة)</h3>
+            <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                    <tr className="border-b border-amber-700 text-amber-300">
+                        <th className="p-2">المندوب</th>
+                        <th className="p-2">إجمالي الفواتير</th>
+                        <th className="p-2">إجمالي الوزن (كجم)</th>
+                        <th className="p-2">إجمالي المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {allSales.map(s => (
+                        <tr key={s.name} className="border-b border-amber-800">
                             <td className="p-2">{s.name}</td>
                             <td className="p-2">{s.count}</td>
                             <td className="p-2">{s.weight.toFixed(1)}</td>
