@@ -96,10 +96,25 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
       }));
   };
 
-  const retailSales = getGroupedSales('retail');
-  const wholesaleSales = getGroupedSales('wholesale');
+  const [selectedDelegateForDownload, setSelectedDelegateForDownload] = useState<string>('الكل');
 
-  const getAllSales = () => {
+  const getFilteredSales = (priceMode: 'retail' | 'wholesale' | 'all') => {
+    let sales;
+    if (priceMode === 'retail') sales = retailSales;
+    else if (priceMode === 'wholesale') sales = wholesaleSales;
+    else sales = allSales;
+
+    if (selectedDelegateForDownload === 'الكل') return sales;
+    return sales.filter(s => s.name === selectedDelegateForDownload);
+  };
+  
+  const filteredRetailSales = getFilteredSales('retail');
+  const filteredWholesaleSales = getFilteredSales('wholesale');
+  const filteredAllSales = getFilteredSales('all');
+
+  const filteredTotalRetail = filteredRetailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+  const filteredTotalWholesale = filteredWholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+
       const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
       
       const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
@@ -137,9 +152,16 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
   return (
     <div className="space-y-4 p-4">
-        <button onClick={handleDownload} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
+        <div className="flex gap-2 mb-4 items-center">
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">تقرير:</span>
+            <select value={selectedDelegateForDownload} onChange={e => setSelectedDelegateForDownload(e.target.value)} className="p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-sm font-bold border-0">
+                <option value="الكل">كل المندوبين</option>
+                {REQUIRED_DELEGATES.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <button onClick={handleDownload} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+        </div>
         <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
             {/* Retail Sales Table */}
             <div className="bg-slate-800 rounded-xl p-4 text-white">
@@ -154,7 +176,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     </tr>
                 </thead>
                 <tbody>
-                    {retailSales.map(s => (
+                    {filteredRetailSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700">
                             <td className="p-2">{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -179,7 +201,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     </tr>
                 </thead>
                 <tbody>
-                    {wholesaleSales.map(s => (
+                    {filteredWholesaleSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700">
                             <td className="p-2">{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -195,11 +217,11 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         <div className="bg-emerald-900 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center">
             <div className="bg-emerald-800 p-2 rounded-lg">
                 <h4 className="font-bold text-xs text-emerald-200">إجمالي المفرد</h4>
-                <div className="text-sm font-black">{totalRetail.weight.toFixed(1)} كجم | {formatWithCommas(totalRetail.amount, true)}</div>
+                <div className="text-sm font-black">{filteredTotalRetail.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalRetail.amount, true)}</div>
             </div>
             <div className="bg-emerald-800 p-2 rounded-lg">
                 <h4 className="font-bold text-xs text-emerald-200">إجمالي الجملة</h4>
-                <div className="text-sm font-black">{totalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(totalWholesale.amount, true)}</div>
+                <div className="text-sm font-black">{filteredTotalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalWholesale.amount, true)}</div>
             </div>
         </div>
 
@@ -216,7 +238,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     </tr>
                 </thead>
                 <tbody>
-                    {allSales.map(s => (
+                    {filteredAllSales.map(s => (
                         <tr key={s.name} className="border-b border-amber-800">
                             <td className="p-2">{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -226,9 +248,9 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     ))}
                     <tr className="border-t-2 border-amber-600 bg-amber-950 font-black">
                         <td className="p-2">الإجمالي الكلي</td>
-                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
-                        <td className="p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
+                        <td className="p-2">{filteredAllSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="p-2">{filteredAllSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="p-2">{formatWithCommas(filteredAllSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
                     </tr>
                 </tbody>
             </table>
