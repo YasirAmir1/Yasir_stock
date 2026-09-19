@@ -115,6 +115,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const filteredTotalRetail = filteredRetailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
   const filteredTotalWholesale = filteredWholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
 
+  const getAllSales = () => {
       const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
       
       const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
