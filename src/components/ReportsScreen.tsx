@@ -23,16 +23,25 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const reportRef = useRef<HTMLDivElement>(null);
   
   const handleDownload = async () => {
+    console.log("Downloading... reportRef.current:", reportRef.current);
     if (reportRef.current) {
-      const canvas = await html2canvas(reportRef.current, {
-        backgroundColor: '#0f172a',
-        scale: 2
-      });
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      const link = document.createElement('a');
-      link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.jpg`;
-      link.href = dataUrl;
-      link.click();
+      try {
+        window.scrollTo(0, 0); // Scroll to top before capturing
+        const canvas = await html2canvas(reportRef.current, {
+          backgroundColor: '#0f172a',
+          scale: 2,
+          useCORS: true // Attempt to handle external images/styles
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (error) {
+        console.error("html2canvas error:", error);
+      }
+    } else {
+        console.error("reportRef.current is null!");
     }
   };
   
