@@ -15,40 +15,158 @@ import {
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
 
-// --- Monthly Admin Report Component ---
-const MonthlyAdminReport: React.FC<{ salesEntries: any[] }> = ({ salesEntries }) => {
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const entriesInMonth = salesEntries.filter(e => e.dateString?.startsWith(currentMonth));
+// --- Daily Admin Report Component ---
+const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[] }> = ({ salesEntries, productsList }) => {
+  const today = new Date().toISOString().split('T')[0];
+  const entriesToday = salesEntries.filter(e => e.dateString === today);
   
-  const totalWeight = entriesInMonth.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-  const totalInvoices = new Set(entriesInMonth.map(e => e.invoiceId || e.id)).size;
-  
-  const productCounts: Record<string, number> = {};
-  entriesInMonth.forEach(e => {
-    productCounts[e.productName] = (productCounts[e.productName] || 0) + (e.quantity || 0);
-  });
-  
-  let mostSoldProduct = { name: 'لا يوجد', quantity: 0 };
-  Object.entries(productCounts).forEach(([name, quantity]) => {
-    if (quantity > mostSoldProduct.quantity) {
-        mostSoldProduct = { name, quantity };
-    }
-  });
+  const getDelegateSales = (priceMode: 'retail' | 'wholesale') => {
+    const data: Record<string, { count: number, weight: number, amount: number }> = {};
+    
+    entriesToday.forEach(e => {
+        if (e.priceMode !== priceMode) return;
+        
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        
+        if (!data[e.delegateName]) {
+            data[e.delegateName] = { count: 0, weight: 0, amount: 0 };
+        }
+        
+        // Simplified approach: just count entries for now as invoice grouping is complex.
+    });
+    return data;
+  };
+
+  // Re-thinking invoice counting:
+  const getGroupedSales = (priceMode: 'retail' | 'wholesale') => {
+      const grouped = entriesToday.filter(e => e.priceMode === priceMode);
+      const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
+      
+      grouped.forEach(e => {
+          const invId = e.invoiceId || e.id;
+          if (!delegates[e.delegateName]) {
+              delegates[e.delegateName] = { invoices: new Set(), weight: 0, amount: 0 };
+          }
+          delegates[e.delegateName].invoices.add(invId);
+          delegates[e.delegateName].weight += (e.totalWeightKg || 0);
+          
+          const prod = productsList.find(p => p.productName === e.productName);
+          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+          delegates[e.delegateName].amount += (price * (e.quantity || 0));
+      });
+      
+      return Object.entries(delegates).map(([name, data]) => ({
+          name,
+          count: data.invoices.size,
+          weight: data.weight,
+          amount: data.amount
+      }));
+  };
+
+  const retailSales = getGroupedSales('retail');
+  const wholesaleSales = getGroupedSales('wholesale');
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-900 border border-slate-700 rounded-2xl text-white shadow-lg">
-      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
-        <div className="text-[10px] text-emerald-200 font-bold">إجمالي المبيعات (الشهر)</div>
-        <div className="text-lg font-black text-white">{totalWeight.toFixed(1)} كجم</div>
-      </div>
-      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
-        <div className="text-[10px] text-emerald-200 font-bold">عدد الفواتير الكلي</div>
-        <div className="text-lg font-black text-white">{totalInvoices}</div>
-      </div>
-      <div className="p-3 bg-emerald-900/50 rounded-xl border border-emerald-700">
-        <div className="text-[10px] text-emerald-200 font-bold">المنتج الأكثر مبيعاً</div>
-        <div className="text-lg font-black text-white">{mostSoldProduct.name}</div>
-      </div>
+    <div className="space-y-4 p-4">
+        {/* Retail Sales Table */}
+        <div className="bg-slate-800 rounded-xl p-4 text-white">
+            <h3 className="font-bold mb-2">جدول مبيعات المفرد (لليوم)</h3>
+            <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                    <tr className="border-b border-slate-600 text-slate-400">
+                        <th className="p-2">المندوب</th>
+                        <th className="p-2">عدد الفواتير</th>
+                        <th className="p-2">الوزن (كجم)</th>
+                        <th className="p-2">المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {retailSales.map(s => (
+                        <tr key={s.name} className="border-b border-slate-700">
+                            <td className="p-2">{s.name}</td>
+                            <td className="p-2">{s.count}</td>
+                            <td className="p-2">{s.weight.toFixed(1)}</td>
+                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+
+        {/* Wholesale Sales Table */}
+        <div className="bg-slate-800 rounded-xl p-4 text-white">
+            <h3 className="font-bold mb-2">جدول مبيعات الجملة (لليوم)</h3>
+            <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                    <tr className="border-b border-slate-600 text-slate-400">
+                        <th className="p-2">المندوب</th>
+                        <th className="p-2">عدد الفواتير</th>
+                        <th className="p-2">الوزن (كجم)</th>
+                        <th className="p-2">المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {wholesaleSales.map(s => (
+                        <tr key={s.name} className="border-b border-slate-700">
+                            <td className="p-2">{s.name}</td>
+                            <td className="p-2">{s.count}</td>
+                            <td className="p-2">{s.weight.toFixed(1)}</td>
+                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+
+        {/* Specific Categories Sales Table */}
+        {currentUser.isAdmin && (
+        <div className="bg-indigo-900 rounded-xl p-4 text-white">
+            <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
+            <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                    <tr className="border-b border-indigo-700 text-indigo-300">
+                        <th className="p-2" rowSpan={2}>الصنف</th>
+                        <th className="p-2" colSpan={2}>مفرد</th>
+                        <th className="p-2" colSpan={2}>جملة</th>
+                    </tr>
+                    <tr className="border-b border-indigo-700 text-indigo-400">
+                        <th className="p-1">وزن</th>
+                        <th className="p-1">مبلغ</th>
+                        <th className="p-1">وزن</th>
+                        <th className="p-1">مبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'].map(catName => {
+                        const getStats = (mode: 'retail' | 'wholesale') => {
+                            const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
+                            const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                            const amount = entries.reduce((sum, e) => {
+                                const prod = productsList.find(p => p.productName === e.productName);
+                                const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                                return sum + (price * e.quantity);
+                            }, 0);
+                            return { weight, amount };
+                        };
+
+                        const retail = getStats('retail');
+                        const wholesale = getStats('wholesale');
+
+                        return (
+                            <tr key={catName} className="border-b border-indigo-800">
+                                <td className="p-2 font-bold">{catName}</td>
+                                <td className="p-2">{retail.weight.toFixed(1)}</td>
+                                <td className="p-2">{formatWithCommas(retail.amount, true)}</td>
+                                <td className="p-2">{wholesale.weight.toFixed(1)}</td>
+                                <td className="p-2">{formatWithCommas(wholesale.amount, true)}</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+        )}
     </div>
   );
 };
@@ -296,7 +414,7 @@ export const ReportsScreen: React.FC = () => {
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       
       {/* Reports Content */}
-      {currentUser.isAdmin && <MonthlyAdminReport salesEntries={salesEntries} />}
+      {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} />}
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
         <div className="bg-amber-400 border-2 border-amber-500 rounded-2xl p-4 shadow-xl text-slate-950 space-y-2 animate-bounce-short print:hidden">
