@@ -180,6 +180,12 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                             <td className="p-2">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
+                    <tr className="border-t-2 border-amber-600 bg-amber-950 font-black">
+                        <td className="p-2">الإجمالي الكلي</td>
+                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -203,31 +209,50 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     </tr>
                 </thead>
                 <tbody>
-                    {['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'].map(catName => {
-                        const getStats = (mode: 'retail' | 'wholesale') => {
-                            const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
-                            const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-                            const amount = entries.reduce((sum, e) => {
-                                const prod = productsList.find(p => p.productName === e.productName);
-                                const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                                return sum + (price * e.quantity);
-                            }, 0);
-                            return { weight, amount };
-                        };
+                    {(() => {
+                        const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                        const stats = categories.map(catName => {
+                            const getStats = (mode: 'retail' | 'wholesale') => {
+                                const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
+                                const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                                const amount = entries.reduce((sum, e) => {
+                                    const prod = productsList.find(p => p.productName === e.productName);
+                                    const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                                    return sum + (price * e.quantity);
+                                }, 0);
+                                return { weight, amount };
+                            };
+                            return { name: catName, retail: getStats('retail'), wholesale: getStats('wholesale') };
+                        });
 
-                        const retail = getStats('retail');
-                        const wholesale = getStats('wholesale');
+                        const totals = stats.reduce((acc, curr) => ({
+                            retailWeight: acc.retailWeight + curr.retail.weight,
+                            retailAmount: acc.retailAmount + curr.retail.amount,
+                            wholesaleWeight: acc.wholesaleWeight + curr.wholesale.weight,
+                            wholesaleAmount: acc.wholesaleAmount + curr.wholesale.amount
+                        }), { retailWeight: 0, retailAmount: 0, wholesaleWeight: 0, wholesaleAmount: 0 });
 
                         return (
-                            <tr key={catName} className="border-b border-indigo-800">
-                                <td className="p-2 font-bold">{catName}</td>
-                                <td className="p-2">{retail.weight.toFixed(1)}</td>
-                                <td className="p-2">{formatWithCommas(retail.amount, true)}</td>
-                                <td className="p-2">{wholesale.weight.toFixed(1)}</td>
-                                <td className="p-2">{formatWithCommas(wholesale.amount, true)}</td>
-                            </tr>
+                            <>
+                                {stats.map(s => (
+                                    <tr key={s.name} className="border-b border-indigo-800">
+                                        <td className="p-2 font-bold">{s.name}</td>
+                                        <td className="p-2">{s.retail.weight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(s.retail.amount, true)}</td>
+                                        <td className="p-2">{s.wholesale.weight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
+                                    </tr>
+                                ))}
+                                <tr className="border-t-2 border-indigo-600 bg-indigo-950 font-black">
+                                    <td className="p-2">General</td>
+                                    <td className="p-2">{totals.retailWeight.toFixed(1)}</td>
+                                    <td className="p-2">{formatWithCommas(totals.retailAmount, true)}</td>
+                                    <td className="p-2">{totals.wholesaleWeight.toFixed(1)}</td>
+                                    <td className="p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
+                                </tr>
+                            </>
                         );
-                    })}
+                    })()}
                 </tbody>
             </table>
         </div>
