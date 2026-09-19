@@ -84,7 +84,7 @@ export const LoginScreen: React.FC = () => {
           {/* Card Header Icon */}
           <div className="text-center space-y-2">
             <div className="flex items-center justify-center py-2">
-              <AppLogo size="xl" className="drop-shadow-xl" />
+              <AppLogo size="lg" className="drop-shadow-xl" />
             </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight">تسجيل الدخول للنظام</h2>
             <p className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>

@@ -28,9 +28,9 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         backgroundColor: '#0f172a',
         scale: 2
       });
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
       const link = document.createElement('a');
-      link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.png`;
+      link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.jpg`;
       link.href = dataUrl;
       link.click();
     }
@@ -128,7 +128,9 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
   return (
     <div className="space-y-4 p-4">
-        <button onClick={handleDownload} className="bg-blue-600 text-white p-2 rounded-lg font-bold w-full">تحميل التقرير اليومي كصورة</button>
+        <button onClick={handleDownload} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
         <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
             {/* Retail Sales Table */}
             <div className="bg-slate-800 rounded-xl p-4 text-white">
