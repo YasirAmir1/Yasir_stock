@@ -53,8 +53,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          if (e.invoiceId) {
-            delegates[name].invoices.add(e.invoiceId);
+          if (e.invoiceId || e.id) {
+            delegates[name].invoices.add(e.invoiceId || e.id);
           }
           delegates[name].weight += (e.totalWeightKg || 0);
           
@@ -87,8 +87,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          if (e.invoiceId) {
-            delegates[name].invoices.add(e.invoiceId);
+          if (e.invoiceId || e.id) {
+            delegates[name].invoices.add(e.invoiceId || e.id);
           }
           delegates[name].weight += (e.totalWeightKg || 0);
           
