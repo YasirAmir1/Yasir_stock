@@ -560,6 +560,8 @@ export const EntryScreen: React.FC = () => {
 
     let invalidFound = false;
 
+    const invoiceId = Date.now().toString() + "_" + Math.random().toString(36).substr(2, 5);
+
     for (let i = 0; i < gridRows.length; i++) {
       const row = gridRows[i];
       const name = row.productName.trim();
@@ -609,7 +611,8 @@ export const EntryScreen: React.FC = () => {
           customerName: trimmedCustomerName,
           customerCode: String(customerCode || '').trim(),
           customerAddress: String(customerAddress || '').trim(),
-          priceMode: invoicePriceMode
+          priceMode: invoicePriceMode,
+          invoiceId: invoiceId
         });
       }
     }

@@ -36,6 +36,7 @@ export interface DelegateAccount {
 
 export interface SalesEntry {
   id: string;
+  invoiceId?: string;
   customerCode?: string;
   customerName: string;
   customerAddress?: string;
