@@ -16,7 +16,7 @@ import {
 import { PullToRefresh } from './PullToRefresh';
 
 // --- Daily Admin Report Component ---
-const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[] }> = ({ salesEntries, productsList }) => {
+const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], currentUser: any }> = ({ salesEntries, productsList, currentUser }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   
@@ -414,7 +414,7 @@ export const ReportsScreen: React.FC = () => {
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       
       {/* Reports Content */}
-      {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} />}
+      {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} />}
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
         <div className="bg-amber-400 border-2 border-amber-500 rounded-2xl p-4 shadow-xl text-slate-950 space-y-2 animate-bounce-short print:hidden">
