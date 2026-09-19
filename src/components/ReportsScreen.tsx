@@ -43,17 +43,23 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
       const grouped = entriesToday.filter(e => e.priceMode === priceMode);
       const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
       
+      const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
+      REQUIRED_DELEGATES.forEach(name => {
+          delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
+      });
+
       grouped.forEach(e => {
+          const name = e.delegateName.trim();
           const invId = e.invoiceId || e.id;
-          if (!delegates[e.delegateName]) {
-              delegates[e.delegateName] = { invoices: new Set(), weight: 0, amount: 0 };
+          if (!delegates[name]) {
+              delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          delegates[e.delegateName].invoices.add(invId);
-          delegates[e.delegateName].weight += (e.totalWeightKg || 0);
+          delegates[name].invoices.add(invId);
+          delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
           const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-          delegates[e.delegateName].amount += (price * (e.quantity || 0));
+          delegates[name].amount += (price * (e.quantity || 0));
       });
       
       return Object.entries(delegates).map(([name, data]) => ({
@@ -69,17 +75,24 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
   const getAllSales = () => {
       const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
+      
+      const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
+      REQUIRED_DELEGATES.forEach(name => {
+          delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
+      });
+
       entriesToday.forEach(e => {
+          const name = e.delegateName.trim();
           const invId = e.invoiceId || e.id;
-          if (!delegates[e.delegateName]) {
-              delegates[e.delegateName] = { invoices: new Set(), weight: 0, amount: 0 };
+          if (!delegates[name]) {
+              delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          delegates[e.delegateName].invoices.add(invId);
-          delegates[e.delegateName].weight += (e.totalWeightKg || 0);
+          delegates[name].invoices.add(invId);
+          delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
           const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-          delegates[e.delegateName].amount += (price * (e.quantity || 0));
+          delegates[name].amount += (price * (e.quantity || 0));
       });
       
       return Object.entries(delegates).map(([name, data]) => ({
@@ -249,6 +262,64 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                                     <td className="p-2">{formatWithCommas(totals.retailAmount, true)}</td>
                                     <td className="p-2">{totals.wholesaleWeight.toFixed(1)}</td>
                                     <td className="p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
+                                </tr>
+                            </>
+                        );
+                    })()}
+                </tbody>
+            </table>
+        </div>
+        )}
+
+        {/* Category Summary Table (Combined) */}
+        {currentUser.isAdmin && (
+        <div className="bg-emerald-900 rounded-xl p-4 text-white">
+            <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
+            <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                    <tr className="border-b border-emerald-700 text-emerald-300">
+                        <th className="p-2">الصنف</th>
+                        <th className="p-2">إجمالي الوزن (كجم)</th>
+                        <th className="p-2">إجمالي المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {(() => {
+                        const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                        const stats = categories.map(catName => {
+                            const getStats = (mode: 'retail' | 'wholesale') => {
+                                const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
+                                const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                                const amount = entries.reduce((sum, e) => {
+                                    const prod = productsList.find(p => p.productName === e.productName);
+                                    const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                                    return sum + (price * e.quantity);
+                                }, 0);
+                                return { weight, amount };
+                            };
+                            const retail = getStats('retail');
+                            const wholesale = getStats('wholesale');
+                            return { name: catName, totalWeight: retail.weight + wholesale.weight, totalAmount: retail.amount + wholesale.amount };
+                        });
+                        
+                        const grandTotal = stats.reduce((acc, curr) => ({
+                            weight: acc.weight + curr.totalWeight,
+                            amount: acc.amount + curr.totalAmount
+                        }), { weight: 0, amount: 0 });
+
+                        return (
+                            <>
+                                {stats.map(s => (
+                                    <tr key={s.name} className="border-b border-emerald-800">
+                                        <td className="p-2 font-bold">{s.name}</td>
+                                        <td className="p-2">{s.totalWeight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(s.totalAmount, true)}</td>
+                                    </tr>
+                                ))}
+                                <tr className="border-t-2 border-emerald-600 bg-emerald-950 font-black">
+                                    <td className="p-2">General</td>
+                                    <td className="p-2">{grandTotal.weight.toFixed(1)}</td>
+                                    <td className="p-2">{formatWithCommas(grandTotal.amount, true)}</td>
                                 </tr>
                             </>
                         );
