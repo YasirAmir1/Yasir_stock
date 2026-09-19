@@ -160,6 +160,7 @@ interface SalesContextType {
   routes: RouteItem[];
   activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
   setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
+  countUniqueInvoices: (date: string, delegateName: string, priceMode: 'retail' | 'wholesale') => number;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -1778,10 +1779,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const fetchUnifiedDataFromFirestore = async () => {};
 
+  const countUniqueInvoices = (
+    date: string,
+    delegateName: string,
+    priceMode: 'retail' | 'wholesale'
+  ): number => {
+    const filtered = salesEntries.filter(
+      (e) =>
+        e.timestamp.startsWith(date) &&
+        (delegateName === 'الكل' || e.delegateName === delegateName) &&
+        e.priceMode === priceMode
+    );
+    const uniqueInvoiceIds = new Set(filtered.map((e) => e.invoiceId || e.id));
+    return uniqueInvoiceIds.size;
+  };
+
   return (
     <SalesContext.Provider
       value={{
         currentUser,
+        countUniqueInvoices,
         selectedDate,
         selectedDelegate,
         loginTimestamp,
