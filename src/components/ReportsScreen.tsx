@@ -50,11 +50,12 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
       grouped.forEach(e => {
           const name = e.delegateName.trim();
-          const invId = e.invoiceId || e.id;
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          delegates[name].invoices.add(invId);
+          if (e.invoiceId) {
+            delegates[name].invoices.add(e.invoiceId);
+          }
           delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
@@ -83,11 +84,12 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 
       entriesToday.forEach(e => {
           const name = e.delegateName.trim();
-          const invId = e.invoiceId || e.id;
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          delegates[name].invoices.add(invId);
+          if (e.invoiceId) {
+            delegates[name].invoices.add(e.invoiceId);
+          }
           delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
