@@ -738,8 +738,8 @@ export const ReportsScreen: React.FC = () => {
 
       {/* Admin Delegate Switcher */}
       {currentUser.isAdmin && (
-        <div className="bg-emerald-950 border border-emerald-800 rounded-xl p-3 text-white space-y-2 shadow-md print:hidden">
-          <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-white space-y-2 shadow-md print:hidden">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
             <Filter className="w-4 h-4" />
             <span>عرض تقرير المندوب (لوحة الأدمن):</span>
           </div>
@@ -750,7 +750,7 @@ export const ReportsScreen: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 selectedDelegate === 'الكل'
                   ? 'bg-amber-400 text-slate-950 shadow-md scale-105'
-                  : 'bg-emerald-900/60 text-slate-200 hover:bg-emerald-800'
+                  : 'bg-slate-900/60 text-slate-200 hover:bg-slate-800'
               }`}
             >
               جميع المندوبين (إجمالي)
@@ -762,8 +762,8 @@ export const ReportsScreen: React.FC = () => {
                 onClick={() => setSelectedDelegate(del)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   selectedDelegate === del
-                    ? 'bg-emerald-500 text-slate-950 shadow-md scale-105'
-                    : 'bg-emerald-900/60 text-slate-200 hover:bg-emerald-800'
+                    ? 'bg-slate-500 text-slate-950 shadow-md scale-105'
+                    : 'bg-slate-900/60 text-slate-200 hover:bg-slate-800'
                 }`}
               >
                 {del}
@@ -830,29 +830,29 @@ export const ReportsScreen: React.FC = () => {
 
 
       {/* Summary Metrics Banner */}
-      <div className="bg-emerald-950 border-2 border-emerald-500 rounded-2xl p-4 text-white shadow-xl space-y-3 print:hidden">
+      <div className="bg-slate-950 border-2 border-slate-500 rounded-2xl p-4 text-white shadow-xl space-y-3 print:hidden">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-base sm:text-lg font-black text-white">
             تقرير مبيعات ({activeDelegateName})
           </h2>
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1 bg-emerald-500 text-slate-950 font-black text-xs rounded-full">
+            <span className="px-3 py-1 bg-slate-500 text-slate-950 font-black text-xs rounded-full">
               نسبة الإنجاز الكلية: {totalPct.toFixed(1)}%
             </span>
           </div>
         </div>
 
-        <hr className="border-emerald-800" />
+        <hr className="border-slate-800" />
 
         <div className="grid grid-cols-2 gap-3 text-center">
-          <div className="bg-emerald-900/50 p-3 rounded-xl border border-emerald-800">
+          <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي المبيعات اليوم</div>
-            <div className="text-xl sm:text-2xl font-black text-emerald-300 mt-1">
+            <div className="text-xl sm:text-2xl font-black text-slate-300 mt-1">
               {totalSalesWeight.toFixed(1)} كجم
             </div>
           </div>
 
-          <div className="bg-emerald-900/50 p-3 rounded-xl border border-emerald-800">
+          <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي التاركت المطلوب</div>
             <div className="text-xl sm:text-2xl font-black text-white mt-1">
               {totalTargetWeight.toFixed(1)} كجم
@@ -862,9 +862,9 @@ export const ReportsScreen: React.FC = () => {
 
         {/* Overall Progress Bar */}
         <div className="space-y-1">
-          <div className="w-full bg-emerald-900 rounded-full h-3 overflow-hidden p-0.5 border border-emerald-700">
+          <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
             <div
-              className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
+              className="bg-slate-400 h-2 rounded-full transition-all duration-300"
               style={{ width: `${Math.min(100, Math.max(0, totalPct))}%` }}
             ></div>
           </div>
@@ -976,8 +976,8 @@ export const ReportsScreen: React.FC = () => {
       */}
 
       {/* Category Reports Table */}
-      <div className="bg-white border-2 border-emerald-600 rounded-2xl overflow-hidden shadow-xl space-y-0">
-        <div className="bg-emerald-950 p-3.5 border-b border-emerald-800 flex items-center justify-between flex-wrap gap-2">
+      <div className="bg-white border-2 border-slate-600 rounded-2xl overflow-hidden shadow-xl space-y-0">
+        <div className="bg-slate-950 p-3.5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
           <div>
             <h3 className="font-extrabold text-white text-sm sm:text-base">
               تفاصيل المبيعات والتاركت حسب الأصناف (16 صنف)
