@@ -17,7 +17,14 @@ import {
 import { PullToRefresh } from './PullToRefresh';
 
 // --- Daily Admin Report Component ---
-const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], currentUser: any, reportRef: React.RefObject<HTMLDivElement> }> = ({ salesEntries, productsList, currentUser, reportRef }) => {
+const DailyAdminReport: React.FC<{ 
+  salesEntries: any[], 
+  productsList: any[], 
+  currentUser: any, 
+  reportRef: React.RefObject<HTMLDivElement>,
+  isDownloading: string | null,
+  setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>
+}> = ({ salesEntries, productsList, currentUser, reportRef, isDownloading, setIsDownloading }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   const productsReportRef = useRef<HTMLDivElement>(null);
@@ -26,7 +33,9 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const handleDownload = async () => {
     if (reportRef.current) {
       try {
+        setIsDownloading('main');
         window.scrollTo(0, 0);
+        await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(reportRef.current, {
           backgroundColor: '#0f172a',
           scale: 2,
@@ -39,6 +48,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
+      } finally {
+        setIsDownloading(null);
       }
     }
   };
@@ -46,7 +57,9 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const handleDownloadProducts = async () => {
     if (productsReportRef.current) {
       try {
+        setIsDownloading('products');
         window.scrollTo(0, 0);
+        await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(productsReportRef.current, {
           backgroundColor: '#312e81', // bg-indigo-900
           scale: 2,
@@ -59,6 +72,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
+      } finally {
+        setIsDownloading(null);
       }
     }
   };
@@ -200,8 +215,12 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 <option value="الكل">كل المندوبين</option>
                 {REQUIRED_DELEGATES.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
-            <button onClick={handleDownload} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <button onClick={handleDownload} disabled={isDownloading === 'main'} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
+                {isDownloading === 'main' ? (
+                  <span className="animate-spin">⏳</span>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                )}
             </button>
         </div>
         <div className="space-y-4 p-2">
@@ -719,7 +738,7 @@ export const ReportsScreen: React.FC = () => {
       
 
       <div ref={reportRef} className="space-y-4 p-2">
-        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} />}
+        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} />}
         
         {/* The tables are already inside DailyAdminReport, 
             so we just ensure it is wrapped correctly to be captured. 
