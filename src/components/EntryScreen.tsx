@@ -939,6 +939,7 @@ export const EntryScreen: React.FC = () => {
                       >
                         <Printer className="w-4 h-4" />
                       </button>
+                      {!isCompleted && (
                       <button
                         type="button"
                         onClick={() => {
@@ -951,6 +952,7 @@ export const EntryScreen: React.FC = () => {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      )}
                     </div>
                   </div>
                 </h4>

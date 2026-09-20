@@ -17,34 +17,53 @@ import {
 import { PullToRefresh } from './PullToRefresh';
 
 // --- Daily Admin Report Component ---
-const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], currentUser: any }> = ({ salesEntries, productsList, currentUser }) => {
+const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], currentUser: any, reportRef: React.RefObject<HTMLDivElement> }> = ({ salesEntries, productsList, currentUser, reportRef }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
-  const reportRef = useRef<HTMLDivElement>(null);
+  const productsReportRef = useRef<HTMLDivElement>(null);
+  const categorySummaryReportRef = useRef<HTMLDivElement>(null);
   
-  const handleDownload = async () => {
-    console.log("Downloading... reportRef.current:", reportRef.current);
-    if (reportRef.current) {
+  const handleDownloadProducts = async () => {
+    if (productsReportRef.current) {
       try {
-        window.scrollTo(0, 0); // Scroll to top before capturing
-        const canvas = await html2canvas(reportRef.current, {
-          backgroundColor: '#0f172a',
+        window.scrollTo(0, 0);
+        const canvas = await html2canvas(productsReportRef.current, {
+          backgroundColor: '#312e81', // bg-indigo-900
           scale: 2,
-          useCORS: true // Attempt to handle external images/styles
+          useCORS: true
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const link = document.createElement('a');
-        link.download = `تقرير-يومي-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.download = `تقرير-الأصناف-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
       }
-    } else {
-        console.error("reportRef.current is null!");
     }
   };
   
+  const handleDownloadCategorySummary = async () => {
+    if (categorySummaryReportRef.current) {
+      try {
+        window.scrollTo(0, 0);
+        const canvas = await html2canvas(categorySummaryReportRef.current, {
+          backgroundColor: '#064e3b', // bg-emerald-900
+          scale: 2,
+          useCORS: true
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.download = `تقرير-مجموع-الأصناف-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (error) {
+        console.error("html2canvas error:", error);
+      }
+    }
+  };
+  
+  // Removed handleDownload and reportRef definition from here
   const getDelegateSales = (priceMode: 'retail' | 'wholesale') => {
     const data: Record<string, { count: number, weight: number, amount: number }> = {};
     
@@ -165,10 +184,11 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
         </div>
-        <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
+        <div className="space-y-4 bg-slate-900 p-2">
             {/* Retail Sales Table */}
-            <div className="bg-slate-800 rounded-xl p-4 text-white">
-            <h3 className="font-bold mb-2">جدول مبيعات المفرد (لليوم)</h3>
+            <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg hover:shadow-emerald-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+            <h3 className="font-bold mb-3 text-emerald-400">جدول مبيعات المفرد (لليوم)</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
                     <tr className="border-b border-slate-600 text-slate-400">
@@ -180,8 +200,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 </thead>
                 <tbody>
                     {filteredRetailSales.map(s => (
-                        <tr key={s.name} className="border-b border-slate-700">
-                            <td className="p-2">{s.name}</td>
+                        <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
+                            <td className="p-2 font-bold">{s.name}</td>
                             <td className="p-2">{s.count}</td>
                             <td className="p-2">{s.weight.toFixed(1)}</td>
                             <td className="p-2">{formatWithCommas(s.amount, true)}</td>
@@ -189,11 +209,13 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     ))}
                 </tbody>
             </table>
+            </div>
         </div>
 
         {/* Wholesale Sales Table */}
-        <div className="bg-slate-800 rounded-xl p-4 text-white">
-            <h3 className="font-bold mb-2">جدول مبيعات الجملة (لليوم)</h3>
+        <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg hover:shadow-indigo-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+            <h3 className="font-bold mb-3 text-indigo-400">جدول مبيعات الجملة (لليوم)</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
                     <tr className="border-b border-slate-600 text-slate-400">
@@ -205,8 +227,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 </thead>
                 <tbody>
                     {filteredWholesaleSales.map(s => (
-                        <tr key={s.name} className="border-b border-slate-700">
-                            <td className="p-2">{s.name}</td>
+                        <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
+                            <td className="p-2 font-bold">{s.name}</td>
                             <td className="p-2">{s.count}</td>
                             <td className="p-2">{s.weight.toFixed(1)}</td>
                             <td className="p-2">{formatWithCommas(s.amount, true)}</td>
@@ -214,23 +236,25 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     ))}
                 </tbody>
             </table>
+            </div>
         </div>
 
         {/* Total Sales Summary */}
-        <div className="bg-emerald-900 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center">
-            <div className="bg-emerald-800 p-2 rounded-lg">
-                <h4 className="font-bold text-xs text-emerald-200">إجمالي المفرد</h4>
+        <div className="bg-emerald-900/50 border border-emerald-700 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center shadow-lg hover:shadow-emerald-900/50 transition-all duration-300 transform hover:scale-[1.01]">
+            <div className="bg-emerald-800/80 p-3 rounded-lg">
+                <h4 className="font-bold text-xs text-emerald-200 mb-1">إجمالي المفرد</h4>
                 <div className="text-sm font-black">{filteredTotalRetail.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalRetail.amount, true)}</div>
             </div>
-            <div className="bg-emerald-800 p-2 rounded-lg">
-                <h4 className="font-bold text-xs text-emerald-200">إجمالي الجملة</h4>
+            <div className="bg-emerald-800/80 p-3 rounded-lg">
+                <h4 className="font-bold text-xs text-emerald-200 mb-1">إجمالي الجملة</h4>
                 <div className="text-sm font-black">{filteredTotalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalWholesale.amount, true)}</div>
             </div>
         </div>
 
         {/* All Sales Summary Table */}
-        <div className="bg-amber-900 rounded-xl p-4 text-white">
-            <h3 className="font-bold mb-2">جدول مبيعات الكل (مفرد + جملة)</h3>
+        <div className="bg-amber-900 rounded-xl p-4 text-white shadow-lg hover:shadow-amber-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+            <h3 className="font-bold mb-3 text-amber-400">جدول مبيعات الكل (مفرد + جملة)</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
                     <tr className="border-b border-amber-700 text-amber-300">
@@ -242,8 +266,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 </thead>
                 <tbody>
                     {filteredAllSales.map(s => (
-                        <tr key={s.name} className="border-b border-amber-800">
-                            <td className="p-2">{s.name}</td>
+                        <tr key={s.name} className="border-b border-amber-800 hover:bg-amber-800/50">
+                            <td className="p-2 font-bold">{s.name}</td>
                             <td className="p-2">{s.count}</td>
                             <td className="p-2">{s.weight.toFixed(1)}</td>
                             <td className="p-2">{formatWithCommas(s.amount, true)}</td>
@@ -257,13 +281,21 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
         </div>
         
         {/* Specific Categories Sales Table */}
         {currentUser.isAdmin && (
-        <div className="bg-indigo-900 rounded-xl p-4 text-white">
-            <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
+        <div className="space-y-2">
+            {currentUser.isAdmin && (
+            <button onClick={handleDownloadProducts} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>تحميل</span>
+            </button>
+            )}
+            <div className="bg-indigo-900 rounded-xl p-4 text-white" ref={productsReportRef}>
+                <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
                     <tr className="border-b border-indigo-700 text-indigo-300">
@@ -325,13 +357,21 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     })()}
                 </tbody>
             </table>
+            </div>
         </div>
         )}
 
         {/* Category Summary Table (Combined) */}
         {currentUser.isAdmin && (
-        <div className="bg-emerald-900 rounded-xl p-4 text-white">
-            <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
+        <div className="space-y-2">
+            {currentUser.isAdmin && (
+            <button onClick={handleDownloadCategorySummary} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>تحميل</span>
+            </button>
+            )}
+            <div className="bg-emerald-900 rounded-xl p-4 text-white" ref={categorySummaryReportRef}>
+                <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
                     <tr className="border-b border-emerald-700 text-emerald-300">
@@ -383,6 +423,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                     })()}
                 </tbody>
             </table>
+            </div>
         </div>
         )}
     </div>
@@ -392,6 +433,27 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
 export const ReportsScreen: React.FC = () => {
   // Added state for Sales History move
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  const handleDownload = async () => {
+    if (reportRef.current) {
+      try {
+        window.scrollTo(0, 0);
+        const canvas = await html2canvas(reportRef.current, {
+          backgroundColor: '#0f172a',
+          scale: 2,
+          useCORS: true
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.download = `تقرير-شامل-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (error) {
+        console.error("html2canvas error:", error);
+      }
+    }
+  };
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
   const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -632,7 +694,23 @@ export const ReportsScreen: React.FC = () => {
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       
       {/* Reports Content */}
-      {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} />}
+      <div className="flex gap-2 mb-4 items-center print:hidden">
+          {currentUser.isAdmin && (
+          <button onClick={handleDownload} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all" title="تحميل التقرير كصورة">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>تحميل التقرير</span>
+          </button>
+      )}
+      </div>
+
+      <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
+        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} />}
+        
+        {/* The tables are already inside DailyAdminReport, 
+            so we just ensure it is wrapped correctly to be captured. 
+            The current implementation of DailyAdminReport contains all the tables shown in the image.
+        */}
+      </div>
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
         <div className="bg-amber-400 border-2 border-amber-500 rounded-2xl p-4 shadow-xl text-slate-950 space-y-2 animate-bounce-short print:hidden">
