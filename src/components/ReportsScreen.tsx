@@ -309,9 +309,13 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         {currentUser.isAdmin && (
         <div className="space-y-2">
             {currentUser.isAdmin && (
-            <button onClick={handleDownloadProducts} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>تحميل</span>
+            <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
+                {isDownloading === 'products' ? (
+                  <span className="animate-spin">⏳</span>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                )}
+                <span>{isDownloading === 'products' ? 'جاري التحميل...' : 'تحميل'}</span>
             </button>
             )}
             <div className="bg-indigo-900 rounded-xl p-4 text-white" ref={productsReportRef}>
@@ -449,11 +453,14 @@ export const ReportsScreen: React.FC = () => {
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const reportRef = useRef<HTMLDivElement>(null);
 
+  const [isDownloading, setIsDownloading] = useState<string | null>(null);
+  
   const handleDownload = async () => {
     if (reportRef.current) {
       try {
+        setIsDownloading('main');
         window.scrollTo(0, 0);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Add a small delay
+        await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(reportRef.current, {
           backgroundColor: '#0f172a',
           scale: 2,
@@ -466,6 +473,8 @@ export const ReportsScreen: React.FC = () => {
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
+      } finally {
+        setIsDownloading(null);
       }
     }
   };
