@@ -54,20 +54,22 @@ const DailyAdminReport: React.FC<{
     }
   };
   
+  const combinedReportRef = useRef<HTMLDivElement>(null);
+  
   const handleDownloadProducts = async () => {
-    if (productsReportRef.current) {
+    if (combinedReportRef.current) {
       try {
         setIsDownloading('products');
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 500));
-        const canvas = await html2canvas(productsReportRef.current, {
-          backgroundColor: '#312e81', // bg-indigo-900
+        const canvas = await html2canvas(combinedReportRef.current, {
+          backgroundColor: '#0f172a',
           scale: 2,
           useCORS: true
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const link = document.createElement('a');
-        link.download = `تقرير-الأصناف-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.download = `تقرير-الأصناف-المجمع-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
         link.click();
       } catch (error) {
@@ -326,7 +328,7 @@ const DailyAdminReport: React.FC<{
         
         {/* Specific Categories Sales Table */}
         {currentUser.isAdmin && (
-        <div className="space-y-2">
+        <div className="space-y-2" ref={combinedReportRef}>
             {currentUser.isAdmin && (
             <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
                 {isDownloading === 'products' ? (
@@ -337,7 +339,7 @@ const DailyAdminReport: React.FC<{
                 <span>{isDownloading === 'products' ? 'جاري التحميل...' : 'تحميل'}</span>
             </button>
             )}
-            <div className="bg-indigo-900 rounded-xl p-4 text-white" ref={productsReportRef}>
+            <div className="bg-indigo-900 rounded-xl p-4 text-white">
                 <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
@@ -407,7 +409,7 @@ const DailyAdminReport: React.FC<{
         {/* Category Summary Table (Combined) */}
         {currentUser.isAdmin && (
         <div className="space-y-2">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white" ref={categorySummaryReportRef}>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white">
                 <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
