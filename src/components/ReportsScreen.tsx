@@ -384,12 +384,6 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         {/* Category Summary Table (Combined) */}
         {currentUser.isAdmin && (
         <div className="space-y-2">
-            {currentUser.isAdmin && (
-            <button onClick={handleDownloadCategorySummary} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>تحميل</span>
-            </button>
-            )}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white" ref={categorySummaryReportRef}>
                 <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
             <table className="w-full text-xs text-center border-collapse">
@@ -459,6 +453,7 @@ export const ReportsScreen: React.FC = () => {
     if (reportRef.current) {
       try {
         window.scrollTo(0, 0);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Add a small delay
         const canvas = await html2canvas(reportRef.current, {
           backgroundColor: '#0f172a',
           scale: 2,
@@ -713,15 +708,6 @@ export const ReportsScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
       
-      {/* Reports Content */}
-      <div className="flex gap-2 mb-4 items-center print:hidden">
-          {currentUser.isAdmin && (
-          <button onClick={handleDownload} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all" title="تحميل التقرير كصورة">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>تحميل التقرير</span>
-          </button>
-      )}
-      </div>
 
       <div ref={reportRef} className="space-y-4 p-2">
         {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} />}
