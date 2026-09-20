@@ -291,36 +291,39 @@ export const RoutesScreen: React.FC = () => {
         );
       })()}
       
-      {currentUser?.isAdmin && (
-        <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
-            <option value="">كل المندوبين</option>
-            {delegateAccounts && delegateAccounts.length > 0 ? (
-              delegateAccounts.map(d => (
-                <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
-              ))
-            ) : (
-              <option disabled>لا يوجد مندوبون</option>
-            )}
-          </select>
-          <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
-            <option value="">كل الأيام</option>
-            <option value="السبت">السبت</option>
-            <option value="الأحد">الأحد</option>
-            <option value="الإثنين">الإثنين</option>
-            <option value="الثلاثاء">الثلاثاء</option>
-            <option value="الأربعاء">الأربعاء</option>
-            <option value="الخميس">الخميس</option>
-          </select>
+      {/* Search and Filters */}
+      <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <input 
             type="text" 
             value={searchQuery} 
             onChange={e => setSearchQuery(e.target.value)} 
-            placeholder="بحث عن اسم محل أو زبون..." 
+            placeholder="بحث عن زبون..." 
             className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
           />
+          {currentUser?.isAdmin && (
+            <>
+              <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                <option value="">كل المندوبين</option>
+                {delegateAccounts && delegateAccounts.length > 0 ? (
+                  delegateAccounts.map(d => (
+                    <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
+                  ))
+                ) : (
+                  <option disabled>لا يوجد مندوبون</option>
+                )}
+              </select>
+              <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                <option value="">كل الأيام</option>
+                <option value="السبت">السبت</option>
+                <option value="الأحد">الأحد</option>
+                <option value="الإثنين">الإثنين</option>
+                <option value="الثلاثاء">الثلاثاء</option>
+                <option value="الأربعاء">الأربعاء</option>
+                <option value="الخميس">الخميس</option>
+              </select>
+            </>
+          )}
         </div>
-      )}
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
         <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
