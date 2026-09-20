@@ -96,24 +96,8 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
       }));
   };
 
-  const [selectedDelegateForDownload, setSelectedDelegateForDownload] = useState<string>('الكل');
-
-  const getFilteredSales = (priceMode: 'retail' | 'wholesale' | 'all') => {
-    let sales;
-    if (priceMode === 'retail') sales = retailSales;
-    else if (priceMode === 'wholesale') sales = wholesaleSales;
-    else sales = allSales;
-
-    if (selectedDelegateForDownload === 'الكل') return sales;
-    return sales.filter(s => s.name === selectedDelegateForDownload);
-  };
-  
-  const filteredRetailSales = getFilteredSales('retail');
-  const filteredWholesaleSales = getFilteredSales('wholesale');
-  const filteredAllSales = getFilteredSales('all');
-
-  const filteredTotalRetail = filteredRetailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
-  const filteredTotalWholesale = filteredWholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+  const retailSales = useMemo(() => getGroupedSales('retail'), [entriesToday, productsList]);
+  const wholesaleSales = useMemo(() => getGroupedSales('wholesale'), [entriesToday, productsList]);
 
   const getAllSales = () => {
       const delegates: Record<string, { invoices: Set<string>, weight: number, amount: number }> = {};
@@ -146,10 +130,28 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
       }));
   };
 
-  const allSales = getAllSales();
+  const allSales = useMemo(() => getAllSales(), [entriesToday, productsList]);
 
-  const totalRetail = retailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
-  const totalWholesale = wholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 });
+  const [selectedDelegateForDownload, setSelectedDelegateForDownload] = useState<string>('الكل');
+  
+  const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
+
+  const getFilteredSales = (priceMode: 'retail' | 'wholesale' | 'all') => {
+    let sales;
+    if (priceMode === 'retail') sales = retailSales;
+    else if (priceMode === 'wholesale') sales = wholesaleSales;
+    else sales = allSales;
+
+    if (selectedDelegateForDownload === 'الكل') return sales;
+    return sales.filter(s => s.name === selectedDelegateForDownload);
+  };
+  
+  const filteredRetailSales = useMemo(() => getFilteredSales('retail'), [retailSales, selectedDelegateForDownload]);
+  const filteredWholesaleSales = useMemo(() => getFilteredSales('wholesale'), [wholesaleSales, selectedDelegateForDownload]);
+  const filteredAllSales = useMemo(() => getFilteredSales('all'), [allSales, selectedDelegateForDownload]);
+
+  const filteredTotalRetail = useMemo(() => filteredRetailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [filteredRetailSales]);
+  const filteredTotalWholesale = useMemo(() => filteredWholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [filteredWholesaleSales]);
 
   return (
     <div className="space-y-4 p-4">
