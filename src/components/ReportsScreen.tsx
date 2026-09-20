@@ -23,6 +23,26 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
   const productsReportRef = useRef<HTMLDivElement>(null);
   const categorySummaryReportRef = useRef<HTMLDivElement>(null);
   
+  const handleDownload = async () => {
+    if (reportRef.current) {
+      try {
+        window.scrollTo(0, 0);
+        const canvas = await html2canvas(reportRef.current, {
+          backgroundColor: '#0f172a',
+          scale: 2,
+          useCORS: true
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.download = `تقرير-شامل-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (error) {
+        console.error("html2canvas error:", error);
+      }
+    }
+  };
+  
   const handleDownloadProducts = async () => {
     if (productsReportRef.current) {
       try {
