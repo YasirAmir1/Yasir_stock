@@ -184,7 +184,7 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
         </div>
-        <div className="space-y-4 bg-slate-900 p-2">
+        <div className="space-y-4 p-2">
             {/* Retail Sales Table */}
             <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg hover:shadow-emerald-900/50 transition-all duration-300 transform hover:scale-[1.02]">
             <h3 className="font-bold mb-3 text-emerald-400">جدول مبيعات المفرد (لليوم)</h3>
@@ -703,7 +703,7 @@ export const ReportsScreen: React.FC = () => {
       )}
       </div>
 
-      <div ref={reportRef} className="space-y-4 bg-slate-900 p-2">
+      <div ref={reportRef} className="space-y-4 p-2">
         {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} />}
         
         {/* The tables are already inside DailyAdminReport, 
