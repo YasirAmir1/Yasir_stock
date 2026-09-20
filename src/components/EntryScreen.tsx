@@ -531,6 +531,10 @@ export const EntryScreen: React.FC = () => {
   };
 
   const handleSaveGrid = () => {
+    if (isCompleted) {
+      setErrorMessage('لا يمكن حفظ فواتير جديدة بعد إكمال مبيعات اليوم');
+      return;
+    }
     const trimmedCustomerName = customerName.trim();
     if (!trimmedCustomerName) {
       setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
@@ -1106,14 +1110,16 @@ export const EntryScreen: React.FC = () => {
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
-                        className={`p-1 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
-                        title="حذف السجل"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!completedDelegates[activeDelegateName || ''] && (
+                        <button
+                          type="button"
+                          onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
+                          className={`p-1 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
+                          title="حذف السجل"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
