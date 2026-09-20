@@ -240,13 +240,13 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
         </div>
 
         {/* Total Sales Summary */}
-        <div className="bg-emerald-900/50 border border-emerald-700 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center shadow-lg hover:shadow-emerald-900/50 transition-all duration-300 transform hover:scale-[1.01]">
-            <div className="bg-emerald-800/80 p-3 rounded-lg">
-                <h4 className="font-bold text-xs text-emerald-200 mb-1">إجمالي المفرد</h4>
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center shadow-lg hover:shadow-slate-900/50 transition-all duration-300 transform hover:scale-[1.01]">
+            <div className="bg-slate-700/80 p-3 rounded-lg">
+                <h4 className="font-bold text-xs text-slate-200 mb-1">إجمالي المفرد</h4>
                 <div className="text-sm font-black">{filteredTotalRetail.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalRetail.amount, true)}</div>
             </div>
-            <div className="bg-emerald-800/80 p-3 rounded-lg">
-                <h4 className="font-bold text-xs text-emerald-200 mb-1">إجمالي الجملة</h4>
+            <div className="bg-slate-700/80 p-3 rounded-lg">
+                <h4 className="font-bold text-xs text-slate-200 mb-1">إجمالي الجملة</h4>
                 <div className="text-sm font-black">{filteredTotalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalWholesale.amount, true)}</div>
             </div>
         </div>
@@ -370,11 +370,11 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                 <span>تحميل</span>
             </button>
             )}
-            <div className="bg-emerald-900 rounded-xl p-4 text-white" ref={categorySummaryReportRef}>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white" ref={categorySummaryReportRef}>
                 <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
             <table className="w-full text-xs text-center border-collapse">
                 <thead>
-                    <tr className="border-b border-emerald-700 text-emerald-300">
+                    <tr className="border-b border-slate-700 text-slate-300">
                         <th className="p-2">الصنف</th>
                         <th className="p-2">إجمالي الوزن (كجم)</th>
                         <th className="p-2">إجمالي المبلغ</th>
@@ -407,13 +407,13 @@ const DailyAdminReport: React.FC<{ salesEntries: any[], productsList: any[], cur
                         return (
                             <>
                                 {stats.map(s => (
-                                    <tr key={s.name} className="border-b border-emerald-800">
+                                    <tr key={s.name} className="border-b border-slate-700">
                                         <td className="p-2 font-bold">{s.name}</td>
                                         <td className="p-2">{s.totalWeight.toFixed(1)}</td>
                                         <td className="p-2">{formatWithCommas(s.totalAmount, true)}</td>
                                     </tr>
                                 ))}
-                                <tr className="border-t-2 border-emerald-600 bg-emerald-950 font-black">
+                                <tr className="border-t-2 border-slate-600 bg-slate-950 font-black">
                                     <td className="p-2">General</td>
                                     <td className="p-2">{grandTotal.weight.toFixed(1)}</td>
                                     <td className="p-2">{formatWithCommas(grandTotal.amount, true)}</td>
@@ -691,7 +691,7 @@ export const ReportsScreen: React.FC = () => {
 
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
-      <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
+      <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
       
       {/* Reports Content */}
       <div className="flex gap-2 mb-4 items-center print:hidden">
