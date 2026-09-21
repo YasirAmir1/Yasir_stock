@@ -654,7 +654,8 @@ export const EntryScreen: React.FC = () => {
     }
     
     const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
-    const rows = safeSavedEntries.map(entry => [
+    const sortedEntries = [...safeSavedEntries].sort((a, b) => a.timestamp - b.timestamp);
+    const rows = sortedEntries.map(entry => [
       entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
       entry.delegateName || 'غير محدد',
       entry.customerName || 'بدون اسم زبون',

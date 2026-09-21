@@ -740,10 +740,57 @@ export const ReportsScreen: React.FC = () => {
     });
   }, [selectedDate, activeDelegateName, dailyEvaluationsHistory, salesEntries]);
 
+  const [showSummary, setShowSummary] = useState(false);
+
+  // ... (keeping existing code)
+
+  // Calculate daily summary
+  const dailySummary = useMemo(() => {
+    const todayEntries = salesEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]);
+    
+    const totalSales = todayEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
+    const invoiceCount = new Set(todayEntries.map(e => e.customerCode)).size;
+    
+    const productCounts: Record<string, number> = {};
+    todayEntries.forEach(e => {
+        productCounts[e.productName] = (productCounts[e.productName] || 0) + e.quantity;
+    });
+    
+    const mostSold = Object.entries(productCounts).sort((a, b) => b[1] - a[1])[0];
+
+    return { totalSales, invoiceCount, mostSold };
+  }, [salesEntries]);
+
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
-      
+        
+        {/* زر عرض ملخص المبيعات */}
+        <button 
+            onClick={() => setShowSummary(!showSummary)}
+            className="w-full flex items-center justify-center gap-2 bg-slate-800 text-white p-3 rounded-xl font-bold hover:bg-slate-700 transition"
+        >
+            {showSummary ? 'إخفاء ملخص المبيعات اليومية' : 'عرض ملخص المبيعات اليومية السريع'}
+        </button>
+
+        {showSummary && (
+            <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg border border-slate-700 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                <div>
+                    <div className="text-slate-400 text-sm">إجمالي المبيعات</div>
+                    <div className="text-xl font-black text-emerald-400">{dailySummary.totalSales.toFixed(1)} كجم</div>
+                </div>
+                <div>
+                    <div className="text-slate-400 text-sm">عدد الفواتير</div>
+                    <div className="text-xl font-black text-indigo-400">{dailySummary.invoiceCount}</div>
+                </div>
+                <div>
+                    <div className="text-slate-400 text-sm">الأكثر مبيعاً</div>
+                    <div className="text-xl font-black text-amber-400">
+                        {dailySummary.mostSold ? `${dailySummary.mostSold[0]} (${dailySummary.mostSold[1]})` : 'لا يوجد'}
+                    </div>
+                </div>
+            </div>
+        )}
 
       <div ref={reportRef} className="space-y-4 p-2">
         {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} />}

@@ -17,6 +17,7 @@ import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
 import { RoutesScreen } from './components/RoutesScreen';
 import { BottomNav } from './components/BottomNav';
+import { getFormattedWeekday } from './utils/dateUtils';
 import {
   FileText,
   BarChart2,
@@ -288,7 +289,7 @@ const MainAppContent: React.FC = () => {
                   ? 'bg-slate-800 text-emerald-300 border-slate-700'
                   : 'bg-emerald-50 text-emerald-950 border-emerald-200'
               }`}>
-                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{new Date().toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
+                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{getFormattedWeekday()}</span>
                 <span className="text-[9px] sm:text-[11px] leading-tight" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
               </div>
 

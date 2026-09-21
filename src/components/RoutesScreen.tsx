@@ -5,6 +5,7 @@ import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDo
 import { RouteItem } from '../types';
 import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { getFormattedWeekday } from '../utils/dateUtils';
 
 export const RoutesScreen: React.FC = () => {
   const salesContext = useSales();
@@ -20,7 +21,7 @@ export const RoutesScreen: React.FC = () => {
     if (!currentUser || currentUser.isAdmin) return;
     
     const today = new Date().toISOString().split('T')[0];
-    const currentDayName = new Date().toLocaleDateString('ar-EG', { weekday: 'long' });
+    const currentDayName = getFormattedWeekday();
 
     const delegateRoutes = routes.filter(r =>
         r.delegateName.trim() === currentUser.name.trim() &&
