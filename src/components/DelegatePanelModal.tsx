@@ -312,7 +312,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                   <div key={a.id} className={`p-3 rounded-lg border flex items-start justify-between gap-3 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                     <div className="flex-1">
                       <p className="font-bold text-sm mb-1">{a.note}</p>
-                      <p className="text-[10px] opacity-70 text-emerald-500 font-bold">{new Date(a.targetTime).toLocaleString('en-GB')}</p>
+                      <p className="text-[10px] opacity-70 text-emerald-500 font-bold">{new Date(a.targetTime).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
                     </div>
                     <button onClick={() => handleDeleteAlert(a.id)} className="p-1.5 rounded-md hover:bg-red-100 text-red-500 transition-colors">
                       <Trash2 className="w-4 h-4" />

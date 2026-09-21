@@ -8,6 +8,7 @@ import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
+import * as XLSX from 'xlsx';
 
 export const EntryScreen: React.FC = () => {
   const {
@@ -705,28 +706,6 @@ export const EntryScreen: React.FC = () => {
 
     const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
     
-    // Apply green background to delegate separator rows
-    let currentRow = 2; // Start after headers
-    lastDelegate = '';
-    sortedEntries.forEach((entry, index) => {
-        const delegate = entry.delegateName || 'غير محدد';
-        
-        if (index > 0 && delegate !== lastDelegate) {
-            const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:K1');
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cellAddress = XLSX.utils.encode_cell({r: currentRow - 1, c: C});
-                if (!worksheet[cellAddress]) worksheet[cellAddress] = {t: 's', v: ''};
-                worksheet[cellAddress].s = { fill: { fgColor: { rgb: "C6EFCE" } } }; // Light Green
-            }
-        }
-        if (index > 0 && (delegate !== lastDelegate || entry.customerCode !== lastCustomerCode)) {
-            currentRow++;
-        }
-        currentRow++;
-        lastDelegate = delegate;
-        lastCustomerCode = entry.customerCode || '';
-    });
-
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
     XLSX.writeFile(workbook, `sales_entries_${new Date().toISOString().split('T')[0]}.xlsx`);

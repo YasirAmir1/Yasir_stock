@@ -1629,7 +1629,7 @@ export const AdminScreen: React.FC = () => {
                 <div key={a.id} className="p-2 bg-slate-950 border border-slate-700 rounded-lg text-xs">
                   <span className="font-bold text-white">{a.delegateName}: </span>
                   <span className="text-slate-300">{a.note}</span>
-                  <div className="text-[10px] text-emerald-500">{new Date(a.targetTime).toLocaleString('en-GB')}</div>
+                  <div className="text-[10px] text-emerald-500">{new Date(a.targetTime).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</div>
                 </div>
               ))}
             </div>
