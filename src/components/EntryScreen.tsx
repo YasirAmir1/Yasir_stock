@@ -561,6 +561,7 @@ export const EntryScreen: React.FC = () => {
       customerCode?: string;
       customerAddress?: string;
       priceMode?: 'retail' | 'wholesale';
+      invoiceId?: string;
     }[] = [];
 
     let invalidFound = false;

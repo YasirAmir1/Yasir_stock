@@ -23,8 +23,9 @@ const DailyAdminReport: React.FC<{
   currentUser: any, 
   reportRef: React.RefObject<HTMLDivElement>,
   isDownloading: string | null,
-  setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>
-}> = ({ salesEntries, productsList, currentUser, reportRef, isDownloading, setIsDownloading }) => {
+  setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>,
+  completedDelegates: Record<string, boolean>
+}> = ({ salesEntries, productsList, currentUser, reportRef, isDownloading, setIsDownloading, completedDelegates }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   const productsReportRef = useRef<HTMLDivElement>(null);
@@ -793,7 +794,7 @@ export const ReportsScreen: React.FC = () => {
         )}
 
       <div ref={reportRef} className="space-y-4 p-2">
-        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} />}
+        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} />}
         
         {/* The tables are already inside DailyAdminReport, 
             so we just ensure it is wrapped correctly to be captured. 

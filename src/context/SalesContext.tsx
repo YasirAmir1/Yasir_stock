@@ -1786,7 +1786,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ): number => {
     const filtered = salesEntries.filter(
       (e) =>
-        e.timestamp.startsWith(date) &&
+        e.dateString === date &&
         (delegateName === 'الكل' || e.delegateName === delegateName) &&
         e.priceMode === priceMode
     );
