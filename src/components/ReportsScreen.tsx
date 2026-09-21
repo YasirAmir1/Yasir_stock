@@ -38,10 +38,13 @@ const DailyAdminReport: React.FC<{
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(reportRef.current, {
           backgroundColor: '#0f172a',
-          scale: 2,
-          useCORS: true
+          scale: 3, // Increased scale for better resolution
+          useCORS: true,
+          logging: true,
+          width: reportRef.current.offsetWidth,
+          height: reportRef.current.offsetHeight
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvas.toDataURL('image/jpeg', 1.0); // Maximum quality
         const link = document.createElement('a');
         link.download = `تقرير-شامل-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
@@ -64,10 +67,13 @@ const DailyAdminReport: React.FC<{
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(combinedReportRef.current, {
           backgroundColor: '#0f172a',
-          scale: 2,
-          useCORS: true
+          scale: 3, // Increased scale for better resolution
+          useCORS: true,
+          logging: true,
+          width: combinedReportRef.current.offsetWidth,
+          height: combinedReportRef.current.offsetHeight
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvas.toDataURL('image/jpeg', 1.0); // Maximum quality
         const link = document.createElement('a');
         link.download = `تقرير-الأصناف-المجمع-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
