@@ -1,6 +1,7 @@
 export interface UserAccount {
   name: string;
   roleName: string;
+  role?: 'admin' | 'delegate' | 'dataEntry';
   isAdmin: boolean;
   username: string;
   monthlyTargetKg: number;
@@ -31,6 +32,7 @@ export interface DelegateAccount {
   delegateCode?: string; // Add this
   monthlyTargetKg: number;
   isAdmin: boolean;
+  role?: 'admin' | 'delegate' | 'dataEntry';
   targetSetTimestamp?: number;
 }
 

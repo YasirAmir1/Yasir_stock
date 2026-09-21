@@ -46,6 +46,7 @@ export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'Rafatdata', password: '0001', delegateName: 'رأفت جمال', monthlyTargetKg: 0, isAdmin: true, role: 'dataEntry' },
 ];
 
 const DELEGATE_NAME_MAP: Record<string, string> = {
