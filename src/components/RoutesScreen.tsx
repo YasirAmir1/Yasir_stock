@@ -81,12 +81,9 @@ export const RoutesScreen: React.FC = () => {
     if (currentUser.isAdmin) {
         routesQ = query(collection(db, 'routes'));
     } else {
-        const delegateCode = String(currentUser.delegateCode || '').trim();
         const delegateName = String(currentUser.name || '').trim();
         
-        if (delegateCode) {
-            routesQ = query(collection(db, 'routes'), where('delegateCode', '==', delegateCode));
-        } else if (delegateName) {
+        if (delegateName) {
             routesQ = query(collection(db, 'routes'), where('delegateName', '==', delegateName));
         } else {
             setRoutes([]);

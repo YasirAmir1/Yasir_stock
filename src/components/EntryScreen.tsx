@@ -680,7 +680,7 @@ export const EntryScreen: React.FC = () => {
         if (index > 0 && delegate !== lastDelegate) {
             worksheetData.push(Array(headers.length).fill('')); // Empty row
         }
-        // Add empty row for new customer
+        // Add empty row for new customer only if not already a new delegate row
         else if (index > 0 && customerCode !== lastCustomerCode) {
             worksheetData.push(Array(headers.length).fill(''));
         }
