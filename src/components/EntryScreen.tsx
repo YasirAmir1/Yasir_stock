@@ -666,7 +666,13 @@ export const EntryScreen: React.FC = () => {
     }
     
     const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
-    const sortedEntries = [...safeSavedEntries].sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Sort: Delegate Name (ASC), then Customer Code (ASC)
+    const sortedEntries = [...safeSavedEntries].sort((a, b) => {
+        const delegateA = (a.delegateName || 'غير محدد').localeCompare(b.delegateName || 'غير محدد');
+        if (delegateA !== 0) return delegateA;
+        return (a.customerCode || 'بدون كود').localeCompare(b.customerCode || 'بدون كود');
+    });
 
     const worksheetData: any[] = [headers];
     
@@ -679,9 +685,9 @@ export const EntryScreen: React.FC = () => {
 
         // Add separator row for new delegate
         if (index > 0 && delegate !== lastDelegate) {
-            worksheetData.push(Array(headers.length).fill('')); // Empty row
+            worksheetData.push(Array(headers.length).fill('')); 
         }
-        // Add empty row for new customer only if not already a new delegate row
+        // Add separator row for new customer (grouping by customer code)
         else if (index > 0 && customerCode !== lastCustomerCode) {
             worksheetData.push(Array(headers.length).fill(''));
         }

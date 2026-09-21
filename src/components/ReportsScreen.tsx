@@ -314,7 +314,7 @@ const DailyAdminReport: React.FC<{
                 <tbody>
                     {filteredAllSales.map(s => (
                         <tr key={s.name} className="border-b border-amber-800 hover:bg-amber-800/50">
-                            <td className="p-2 font-bold">{s.name}</td>
+                            <td className={`p-2 font-bold ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
                             <td className="p-2">{s.count}</td>
                             <td className="p-2">{s.weight.toFixed(1)}</td>
                             <td className="p-2">{formatWithCommas(s.amount, true)}</td>
