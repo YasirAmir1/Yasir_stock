@@ -81,12 +81,17 @@ export const RoutesScreen: React.FC = () => {
     if (currentUser.isAdmin) {
         routesQ = query(collection(db, 'routes'));
     } else {
+        const delegateCode = String(currentUser.delegateCode || '').trim();
         const delegateName = String(currentUser.name || '').trim();
-        if (!delegateName) {
+        
+        if (delegateCode) {
+            routesQ = query(collection(db, 'routes'), where('delegateCode', '==', delegateCode));
+        } else if (delegateName) {
+            routesQ = query(collection(db, 'routes'), where('delegateName', '==', delegateName));
+        } else {
             setRoutes([]);
             return;
         }
-        routesQ = query(collection(db, 'routes'), where('delegateName', '==', delegateName));
     }
 
     const unsubRoutes = onSnapshot(routesQ, (snap) => {
@@ -317,9 +322,9 @@ export const RoutesScreen: React.FC = () => {
                 <option value="">كل الأيام</option>
                 <option value="السبت">السبت</option>
                 <option value="الأحد">الأحد</option>
-                <option value="الإثنين">الإثنين</option>
+                <option value="الاثنين">الاثنين</option>
                 <option value="الثلاثاء">الثلاثاء</option>
-                <option value="الأربعاء">الأربعاء</option>
+                <option value="الاربعاء">الاربعاء</option>
                 <option value="الخميس">الخميس</option>
               </select>
             </>

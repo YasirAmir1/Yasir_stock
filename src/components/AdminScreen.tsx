@@ -1548,10 +1548,10 @@ export const AdminScreen: React.FC = () => {
             <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold bg-slate-950 border-slate-700 text-white`}>
               <option value="">كل الأيام</option>
               <option value="السبت">السبت</option>
-              <option value="الأحد">الأحد</option>
-              <option value="الإثنين">الإثنين</option>
+              <option value="الاحد">الاحد</option>
+              <option value="الاثنين">الاثنين</option>
               <option value="الثلاثاء">الثلاثاء</option>
-              <option value="الأربعاء">الأربعاء</option>
+              <option value="الاربعاء">الاربعاء</option>
               <option value="الخميس">الخميس</option>
             </select>
             <div className="flex w-full gap-2">

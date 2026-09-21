@@ -624,7 +624,18 @@ export const EntryScreen: React.FC = () => {
     if (invalidFound) return;
 
     // Check for minimum amount
-    // Removed restriction of 3 products and 25000 price as requested
+    const totalPrice = itemsToSave.reduce((sum, e) => {
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+    }, 0);
+
+    const uniqueProductCount = new Set(itemsToSave.map(e => e.productName)).size;
+
+    if (totalPrice < 25000 || uniqueProductCount < 3) {
+        setErrorMessage('تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.');
+        return;
+    }
 
     saveSalesEntries(itemsToSave);
     setErrorMessage(null);
@@ -655,30 +666,70 @@ export const EntryScreen: React.FC = () => {
     
     const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
     const sortedEntries = [...safeSavedEntries].sort((a, b) => a.timestamp - b.timestamp);
-    const rows = sortedEntries.map(entry => [
-      entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
-      entry.delegateName || 'غير محدد',
-      entry.customerName || 'بدون اسم زبون',
-      entry.customerCode || '',
-      entry.productName,
-      entry.categoryName,
-      getProductCode(entry.productName),
-      entry.quantity.toString(),
-      entry.pieceWeightKg.toString(),
-      entry.totalWeightKg.toString(),
-      entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
-    ]);
+
+    const worksheetData: any[] = [headers];
     
-    const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
+    let lastDelegate = '';
+    let lastCustomerCode = '';
+
+    sortedEntries.forEach((entry, index) => {
+        const delegate = entry.delegateName || 'غير محدد';
+        const customerCode = entry.customerCode || 'بدون كود';
+
+        // Add separator row for new delegate
+        if (index > 0 && delegate !== lastDelegate) {
+            worksheetData.push(Array(headers.length).fill('')); // Empty row
+        }
+        // Add empty row for new customer
+        else if (index > 0 && customerCode !== lastCustomerCode) {
+            worksheetData.push(Array(headers.length).fill(''));
+        }
+
+        worksheetData.push([
+            entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
+            delegate,
+            entry.customerName || 'بدون اسم زبون',
+            customerCode,
+            entry.productName,
+            entry.categoryName,
+            getProductCode(entry.productName),
+            entry.quantity.toString(),
+            entry.pieceWeightKg.toString(),
+            entry.totalWeightKg.toString(),
+            entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+        ]);
+
+        lastDelegate = delegate;
+        lastCustomerCode = customerCode;
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
     
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `sales_entries_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Apply green background to delegate separator rows
+    let currentRow = 2; // Start after headers
+    lastDelegate = '';
+    sortedEntries.forEach((entry, index) => {
+        const delegate = entry.delegateName || 'غير محدد';
+        
+        if (index > 0 && delegate !== lastDelegate) {
+            const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:K1');
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cellAddress = XLSX.utils.encode_cell({r: currentRow - 1, c: C});
+                if (!worksheet[cellAddress]) worksheet[cellAddress] = {t: 's', v: ''};
+                worksheet[cellAddress].s = { fill: { fgColor: { rgb: "C6EFCE" } } }; // Light Green
+            }
+        }
+        if (index > 0 && (delegate !== lastDelegate || entry.customerCode !== lastCustomerCode)) {
+            currentRow++;
+        }
+        currentRow++;
+        lastDelegate = delegate;
+        lastCustomerCode = entry.customerCode || '';
+    });
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
+    XLSX.writeFile(workbook, `sales_entries_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const filteredSavedEntries = safeSavedEntries.filter(

@@ -415,10 +415,10 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                 <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
                   <option value="">كل الأيام</option>
                   <option value="السبت">السبت</option>
-                  <option value="الأحد">الأحد</option>
-                  <option value="الإثنين">الإثنين</option>
+                  <option value="الاحد">الاحد</option>
+                  <option value="الاثنين">الاثنين</option>
                   <option value="الثلاثاء">الثلاثاء</option>
-                  <option value="الأربعاء">الأربعاء</option>
+                  <option value="الاربعاء">الاربعاء</option>
                   <option value="الخميس">الخميس</option>
                 </select>
                 <input 
