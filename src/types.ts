@@ -157,5 +157,17 @@ export interface RouteItem {
   position?: number;
 }
 
+export interface DebtItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  amountDue: number;
+  invoiceDate: string;
+  paymentDueDate: string;
+  delegateName: string;
+  notified?: boolean;
+}
+
 
 

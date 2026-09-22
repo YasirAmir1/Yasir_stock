@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Bell, FileText, Info, Trash2 } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
+import { DebtItem } from '../types';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs, getDoc } from 'firebase/firestore';
 
@@ -97,14 +98,6 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
       setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
     });
 
-    // Load Global Notifications
-    const notifsQ = query(collection(db, 'admin_notifications'));
-    const unsubNotifs = onSnapshot(notifsQ, (snap) => {
-      const loaded: any[] = [];
-      snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
-      setGlobalNotifs(loaded.sort((a, b) => b.timestamp - a.timestamp));
-    });
-
     // Load Reads
     const readsQ = query(collection(db, 'delegate_notification_reads'), where('delegateName', '==', delegateName));
     const unsubReads = onSnapshot(readsQ, (snap) => {
@@ -113,6 +106,14 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         rm[d.data().notificationId] = d.data().readAt;
       });
       setReadsMap(rm);
+    });
+
+    // Load Global Notifications
+    const notifsQ = query(collection(db, 'admin_notifications'));
+    const unsubNotifs = onSnapshot(notifsQ, (snap) => {
+      const loaded: any[] = [];
+      snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
+      setGlobalNotifs(loaded.sort((a, b) => b.timestamp - a.timestamp));
     });
 
     return () => {
@@ -246,7 +247,15 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isDarkMode ? 'border-slate-800 bg-slate-800/50' : 'border-slate-100 bg-slate-50'}`}>
           <h2 className="text-lg font-black flex items-center gap-2">
-            <Bell className="w-5 h-5 text-emerald-500" />
+            <div className="relative">
+              <Bell className="w-5 h-5 text-emerald-500" />
+              {(() => {
+                const count = alerts.length + notes.length + globalNotifs.filter(n => !readsMap[n.id]).length;
+                return count > 0 ? (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{count}</span>
+                ) : null;
+              })()}
+            </div>
             <span>لوحة المندوب: {currentUser?.name}</span>
           </h2>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">

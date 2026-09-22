@@ -3,9 +3,10 @@ import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { RouteItem } from '../types';
 import { db } from '../lib/firebase';
-import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, deleteDoc, where } from 'firebase/firestore';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
+import { CollapsibleCard } from './admin/CollapsibleCard';
 import {
   Lock,
   Unlock,
@@ -29,27 +30,9 @@ import {
   ClipboardList,
   Bell,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  FileText
 } from 'lucide-react';
-
-const CollapsibleCard: React.FC<{ title: string; children: React.ReactNode; icon?: React.ReactNode }> = ({ title, children, icon }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl overflow-hidden shadow-md">
-      <button 
-        className="w-full flex items-center justify-between p-4 font-black text-emerald-200 text-sm hover:bg-emerald-900/50 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <div className="flex items-center gap-2">
-            {icon}
-            {title}
-        </div>
-        {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-      </button>
-      {isOpen && <div className="p-4 bg-slate-900/50 border-t border-emerald-800/80">{children}</div>}
-    </div>
-  );
-};
 
 
 interface AlertItem {
@@ -1224,6 +1207,64 @@ export const AdminScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* Archive Old Invoices */}
+      <div className="bg-amber-950 border border-amber-800/80 rounded-xl p-3.5 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2">
+          <Clock className="w-5 h-5 text-amber-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-amber-200">
+            أرشفة الفواتير القديمة (أكثر من شهر):
+          </h3>
+        </div>
+
+        <p className="text-xs text-slate-300 leading-relaxed">
+          تتيح هذه الميزة نقل الفواتير التي تجاوز عمرها 30 يوماً إلى الأرشيف لتخفيف الضغط على قاعدة البيانات وتحسين الأداء.
+        </p>
+        
+        <button
+          onClick={async () => {
+            if (!window.confirm("هل أنت متأكد من أرشفة الفواتير التي مر عليها أكثر من شهر؟")) return;
+            setBackupStatusMsg('جاري أرشفة الفواتير...');
+            try {
+              const oneMonthAgo = new Date();
+              oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+              const oneMonthAgoTimestamp = oneMonthAgo.getTime();
+
+              const q = query(collection(db, 'sales_entries'), where('timestamp', '<', oneMonthAgoTimestamp));
+              const snapshot = await getDocs(q);
+
+              if (snapshot.empty) {
+                setBackupStatusMsg('لا توجد فواتير قديمة لأرشفتها.');
+                setTimeout(() => setBackupStatusMsg(null), 3000);
+                return;
+              }
+
+              const batch = writeBatch(db);
+              let count = 0;
+              snapshot.forEach((docSnap) => {
+                if (count < 500) {
+                    const data = docSnap.data();
+                    const archiveRef = doc(collection(db, 'sales_entries_archive'), docSnap.id);
+                    batch.set(archiveRef, data);
+                    batch.delete(docSnap.ref);
+                    count++;
+                }
+              });
+              await batch.commit();
+              setBackupStatusMsg(`تمت أرشفة ${count} فاتورة بنجاح.`);
+              setTimeout(() => setBackupStatusMsg(null), 3000);
+            } catch (err) {
+              console.error(err);
+              setBackupStatusMsg('حدث خطأ أثناء أرشفة الفواتير.');
+              setTimeout(() => setBackupStatusMsg(null), 3000);
+            }
+          }}
+          className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg transition-all"
+        >
+          <Clock className="w-4 h-4" />
+          <span>بدء عملية الأرشفة</span>
+        </button>
+      </div>
+
       {/* 6. Top 3 Most Requested Products This Month (Firestore Stats) */}
       <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
         <div className="flex items-center gap-2">
@@ -1429,42 +1470,44 @@ export const AdminScreen: React.FC = () => {
           </h3>
         </div>
         <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
-          <select 
-            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            onChange={(e) => {
-              const selected = delegateAccounts.find(d => d.delegateName === e.target.value);
-              if (selected) {
-                 setNewDelegateData({ oldName: selected.delegateName, oldUsername: selected.username, newName: selected.delegateName, newUsername: selected.username, newPassword: '' });
+          <label className="text-xs font-bold text-emerald-300">التحكم بحساب مدخل البيانات (رأفت جمال):</label>
+          <div className="flex gap-2">
+            <input 
+              type="text" placeholder="اسم المستخدم" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+              value={accountUsernameInput} onChange={e => setAccountUsernameInput(e.target.value)}
+            />
+            <input 
+              type="text" placeholder="كلمة المرور" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+              value={accountPasswordInput} onChange={e => setAccountPasswordInput(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={() => {
+              // Logic to update Rafatdata account details
+              const rafatAcc = delegateAccounts.find(d => d.username === 'Rafatdata');
+              if (rafatAcc) {
+                const updatedRafat = { ...rafatAcc, username: accountUsernameInput, password: accountPasswordInput };
+                saveDelegateAccount(updatedRafat);
+                
+                // If username changed, delete the old one
+                if (rafatAcc.username !== accountUsernameInput) {
+                  deleteDelegateAccount(rafatAcc.username);
+                }
+
+                setSaveFeedbackMessage('تم تحديث بيانات مدخل البيانات بنجاح.');
+                setTimeout(() => setSaveFeedbackMessage(null), 3000);
               }
             }}
-          >
-            <option value="">-- اختر المندوب --</option>
-            {delegateAccounts.filter(d => !d.isAdmin).map(d => <option key={d.username} value={d.delegateName}>{d.delegateName}</option>)}
-          </select>
-          <input 
-            type="text" placeholder="الاسم الجديد" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newName} onChange={e => setNewDelegateData({...newDelegateData, newName: e.target.value})}
-          />
-          <input 
-            type="text" placeholder="الرمز الجديد (username)" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newUsername} onChange={e => setNewDelegateData({...newDelegateData, newUsername: e.target.value})}
-          />
-          <input 
-            type="text" placeholder="الرمز السري الجديد" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newPassword} onChange={e => setNewDelegateData({...newDelegateData, newPassword: e.target.value})}
-          />
-          <button 
-            onClick={() => updateDelegateIdentity(newDelegateData.oldName, newDelegateData.newName, newDelegateData.oldUsername, newDelegateData.newUsername, newDelegateData.newPassword)}
             className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg"
           >
-            حفظ التغييرات وتحديث البيانات المرتبطة
+            حفظ بيانات مدخل البيانات
           </button>
-          <button 
-            onClick={() => resetDelegateAccount(newDelegateData.oldUsername)}
-            className="w-full px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-lg"
-          >
-            إعادة تعيين حساب المندوب إلى الإعدادات الأولية
-          </button>
+          {saveFeedbackMessage && <div className="text-[10px] text-emerald-400 text-center">{saveFeedbackMessage}</div>}
+          
+          <div className="mt-3 p-3 bg-slate-800 rounded-xl text-[10px] text-slate-400 space-y-1 border border-slate-700">
+              <p>اسم المستخدم: <span className="text-white">{accountUsernameInput}</span></p>
+              <p>كلمة المرور: <span className="text-white">{accountPasswordInput}</span></p>
+          </div>
         </div>
       </div>
 
@@ -1716,6 +1759,112 @@ export const AdminScreen: React.FC = () => {
           </button>
         </div>
       </div>
+      {/* 13. Manage Debts */}
+      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
+        <div className="flex items-center gap-2 mb-2">
+          <FileText className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
+            13. إدارة الديون:
+          </h3>
+        </div>
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
+          <input type="text" placeholder="كود الزبون" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-code" />
+          <input type="text" placeholder="اسم الزبون" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-name" />
+          <input type="number" placeholder="المبلغ المستحق" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-amount" />
+          <input type="date" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-inv-date" />
+          <input type="date" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-pay-date" />
+          <select className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-delegate">
+            <option value="">-- اختر المندوب --</option>
+            {delegatesList.map(del => <option key={del} value={del}>{del}</option>)}
+          </select>
+          
+          <div className="flex gap-2">
+            <button 
+              onClick={async () => {
+                const data = {
+                    customerCode: (document.getElementById('debt-code') as HTMLInputElement).value,
+                    customerName: (document.getElementById('debt-name') as HTMLInputElement).value,
+                    amountDue: parseFloat((document.getElementById('debt-amount') as HTMLInputElement).value),
+                    invoiceDate: (document.getElementById('debt-inv-date') as HTMLInputElement).value,
+                    paymentDueDate: (document.getElementById('debt-pay-date') as HTMLInputElement).value,
+                    delegateName: (document.getElementById('debt-delegate') as HTMLInputElement).value,
+                };
+                await setDoc(doc(collection(db, 'debts')), data);
+                alert('تم الحفظ');
+              }}
+              className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
+            >
+              حفظ
+            </button>
+            <button className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold">تعديل</button>
+            <button className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold">مسح</button>
+          </div>
+          <button 
+            onClick={async () => {
+                const snap = await getDocs(collection(db, 'debts'));
+                const debtsData = snap.docs.map(doc => doc.data());
+                const workbook = XLSX.utils.book_new();
+                const grouped = debtsData.reduce((acc: any, debt: any) => {
+                    const dName = debt.delegateName || 'بدون مندوب';
+                    if (!acc[dName]) acc[dName] = [];
+                    acc[dName].push({
+                        'اسم الزبون': debt.customerName,
+                        'كود الزبون': debt.customerCode,
+                        'المبلغ المستحق': debt.amountDue,
+                        'اسم المندوب': debt.delegateName,
+                        'تاريخ الفاتورة': debt.invoiceDate,
+                        'تاريخ السداد': debt.paymentDueDate
+                    });
+                    return acc;
+                }, {});
+
+                for (const dName in grouped) {
+                    const sheet = XLSX.utils.json_to_sheet(grouped[dName]);
+                    XLSX.utils.book_append_sheet(workbook, sheet, dName.substring(0, 31));
+                }
+                XLSX.writeFile(workbook, 'الديون.xlsx');
+            }}
+            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold"
+          >
+            تصدير الديون (Excel)
+          </button>
+          
+          <div className="pt-4 border-t border-slate-700">
+            <label className="block text-xs font-bold text-slate-300 mb-2">استيراد الديون (Excel):</label>
+            <input 
+              type="file" 
+              accept=".xlsx, .xls"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                
+                // Assuming first sheet for simplicity or iterate sheets
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(sheet);
+                
+                // Process and save to Firestore
+                for (const row of jsonData) {
+                    const r = row as any;
+                    await setDoc(doc(collection(db, 'debts')), {
+                        customerName: r['اسم الزبون'],
+                        customerCode: r['كود الزبون'],
+                        amountDue: r['المبلغ المستحق'],
+                        delegateName: r['اسم المندوب'],
+                        invoiceDate: r['تاريخ الفاتورة'],
+                        paymentDueDate: r['تاريخ السداد']
+                    });
+                }
+                alert('تم استيراد الديون بنجاح!');
+              }}
+              className="w-full text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* 12. System Cleanup */}
       <div className="bg-red-950 border border-red-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
         <div className="flex items-center gap-2 mb-2">

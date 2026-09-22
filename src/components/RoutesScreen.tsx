@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
-import { RouteItem } from '../types';
+import { RouteItem, DebtItem } from '../types';
 import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getFormattedWeekday } from '../utils/dateUtils';
@@ -13,8 +13,69 @@ export const RoutesScreen: React.FC = () => {
   const productsList = salesContext.productsList || [];
 
   const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const delegateName = currentUser.name;
+    const debtsQ = query(collection(db, 'debts'), where('delegateName', '==', delegateName));
+    const unsubDebts = onSnapshot(debtsQ, (snap) => {
+      const loaded: DebtItem[] = [];
+      snap.forEach(d => loaded.push({id: d.id, ...d.data()} as DebtItem));
+      setDebts(loaded);
+    });
+    return () => unsubDebts();
+  }, [currentUser]);
+  
+  const DebtsTable = () => (
+    <div className="space-y-4">
+      <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون</h3>
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+          <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+            <tr>
+              <th className="px-3 py-2 border-b dark:border-slate-700">الاسم</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">المبلغ</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">ت. الفاتورة</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">ت. السداد</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">مستحقة منذ (ايام)</th>
+              <th className="px-3 py-2 border-b dark:border-slate-700">باقي للتسديد (ايام)</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+            {debts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
+              const invDate = new Date(d.invoiceDate);
+              const payDate = new Date(d.paymentDueDate);
+              const now = new Date();
+              const msPerDay = 1000 * 3600 * 24;
+              const faita = payDate.getTime() > now.getTime() ? 0 : Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+              const diffToNow = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+              const baqia = now.getTime() > payDate.getTime() ? 0 : diffToNow;
+              const diffInDaysToDue = Math.ceil((payDate.getTime() - now.getTime()) / msPerDay);
+              const isRed = diffInDaysToDue <= 1; 
+              const isGreen = faita < 0;
+              const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
+              
+              return (
+                <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                  <td className="px-3 py-2">{d.customerName}</td>
+                  <td className="px-3 py-2">{d.customerCode}</td>
+                  <td className="px-3 py-2">{d.amountDue.toLocaleString()}</td>
+                  <td className="px-3 py-2">{d.invoiceDate}</td>
+                  <td className="px-3 py-2">{d.paymentDueDate}</td>
+                  <td className="px-3 py-2">{faita}</td>
+                  <td className="px-3 py-2">{baqia}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   /*
   useEffect(() => {
@@ -381,13 +442,15 @@ export const RoutesScreen: React.FC = () => {
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
-                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
-                                title="طلب جديد"
-                              >
-                                <ShoppingBag className="w-4 h-4" />
-                              </button>
+                              {!debts.some(d => String(d.customerCode) === String(r.customerCode)) && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
+                                  className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
+                                  title="طلب جديد"
+                                >
+                                  <ShoppingBag className="w-4 h-4" />
+                                </button>
+                              )}
                               
                               {totalWeightToday > 0 && (
                                   <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
@@ -505,6 +568,10 @@ export const RoutesScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="mt-8">
+        <DebtsTable />
+      </div>
 
     </div>
   );
