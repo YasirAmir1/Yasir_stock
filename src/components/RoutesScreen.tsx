@@ -39,86 +39,104 @@ export const RoutesScreen: React.FC = () => {
   
   const [selectedDebt, setSelectedDebt] = useState<DebtItem | null>(null);
 
-  const DebtsTable = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون المستحقة</h3>
+  const DebtsTable = () => {
+    const totalDebts = debts.reduce((sum, d) => sum + d.amountDue, 0);
+    const totalCustomers = new Set(debts.map(d => d.customerCode)).size;
+
+    return (
+      <div className="space-y-4">
         {currentUser?.isAdmin && (
-          <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
-            <Upload className="w-4 h-4" />
-            استيراد ديون
-            <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
-          </label>
+          <div className={`grid grid-cols-2 gap-4 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <div className="text-center">
+                  <div className="text-[10px] font-bold text-slate-500 mb-1">إجمالي الديون المستحقة</div>
+                  <div className="text-lg font-black text-slate-900 dark:text-white">{totalDebts.toLocaleString()}</div>
+              </div>
+              <div className="text-center">
+                  <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">عدد الزبائن</div>
+                  <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">{totalCustomers}</div>
+              </div>
+          </div>
         )}
-      </div>
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <table className="w-full text-[9px] sm:text-[10px] text-right">
-          <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-            <tr>
-              {currentUser?.isAdmin && <th className="px-1 py-1 border-b dark:border-slate-700">المندوب</th>}
-              <th className="px-1 py-1 border-b dark:border-slate-700">الاسم</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">الكود</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">المبلغ</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">ت. الفاتورة</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
-              <th className="px-1 py-1 border-b dark:border-slate-700">تسديد</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-            {debts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
-              const invDate = new Date(d.invoiceDate || Date.now());
-              const payDate = new Date(d.paymentDueDate || Date.now());
-              const now = new Date();
-              const msPerDay = 1000 * 3600 * 24;
-              
-              const diffInDays = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
-              
-              const mustahaqa = payDate.getTime() > now.getTime() ? 0 : diffInDays;
-              const baqia = now.getTime() > payDate.getTime() ? 0 : diffInDays;
-              
-              const daysOld = Math.round((now.getTime() - invDate.getTime()) / msPerDay);
-              const isOldDebt = daysOld > 11;
 
-              const isRed = diffInDays <= 1;
-              const isGreen = diffInDays > 5;
-              const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
-              
-              const handlePay = async (e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  if(window.confirm(`هل أنت متأكد من تسديد دين الزبون ${d.customerName}؟`)) {
-                      await deleteDoc(doc(db, 'debts', d.id));
-                      addToast({ message: 'تم تسديد الدين بنجاح', type: 'success', delegateName: currentUser?.name || '', title: 'تسديد', percentage: 0 });
-                  }
-              };
+        <div className="flex justify-between items-center">
+          <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون المستحقة</h3>
+          {currentUser?.isAdmin && (
+            <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
+              <Upload className="w-4 h-4" />
+              استيراد ديون
+              <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
+            </label>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table className="w-full text-[9px] sm:text-[10px] text-right">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
+                {currentUser?.isAdmin && <th className="px-1 py-1 border-b dark:border-slate-700">المندوب</th>}
+                <th className="px-1 py-1 border-b dark:border-slate-700">الاسم</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">الكود</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">المبلغ</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">ت. الفاتورة</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">تسديد</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+              {debts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
+                const invDate = new Date(d.invoiceDate || Date.now());
+                const payDate = new Date(d.paymentDueDate || Date.now());
+                const now = new Date();
+                const msPerDay = 1000 * 3600 * 24;
+                
+                const diffInDays = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+                
+                const mustahaqa = payDate.getTime() > now.getTime() ? 0 : diffInDays;
+                const baqia = now.getTime() > payDate.getTime() ? 0 : diffInDays;
+                
+                const daysOld = Math.round((now.getTime() - invDate.getTime()) / msPerDay);
+                const isOldDebt = daysOld > 11;
 
-              return (
-                <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
-                  {currentUser?.isAdmin && (
-                      <td className="px-1 py-1 flex items-center gap-1">
-                          {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
-                          {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
-                      </td>
-                  )}
-                  <td className="px-1 py-1">{d.customerName}</td>
-                  <td className="px-1 py-1">{d.customerCode}</td>
-                  <td className="px-1 py-1">{d.amountDue.toLocaleString()}</td>
-                  <td className="px-1 py-1">{d.invoiceDate}</td>
-                  <td className="px-1 py-1">{d.paymentDueDate}</td>
-                  <td className="px-1 py-1 text-center">{mustahaqa}</td>
-                  <td className="px-1 py-1 text-center">{baqia}</td>
-                  <td className="px-1 py-1">
-                      <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                const isRed = diffInDays <= 1;
+                const isGreen = diffInDays > 5;
+                const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
+                
+                const handlePay = async (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    if(window.confirm(`هل أنت متأكد من تسديد دين الزبون ${d.customerName}؟`)) {
+                        await deleteDoc(doc(db, 'debts', d.id));
+                        addToast({ message: 'تم تسديد الدين بنجاح', type: 'success', delegateName: currentUser?.name || '', title: 'تسديد', percentage: 0 });
+                    }
+                };
+
+                return (
+                  <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
+                    {currentUser?.isAdmin && (
+                        <td className="px-1 py-1 flex items-center gap-1">
+                            {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
+                            {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
+                        </td>
+                    )}
+                    <td className="px-1 py-1">{d.customerName}</td>
+                    <td className="px-1 py-1">{d.customerCode}</td>
+                    <td className="px-1 py-1">{d.amountDue.toLocaleString()}</td>
+                    <td className="px-1 py-1">{d.invoiceDate}</td>
+                    <td className="px-1 py-1">{d.paymentDueDate}</td>
+                    <td className="px-1 py-1 text-center">{mustahaqa}</td>
+                    <td className="px-1 py-1 text-center">{baqia}</td>
+                    <td className="px-1 py-1">
+                        <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const handleImportDebts = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
