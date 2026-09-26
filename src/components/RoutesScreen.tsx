@@ -63,6 +63,7 @@ export const RoutesScreen: React.FC = () => {
               <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
               <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
               <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">تسديد</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -84,11 +85,19 @@ export const RoutesScreen: React.FC = () => {
               const isGreen = diffInDays > 5;
               const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
               
+              const handlePay = async (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  if(window.confirm(`هل أنت متأكد من تسديد دين الزبون ${d.customerName}؟`)) {
+                      await deleteDoc(doc(db, 'debts', d.id));
+                      addToast({ message: 'تم تسديد الدين بنجاح', type: 'success', delegateName: currentUser?.name || '', title: 'تسديد', percentage: 0 });
+                  }
+              };
+
               return (
                 <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
                   {currentUser?.isAdmin && (
                       <td className="px-1 py-1 flex items-center gap-1">
-                          {d.delegateCode || d.delegateName}
+                          {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
                           {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
                       </td>
                   )}
@@ -99,6 +108,9 @@ export const RoutesScreen: React.FC = () => {
                   <td className="px-1 py-1">{d.paymentDueDate}</td>
                   <td className="px-1 py-1 text-center">{mustahaqa}</td>
                   <td className="px-1 py-1 text-center">{baqia}</td>
+                  <td className="px-1 py-1">
+                      <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
+                  </td>
                 </tr>
               );
             })}
@@ -125,13 +137,25 @@ export const RoutesScreen: React.FC = () => {
       // New format: Name, Code, Amount, DelegateCode, InvoiceDate, PaymentDate
       jsonData.slice(1).forEach((row: any) => {
         if (!row[0]) return;
+        
+        // Helper to convert Excel serial date to YYYY-MM-DD string
+        const excelDateToJSDate = (serial: any) => {
+            if (typeof serial === 'number') {
+                const utc_days = Math.floor(serial - 25569);
+                const utc_value = utc_days * 86400;
+                const date_info = new Date(utc_value * 1000);
+                return date_info.toISOString().split('T')[0];
+            }
+            return serial; // Assume it's already a string
+        };
+
         const newDebt = {
           customerName: row[0] || '',
           customerCode: row[1] || '',
           amountDue: parseFloat(row[2] || 0),
           delegateCode: String(row[3] || '').trim(),
-          invoiceDate: row[4] || '',
-          paymentDueDate: row[5] || '',
+          invoiceDate: excelDateToJSDate(row[4]),
+          paymentDueDate: excelDateToJSDate(row[5]),
           delegateName: '', // Name might be unknown at this point
         };
         
