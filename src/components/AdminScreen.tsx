@@ -35,6 +35,16 @@ import {
 } from 'lucide-react';
 
 
+interface DebtItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  amountDue: number;
+  invoiceDate: string;
+  paymentDueDate: string;
+  delegateName: string;
+}
+
 interface AlertItem {
   id: string;
   delegateName: string;
@@ -74,6 +84,39 @@ export const AdminScreen: React.FC = () => {
     isPowerSavingMode,
     togglePowerSavingMode
   } = useSales();
+
+  const [debts, setDebts] = useState<DebtItem[]>([]);
+  const [editingDebt, setEditingDebt] = useState<DebtItem | null>(null);
+  const [editDebtValues, setEditDebtValues] = useState<Partial<DebtItem>>({});
+
+  const handleSaveDailyTask = async () => {
+    if (!dailyTaskDelegate || !dailyTaskText.trim()) {
+      setDailyTaskMessage('يرجى اختيار المندوب وكتابة المهمة');
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'dailyTasks', dailyTaskDelegate), {
+        delegateName: dailyTaskDelegate,
+        taskText: dailyTaskText.trim(),
+        updatedAt: Date.now()
+      });
+      setDailyTaskMessage('تم حفظ المهمة اليومية بنجاح ✅');
+      setDailyTaskText('');
+    } catch (e) {
+      console.error(e);
+      setDailyTaskMessage('حدث خطأ أثناء الحفظ');
+    }
+  };
+
+  useEffect(() => {
+    const q = query(collection(db, 'debts'));
+    const unsub = onSnapshot(q, (snap) => {
+        const arr: DebtItem[] = [];
+        snap.forEach(d => arr.push({ id: d.id, ...d.data() } as DebtItem));
+        setDebts(arr);
+    });
+    return unsub;
+  }, []);
 
   // Top 5 Delegates Logic
   const topDelegates = React.useMemo(() => {
@@ -244,22 +287,23 @@ export const AdminScreen: React.FC = () => {
     }
   };
 
-  const handleSaveDailyTask = async () => {
-    if (!dailyTaskDelegate || !dailyTaskText) {
-      setDailyTaskMessage('يرجى اختيار المندوب وكتابة المهمة.');
-      return;
-    }
-    setDailyTaskMessage('جاري الحفظ...');
+  const handleSaveDebt = async (debt: DebtItem) => {
     try {
-      await setDoc(doc(db, 'admin_daily_tasks', dailyTaskDelegate), {
-        taskText: dailyTaskText,
-        timestamp: Date.now()
-      });
-      setDailyTaskMessage('تم تعيين المهمة اليومية بنجاح!');
-      setDailyTaskText('');
+      const docRef = doc(db, 'debts', debt.id);
+      await setDoc(docRef, editDebtValues, { merge: true });
+      setEditingDebt(null);
+      setEditDebtValues({});
     } catch (err) {
       console.error(err);
-      setDailyTaskMessage('حدث خطأ أثناء حفظ المهمة.');
+    }
+  };
+
+  const handleDeleteDebt = async (debtId: string) => {
+    if (!window.confirm("هل أنت متأكد من حذف هذا الدين؟")) return;
+    try {
+      await deleteDoc(doc(db, 'debts', debtId));
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -1768,99 +1812,74 @@ export const AdminScreen: React.FC = () => {
           </h3>
         </div>
         <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
-          <input type="text" placeholder="كود الزبون" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-code" />
-          <input type="text" placeholder="اسم الزبون" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-name" />
-          <input type="number" placeholder="المبلغ المستحق" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-amount" />
-          <input type="date" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-inv-date" />
-          <input type="date" className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-pay-date" />
-          <select className="w-full p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs" id="debt-delegate">
-            <option value="">-- اختر المندوب --</option>
-            {delegatesList.map(del => <option key={del} value={del}>{del}</option>)}
-          </select>
-          
-          <div className="flex gap-2">
-            <button 
-              onClick={async () => {
-                const data = {
-                    customerCode: (document.getElementById('debt-code') as HTMLInputElement).value,
-                    customerName: (document.getElementById('debt-name') as HTMLInputElement).value,
-                    amountDue: parseFloat((document.getElementById('debt-amount') as HTMLInputElement).value),
-                    invoiceDate: (document.getElementById('debt-inv-date') as HTMLInputElement).value,
-                    paymentDueDate: (document.getElementById('debt-pay-date') as HTMLInputElement).value,
-                    delegateName: (document.getElementById('debt-delegate') as HTMLInputElement).value,
-                };
-                await setDoc(doc(collection(db, 'debts')), data);
-                alert('تم الحفظ');
-              }}
-              className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
-            >
-              حفظ
-            </button>
-            <button className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold">تعديل</button>
-            <button className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold">مسح</button>
-          </div>
-          <button 
-            onClick={async () => {
-                const snap = await getDocs(collection(db, 'debts'));
-                const debtsData = snap.docs.map(doc => doc.data());
-                const workbook = XLSX.utils.book_new();
-                const grouped = debtsData.reduce((acc: any, debt: any) => {
-                    const dName = debt.delegateName || 'بدون مندوب';
-                    if (!acc[dName]) acc[dName] = [];
-                    acc[dName].push({
-                        'اسم الزبون': debt.customerName,
-                        'كود الزبون': debt.customerCode,
-                        'المبلغ المستحق': debt.amountDue,
-                        'اسم المندوب': debt.delegateName,
-                        'تاريخ الفاتورة': debt.invoiceDate,
-                        'تاريخ السداد': debt.paymentDueDate
-                    });
-                    return acc;
-                }, {});
-
-                for (const dName in grouped) {
-                    const sheet = XLSX.utils.json_to_sheet(grouped[dName]);
-                    XLSX.utils.book_append_sheet(workbook, sheet, dName.substring(0, 31));
-                }
-                XLSX.writeFile(workbook, 'الديون.xlsx');
-            }}
-            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold"
-          >
-            تصدير الديون (Excel)
-          </button>
-          
-          <div className="pt-4 border-t border-slate-700">
-            <label className="block text-xs font-bold text-slate-300 mb-2">استيراد الديون (Excel):</label>
-            <input 
-              type="file" 
-              accept=".xlsx, .xls"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const data = await file.arrayBuffer();
-                const workbook = XLSX.read(data);
-                
-                // Assuming first sheet for simplicity or iterate sheets
-                const sheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(sheet);
-                
-                // Process and save to Firestore
-                for (const row of jsonData) {
-                    const r = row as any;
-                    await setDoc(doc(collection(db, 'debts')), {
-                        customerName: r['اسم الزبون'],
-                        customerCode: r['كود الزبون'],
-                        amountDue: r['المبلغ المستحق'],
-                        delegateName: r['اسم المندوب'],
-                        invoiceDate: r['تاريخ الفاتورة'],
-                        paymentDueDate: r['تاريخ السداد']
-                    });
-                }
-                alert('تم استيراد الديون بنجاح!');
-              }}
-              className="w-full text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
-            />
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-right text-white">
+              <thead>
+                <tr className="text-slate-200 border-b border-slate-700">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">الكود</th>
+                  <th className="p-2">المبلغ</th>
+                  <th className="p-2">تاريخ الفاتورة</th>
+                  <th className="p-2">تاريخ التسديد</th>
+                  <th className="p-2">اسم المندوب</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {debts.map(d => (
+                  <tr key={d.id} className="border-b border-slate-800">
+                    <td className="p-2"><input className="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-xs" defaultValue={d.customerName} id={`name-${d.id}`} /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-xs" defaultValue={d.customerCode} id={`code-${d.id}`} /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-xs" defaultValue={d.amountDue} type="number" id={`amount-${d.id}`} /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-xs" defaultValue={d.invoiceDate} type="date" id={`invDate-${d.id}`} /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-xs" defaultValue={d.paymentDueDate} type="date" id={`payDate-${d.id}`} /></td>
+                    <td className="p-2 text-xs text-slate-300">{d.delegateName}</td>
+                    <td className="p-2 flex gap-2">
+                        <button onClick={async() => {
+                            const name = (document.getElementById(`name-${d.id}`) as HTMLInputElement).value;
+                            const code = (document.getElementById(`code-${d.id}`) as HTMLInputElement).value;
+                            const amount = parseFloat((document.getElementById(`amount-${d.id}`) as HTMLInputElement).value);
+                            const invDate = (document.getElementById(`invDate-${d.id}`) as HTMLInputElement).value;
+                            const payDate = (document.getElementById(`payDate-${d.id}`) as HTMLInputElement).value;
+                            await setDoc(doc(db, 'debts', d.id), { customerName: name, customerCode: code, amountDue: amount, invoiceDate: invDate, paymentDueDate: payDate, delegateName: d.delegateName });
+                            alert('تم التحديث');
+                        }} className="text-emerald-300 font-bold">حفظ</button>
+                        <button onClick={async() => {
+                            if(window.confirm('هل أنت متأكد من الحذف؟')) await deleteDoc(doc(db, 'debts', d.id));
+                        }} className="text-red-300 font-bold">حذف</button>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-emerald-600">
+                    <td className="p-2"><input className="w-full bg-slate-800 text-white text-xs p-1 rounded" placeholder="الاسم" id="new-debt-name" /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 text-white text-xs p-1 rounded" placeholder="الكود" id="new-debt-code" /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 text-white text-xs p-1 rounded" placeholder="المبلغ" type="number" id="new-debt-amount" /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 text-white text-xs p-1 rounded" type="date" id="new-debt-inv-date" /></td>
+                    <td className="p-2"><input className="w-full bg-slate-800 text-white text-xs p-1 rounded" type="date" id="new-debt-pay-date" /></td>
+                    <td className="p-2">
+                        <select className="w-full bg-slate-800 text-white text-xs p-1 rounded mb-1" id="new-debt-delegate">
+                            {delegatesList.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <button onClick={async () => {
+                             const name = (document.getElementById('new-debt-name') as HTMLInputElement).value;
+                             const code = (document.getElementById('new-debt-code') as HTMLInputElement).value;
+                             const amount = parseFloat((document.getElementById('new-debt-amount') as HTMLInputElement).value);
+                             const invDate = (document.getElementById('new-debt-inv-date') as HTMLInputElement).value;
+                             const payDate = (document.getElementById('new-debt-pay-date') as HTMLInputElement).value;
+                             const delegate = (document.getElementById('new-debt-delegate') as HTMLSelectElement).value;
+                             
+                             if (!code || !name || isNaN(amount) || !invDate || !payDate || !delegate) return alert('يرجى ملء كافة البيانات');
+                             
+                             await setDoc(doc(collection(db, 'debts')), { customerName: name, customerCode: code, amountDue: amount, invoiceDate: invDate, paymentDueDate: payDate, delegateName: delegate });
+                             alert('تم الإضافة');
+                             (document.getElementById('new-debt-name') as HTMLInputElement).value = '';
+                             (document.getElementById('new-debt-code') as HTMLInputElement).value = '';
+                             (document.getElementById('new-debt-amount') as HTMLInputElement).value = '';
+                        }} className="text-emerald-300 font-bold bg-emerald-900 p-1 rounded w-full">إضافة</button>
+                    </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

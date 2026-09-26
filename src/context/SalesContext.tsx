@@ -231,7 +231,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [routes, setRoutes] = useState<RouteItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('entry');
+  const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('reports');
 
   useEffect(() => {
     const q = query(collection(db, 'routes'));

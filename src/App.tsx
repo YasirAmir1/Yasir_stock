@@ -51,6 +51,7 @@ const MainAppContent: React.FC = () => {
     activeTab,
     setActiveTab,
     setShowQuickAdd,
+    delegateAccounts,
   } = useSales();
   const [isLoading, setIsLoading] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -173,37 +174,33 @@ const MainAppContent: React.FC = () => {
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col text-right">
                     <span className="font-extrabold text-xs leading-tight">
                         {currentUser.name}
                     </span>
-                    {currentUser.delegateCode && (
-                        <div className="relative">
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
-                                className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
-                            >
-                                {currentUser.delegateCode.slice(-2)}
-                            </button>
-                            {showTooltip && (
-                                <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                                    <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                        آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
-                                    </p>
-                                    <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                        {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                    </span>
                 </div>
-                <span
-                  className={`text-[10px] font-bold ${
-                    isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
-                  }`}
-                >
-                  {currentUser.delegateCode || 'غير متوفر'}
-                </span>
+                {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                    <div className="relative">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
+                            className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                        >
+                            {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || '').slice(-2)}
+                        </button>
+                        {showTooltip && (
+                            <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                                <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                    آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                </p>
+                                <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
+                            </div>
+                        )}
+                    </div>
+                )}
               </div>
             </div>
 
@@ -217,18 +214,22 @@ const MainAppContent: React.FC = () => {
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col text-right">
                     <span className="font-extrabold text-xs leading-tight">
                         {currentUser.name}
                     </span>
-                    {currentUser.delegateCode && (
-                        <div className="relative">
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
-                                className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
-                            >
-                                {currentUser.delegateCode.slice(-2)}
-                            </button>
+                    <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                        {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                    </span>
+                </div>
+                {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                    <div className="relative">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
+                            className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                        >
+                            {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || '').slice(-2)}
+                        </button>
                             {showTooltip && (
                                 <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
                                     <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
@@ -241,13 +242,6 @@ const MainAppContent: React.FC = () => {
                         </div>
                     )}
                 </div>
-                <span
-                  className={`text-[10px] font-bold ${
-                    isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
-                  }`}
-                >
-                  {currentUser.delegateCode || 'غير متوفر'}
-                </span>
               </div>
 
               {/* Delegate Button */}
@@ -370,8 +364,7 @@ const MainAppContent: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
-
+        
         {/* Navigation Tabs (Always sticky at top - Hidden on Mobile) */}
         <div
           className={`sticky top-0 z-45 backdrop-blur-md transition-colors border-b hidden sm:flex ${
@@ -468,6 +461,7 @@ const MainAppContent: React.FC = () => {
           </div>
         </div>
       </header>
+
 
       {/* Products Under 50% Widget - Visible in Reports Tab Only */}
       {activeTab === 'reports' && <LowAchievementWidget />}

@@ -19,8 +19,16 @@ export const RoutesScreen: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    const delegateName = currentUser.name;
-    const debtsQ = query(collection(db, 'debts'), where('delegateName', '==', delegateName));
+    
+    let debtsQ;
+    if (currentUser.isAdmin) {
+        debtsQ = query(collection(db, 'debts'));
+    } else if (currentUser.delegateCode) {
+        debtsQ = query(collection(db, 'debts'), where('delegateCode', '==', currentUser.delegateCode));
+    } else {
+        debtsQ = query(collection(db, 'debts'), where('delegateCode', '==', 'NONE_MATCH'));
+    }
+    
     const unsubDebts = onSnapshot(debtsQ, (snap) => {
       const loaded: DebtItem[] = [];
       snap.forEach(d => loaded.push({id: d.id, ...d.data()} as DebtItem));
@@ -29,45 +37,68 @@ export const RoutesScreen: React.FC = () => {
     return () => unsubDebts();
   }, [currentUser]);
   
+  const [selectedDebt, setSelectedDebt] = useState<DebtItem | null>(null);
+
   const DebtsTable = () => (
     <div className="space-y-4">
-      <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون</h3>
+      <div className="flex justify-between items-center">
+        <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون المستحقة</h3>
+        {currentUser?.isAdmin && (
+          <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
+            <Upload className="w-4 h-4" />
+            استيراد ديون
+            <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
+          </label>
+        )}
+      </div>
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
+        <table className="w-full text-[9px] sm:text-[10px] text-right">
           <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
             <tr>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الاسم</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">الكود</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">المبلغ</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">ت. الفاتورة</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">ت. السداد</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">مستحقة منذ (ايام)</th>
-              <th className="px-3 py-2 border-b dark:border-slate-700">باقي للتسديد (ايام)</th>
+              {currentUser?.isAdmin && <th className="px-1 py-1 border-b dark:border-slate-700">المندوب</th>}
+              <th className="px-1 py-1 border-b dark:border-slate-700">الاسم</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">الكود</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">المبلغ</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">ت. الفاتورة</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
+              <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {debts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
-              const invDate = new Date(d.invoiceDate);
-              const payDate = new Date(d.paymentDueDate);
+              const invDate = new Date(d.invoiceDate || Date.now());
+              const payDate = new Date(d.paymentDueDate || Date.now());
               const now = new Date();
               const msPerDay = 1000 * 3600 * 24;
-              const faita = payDate.getTime() > now.getTime() ? 0 : Math.round((payDate.getTime() - now.getTime()) / msPerDay);
-              const diffToNow = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
-              const baqia = now.getTime() > payDate.getTime() ? 0 : diffToNow;
-              const diffInDaysToDue = Math.ceil((payDate.getTime() - now.getTime()) / msPerDay);
-              const isRed = diffInDaysToDue <= 1; 
-              const isGreen = faita < 0;
+              
+              const diffInDays = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+              
+              const mustahaqa = payDate.getTime() > now.getTime() ? 0 : diffInDays;
+              const baqia = now.getTime() > payDate.getTime() ? 0 : diffInDays;
+              
+              const daysOld = Math.round((now.getTime() - invDate.getTime()) / msPerDay);
+              const isOldDebt = daysOld > 11;
+
+              const isRed = diffInDays <= 1;
+              const isGreen = diffInDays > 5;
               const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
               
               return (
-                <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                  <td className="px-3 py-2">{d.customerName}</td>
-                  <td className="px-3 py-2">{d.customerCode}</td>
-                  <td className="px-3 py-2">{d.amountDue.toLocaleString()}</td>
-                  <td className="px-3 py-2">{d.invoiceDate}</td>
-                  <td className="px-3 py-2">{d.paymentDueDate}</td>
-                  <td className="px-3 py-2">{faita}</td>
-                  <td className="px-3 py-2">{baqia}</td>
+                <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
+                  {currentUser?.isAdmin && (
+                      <td className="px-1 py-1 flex items-center gap-1">
+                          {d.delegateCode || d.delegateName}
+                          {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
+                      </td>
+                  )}
+                  <td className="px-1 py-1">{d.customerName}</td>
+                  <td className="px-1 py-1">{d.customerCode}</td>
+                  <td className="px-1 py-1">{d.amountDue.toLocaleString()}</td>
+                  <td className="px-1 py-1">{d.invoiceDate}</td>
+                  <td className="px-1 py-1">{d.paymentDueDate}</td>
+                  <td className="px-1 py-1 text-center">{mustahaqa}</td>
+                  <td className="px-1 py-1 text-center">{baqia}</td>
                 </tr>
               );
             })}
@@ -76,6 +107,45 @@ export const RoutesScreen: React.FC = () => {
       </div>
     </div>
   );
+
+  const handleImportDebts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1 });
+
+      const batch = writeBatch(db);
+      const debtsSnap = await getDocs(collection(db, 'debts'));
+      debtsSnap.forEach(d => batch.delete(d.ref));
+
+      // New format: Name, Code, Amount, DelegateCode, InvoiceDate, PaymentDate
+      jsonData.slice(1).forEach((row: any) => {
+        if (!row[0]) return;
+        const newDebt = {
+          customerName: row[0] || '',
+          customerCode: row[1] || '',
+          amountDue: parseFloat(row[2] || 0),
+          delegateCode: String(row[3] || '').trim(),
+          invoiceDate: row[4] || '',
+          paymentDueDate: row[5] || '',
+          delegateName: '', // Name might be unknown at this point
+        };
+        
+        const debtRef = doc(collection(db, 'debts'));
+        batch.set(debtRef, newDebt);
+      });
+      
+      await batch.commit();
+      addToast({ message: 'تم استيراد الديون بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'استيراد', percentage: 0 });
+    } catch (e) {
+      console.error('Error importing debts:', e);
+      addToast({ message: 'فشل استيراد الديون.', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
+    }
+  };
 
   /*
   useEffect(() => {
@@ -112,7 +182,7 @@ export const RoutesScreen: React.FC = () => {
     });
     
     // Load manual visits
-    const delegateCode = String(currentUser?.delegateCode || '').trim();
+    const delegateCode = String(effectiveDelegateCode || '').trim();
     if (delegateCode) {
         const visitsQ = query(collection(db, 'daily_visits'), where('date', '==', today), where('delegateCode', '==', delegateCode));
         const unsubVisits = onSnapshot(visitsQ, (snap) => {
@@ -224,7 +294,14 @@ export const RoutesScreen: React.FC = () => {
     return Object.values(orders);
   }, [allSalesEntries]);
 
-  if (!currentUser?.isAdmin && !currentUser?.delegateCode) {
+  const effectiveDelegateCode = useMemo(() => {
+      if (currentUser?.delegateCode) return currentUser.delegateCode;
+      const account = delegateAccounts.find(a => a.delegateName === currentUser?.name || a.username === currentUser?.username);
+      return account?.delegateCode;
+  }, [currentUser, delegateAccounts]);
+
+  // Optionally keep a check, but inform instead of block, or just rely on the effective code
+  if (!currentUser?.isAdmin && !effectiveDelegateCode) {
       return (
           <div className="text-center py-10">
             <AlertCircle className="w-12 h-12 mx-auto text-amber-500 mb-2" />
@@ -232,29 +309,6 @@ export const RoutesScreen: React.FC = () => {
           </div>
       );
   }
-
-  const toggleVisit = async (r: RouteItem) => {
-    const today = new Date().toISOString().split('T')[0];
-    const delegateCode = String(currentUser?.delegateCode || '').trim();
-    if (!delegateCode) return;
-
-    const docId = `${delegateCode}_${today}_${r.customerCode}`;
-    const docRef = doc(db, 'daily_visits', docId);
-
-    if (manualVisits[r.customerCode]) {
-        // Remove visit
-        await deleteDoc(docRef);
-        addToast({ message: 'تم إلغاء الزيارة', type: 'info', delegateName: currentUser?.name || '', title: 'إلغاء زيارة', percentage: 0 });
-    } else {
-        // Add visit
-        await setDoc(docRef, {
-            date: today,
-            delegateCode,
-            customerCode: r.customerCode
-        });
-        addToast({ message: 'تم تسجيل الزيارة', type: 'success', delegateName: currentUser?.name || '', title: 'زيارة جديدة', percentage: 0 });
-    }
-  };
 
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
@@ -373,7 +427,7 @@ export const RoutesScreen: React.FC = () => {
                     <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
                   ))
                 ) : (
-                  <option disabled>لا يوجد مندوبون</option>
+                  <option key="no-delegates" disabled>لا يوجد مندوبون</option>
                 )}
               </select>
               <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -564,6 +618,28 @@ export const RoutesScreen: React.FC = () => {
                 className="w-full mt-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors"
             >
                 إغلاق
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Debt Details Modal */}
+      {selectedDebt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedDebt(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-amber-600 dark:text-amber-400 mb-4 text-center">تنبيه دين مستحق</h3>
+            <div className="space-y-3 text-sm">
+                <p><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedDebt.customerName}</p>
+                <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedDebt.customerCode}</p>
+                <p><span className="font-bold text-slate-500">تاريخ الفاتورة:</span> {selectedDebt.invoiceDate}</p>
+                <p><span className="font-bold text-slate-500">تاريخ السداد:</span> {selectedDebt.paymentDueDate}</p>
+                <p><span className="font-bold text-slate-500">المبلغ المستحق:</span> {selectedDebt.amountDue.toLocaleString()}</p>
+            </div>
+            <button 
+                onClick={() => setSelectedDebt(null)}
+                className="w-full mt-6 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl transition-colors"
+            >
+                فهمت
             </button>
           </div>
         </div>

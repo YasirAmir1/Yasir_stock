@@ -166,6 +166,7 @@ export interface DebtItem {
   invoiceDate: string;
   paymentDueDate: string;
   delegateName: string;
+  delegateCode?: string;
   notified?: boolean;
 }
 

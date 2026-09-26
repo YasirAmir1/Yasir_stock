@@ -165,6 +165,50 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
   const isNewInvoice = !!prefilledEntryData;
 
+  const exportProductCardsPdf = () => {
+    import('jspdf').then(({ default: jsPDF }) => {
+      const doc = new jsPDF();
+      
+      const marginLeft = 15;
+      const marginTop = 15;
+      const colWidth = 85;
+      const rowHeight = 84;
+      const colGap = 10;
+      const rowGap = 8;
+
+      productsList.forEach((product, index) => {
+        const posOnPage = index % 6;
+        if (posOnPage === 0 && index > 0) {
+          doc.addPage();
+        }
+
+        const col = posOnPage % 2;
+        const row = Math.floor(posOnPage / 2);
+        
+        const x = marginLeft + col * (colWidth + colGap);
+        const y = marginTop + row * (rowHeight + rowGap);
+
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(x, y, colWidth, rowHeight);
+
+        if (product.imageUrl) {
+          try {
+            doc.addImage(product.imageUrl, 'JPEG', x + 2, y + 2, colWidth - 4, rowHeight - 4);
+          } catch (e) {
+            console.error("Error adding image:", e);
+            doc.setFontSize(10);
+            doc.text(`[صورة غير متوفرة]`, x + colWidth / 2, y + rowHeight / 2, { align: 'center' });
+          }
+        } else {
+          doc.setFontSize(10);
+          doc.text(`[لا توجد صورة]`, x + colWidth / 2, y + rowHeight / 2, { align: 'center' });
+        }
+      });
+
+      doc.save("product_images_cards.pdf");
+    });
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -558,6 +602,13 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
             {/* Admin Excel Upload & Add Product Buttons */}
             <div className="flex items-center gap-2">
+              <button
+                onClick={exportProductCardsPdf}
+                className="cursor-pointer px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <Package className="w-3 h-3" />
+                <span>تصدير PDF (بطاقات)</span>
+              </button>
               <button
                 onClick={() => document.getElementById('excel-upload')?.click()}
                 className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"

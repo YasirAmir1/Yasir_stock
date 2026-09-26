@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
@@ -15,6 +15,78 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
+
+const sanitizeModernColors = (clonedDoc: Document, fallback: string = '#0f172a') => {
+  // Remove external stylesheets that might contain unparseable oklab/oklch
+  const links = clonedDoc.querySelectorAll('link[rel="stylesheet"]');
+  links.forEach(link => link.remove());
+
+  try {
+    for (let i = 0; i < clonedDoc.styleSheets.length; i++) {
+      try {
+        const sheet = clonedDoc.styleSheets[i];
+        const rules = sheet.cssRules;
+        if (rules) {
+          for (let j = rules.length - 1; j >= 0; j--) {
+            const ruleText = rules[j].cssText;
+            if (ruleText && (ruleText.includes('oklch') || ruleText.includes('oklab') || ruleText.includes('color('))) {
+              sheet.deleteRule(j);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  const styleTags = clonedDoc.querySelectorAll('style');
+  styleTags.forEach(style => {
+    if (style.textContent) {
+      style.textContent = style.textContent
+        .replace(/oklch\([^)]+\)/g, fallback)
+        .replace(/oklab\([^)]+\)/g, fallback)
+        .replace(/color\([^)]+\)/g, fallback);
+    }
+  });
+
+  const allEls = clonedDoc.querySelectorAll('*');
+  allEls.forEach((el: any) => {
+    if (el.style) {
+      for (let i = 0; i < el.style.length; i++) {
+        const prop = el.style[i];
+        const val = el.style.getPropertyValue(prop);
+        if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('color('))) {
+          el.style.setProperty(prop, fallback);
+        }
+      }
+    }
+  });
+
+  // Monkey-patch getComputedStyle in the cloned document window to intercept oklab/oklch/color
+  if (clonedDoc.defaultView) {
+    const originalGetComputedStyle = clonedDoc.defaultView.getComputedStyle;
+    clonedDoc.defaultView.getComputedStyle = function(elt: Element, pseudoElt?: string | null) {
+      const style = originalGetComputedStyle.call(this, elt, pseudoElt);
+      return new Proxy(style, {
+        get(target, prop) {
+          if (prop === 'getPropertyValue' || prop === 'item') {
+            return function(propertyName: string) {
+              const val = (target as any)[prop](propertyName);
+              if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab') || val.includes('color('))) {
+                return fallback;
+              }
+              return val;
+            };
+          }
+          const val = (target as any)[prop];
+          if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab') || val.includes('color('))) {
+            return fallback;
+          }
+          return typeof val === 'function' ? val.bind(target) : val;
+        }
+      });
+    };
+  }
+};
 
 // --- Daily Admin Report Component ---
 const DailyAdminReport: React.FC<{ 
@@ -35,26 +107,47 @@ const DailyAdminReport: React.FC<{
     if (reportRef.current) {
       try {
         setIsDownloading('main');
+        await document.fonts.ready;
         window.scrollTo(0, 0);
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const canvas = await html2canvas(reportRef.current, {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        const element = reportRef.current;
+        const canvas = await html2canvas(element, {
           backgroundColor: '#0f172a',
-          scale: 3, // Increased scale for better resolution
+          scale: 2,
           useCORS: true,
-          logging: true,
-          width: reportRef.current.offsetWidth,
-          height: reportRef.current.offsetHeight
+          allowTaint: true,
+          logging: false,
+          windowWidth: element.scrollWidth,
+          windowHeight: element.scrollHeight,
+          onclone: (clonedDoc) => {
+            // Hide export button in cloned document
+            const buttons = clonedDoc.querySelectorAll('button');
+            buttons.forEach(btn => {
+              if (btn.textContent?.includes('تحميل') || btn.title?.includes('تحميل')) {
+                (btn as HTMLElement).style.display = 'none';
+              }
+            });
+            const noExportEls = clonedDoc.querySelectorAll('.no-export');
+            noExportEls.forEach(el => {
+              (el as HTMLElement).style.display = 'none';
+            });
+            sanitizeModernColors(clonedDoc, '#0f172a');
+          }
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 1.0); // Maximum quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         const link = document.createElement('a');
         link.download = `تقرير-شامل-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
+        alert("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
       } finally {
         setIsDownloading(null);
       }
+    } else {
+      alert("عذراً، عنصر التقرير غير موجود.");
     }
   };
   
@@ -67,23 +160,26 @@ const DailyAdminReport: React.FC<{
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(combinedReportRef.current, {
-          backgroundColor: '#0f172a',
-          scale: 3, // Increased scale for better resolution
+          backgroundColor: '#312e81',
+          scale: 2,
           useCORS: true,
-          logging: true,
-          width: combinedReportRef.current.offsetWidth,
-          height: combinedReportRef.current.offsetHeight
+          allowTaint: true,
+          logging: false,
+          onclone: (clonedDoc) => sanitizeModernColors(clonedDoc, '#312e81')
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 1.0); // Maximum quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         const link = document.createElement('a');
-        link.download = `تقرير-الأصناف-المجمع-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.download = `مبيعات-أصناف-مختارة-${new Date().toLocaleDateString('ar-EG')}.jpg`;
         link.href = dataUrl;
         link.click();
       } catch (error) {
         console.error("html2canvas error:", error);
+        alert("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
       } finally {
         setIsDownloading(null);
       }
+    } else {
+      alert("عذراً، عنصر التقرير غير موجود.");
     }
   };
   
@@ -94,7 +190,8 @@ const DailyAdminReport: React.FC<{
         const canvas = await html2canvas(categorySummaryReportRef.current, {
           backgroundColor: '#064e3b', // bg-emerald-900
           scale: 2,
-          useCORS: true
+          useCORS: true,
+          onclone: (clonedDoc) => sanitizeModernColors(clonedDoc, '#064e3b')
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const link = document.createElement('a');
@@ -195,46 +292,26 @@ const DailyAdminReport: React.FC<{
 
   const allSales = useMemo(() => getAllSales(), [entriesToday, productsList]);
 
-  const [selectedDelegateForDownload, setSelectedDelegateForDownload] = useState<string>('الكل');
-  
-  const REQUIRED_DELEGATES = ["ناجي خلف", "خلدون جمال", "محمد جاسم", "بكر بدران", "فيصل فؤاد", "صباح فرحان"];
-
-  const getFilteredSales = (priceMode: 'retail' | 'wholesale' | 'all') => {
-    let sales;
-    if (priceMode === 'retail') sales = retailSales;
-    else if (priceMode === 'wholesale') sales = wholesaleSales;
-    else sales = allSales;
-
-    if (selectedDelegateForDownload === 'الكل') return sales;
-    return sales.filter(s => s.name === selectedDelegateForDownload);
-  };
-  
-  const filteredRetailSales = useMemo(() => getFilteredSales('retail'), [retailSales, selectedDelegateForDownload]);
-  const filteredWholesaleSales = useMemo(() => getFilteredSales('wholesale'), [wholesaleSales, selectedDelegateForDownload]);
-  const filteredAllSales = useMemo(() => getFilteredSales('all'), [allSales, selectedDelegateForDownload]);
-
-  const filteredTotalRetail = useMemo(() => filteredRetailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [filteredRetailSales]);
-  const filteredTotalWholesale = useMemo(() => filteredWholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [filteredWholesaleSales]);
+  const totalRetail = useMemo(() => retailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [retailSales]);
+  const totalWholesale = useMemo(() => wholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [wholesaleSales]);
 
   return (
     <div className="space-y-4 p-4">
-        <div className="flex gap-2 mb-4 items-center">
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">تقرير:</span>
-            <select value={selectedDelegateForDownload} onChange={e => setSelectedDelegateForDownload(e.target.value)} className="p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-sm font-bold border-0">
-                <option value="الكل">كل المندوبين</option>
-                {REQUIRED_DELEGATES.map(name => <option key={name} value={name}>{name}</option>)}
-            </select>
-            <button onClick={handleDownload} disabled={isDownloading === 'main'} className="text-emerald-500 hover:text-emerald-300 p-2" title="تحميل التقرير اليومي كصورة">
-                {isDownloading === 'main' ? (
-                  <span className="animate-spin">⏳</span>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                )}
-            </button>
-        </div>
-        <div className="space-y-4 p-2">
+        <div className="space-y-4 p-2 bg-slate-900 rounded-xl" ref={reportRef}>
+            <div className="flex justify-between items-center bg-slate-800 p-3 rounded-xl border border-slate-700">
+                <h3 className="font-extrabold text-white text-sm">التقرير اليومي للمبيعات (مفرد + جملة)</h3>
+                <button onClick={handleDownload} disabled={isDownloading === 'main'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
+                    {isDownloading === 'main' ? (
+                      <span className="animate-spin">⏳</span>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    )}
+                    <span>{isDownloading === 'main' ? 'جاري التحميل...' : 'تحميل التقرير'}</span>
+                </button>
+            </div>
+
             {/* Retail Sales Table */}
-            <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg hover:shadow-emerald-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+            <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg">
             <h3 className="font-bold mb-3 text-emerald-400">جدول مبيعات المفرد (لليوم)</h3>
             <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
@@ -247,7 +324,7 @@ const DailyAdminReport: React.FC<{
                     </tr>
                 </thead>
                 <tbody>
-                    {filteredRetailSales.map(s => (
+                    {retailSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
                             <td className="p-2 font-bold">{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -261,7 +338,7 @@ const DailyAdminReport: React.FC<{
         </div>
 
         {/* Wholesale Sales Table */}
-        <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg hover:shadow-indigo-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+        <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg">
             <h3 className="font-bold mb-3 text-indigo-400">جدول مبيعات الجملة (لليوم)</h3>
             <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
@@ -274,7 +351,7 @@ const DailyAdminReport: React.FC<{
                     </tr>
                 </thead>
                 <tbody>
-                    {filteredWholesaleSales.map(s => (
+                    {wholesaleSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
                             <td className="p-2 font-bold">{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -287,20 +364,10 @@ const DailyAdminReport: React.FC<{
             </div>
         </div>
 
-        {/* Total Sales Summary */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white grid grid-cols-2 gap-4 text-center shadow-lg hover:shadow-slate-900/50 transition-all duration-300 transform hover:scale-[1.01]">
-            <div className="bg-slate-700/80 p-3 rounded-lg">
-                <h4 className="font-bold text-xs text-slate-200 mb-1">إجمالي المفرد</h4>
-                <div className="text-sm font-black">{filteredTotalRetail.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalRetail.amount, true)}</div>
-            </div>
-            <div className="bg-slate-700/80 p-3 rounded-lg">
-                <h4 className="font-bold text-xs text-slate-200 mb-1">إجمالي الجملة</h4>
-                <div className="text-sm font-black">{filteredTotalWholesale.weight.toFixed(1)} كجم | {formatWithCommas(filteredTotalWholesale.amount, true)}</div>
-            </div>
-        </div>
+
 
         {/* All Sales Summary Table */}
-        <div className="bg-amber-900 rounded-xl p-4 text-white shadow-lg hover:shadow-amber-900/50 transition-all duration-300 transform hover:scale-[1.02]">
+        <div className="bg-amber-900 rounded-xl p-4 text-white shadow-lg">
             <h3 className="font-bold mb-3 text-amber-400">جدول مبيعات الكل (مفرد + جملة)</h3>
             <div className="overflow-x-auto">
             <table className="w-full text-xs text-center border-collapse">
@@ -313,7 +380,7 @@ const DailyAdminReport: React.FC<{
                     </tr>
                 </thead>
                 <tbody>
-                    {filteredAllSales.map(s => (
+                    {allSales.map(s => (
                         <tr key={s.name} className="border-b border-amber-800 hover:bg-amber-800/50">
                             <td className={`p-2 font-bold ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
                             <td className="p-2">{s.count}</td>
@@ -323,9 +390,9 @@ const DailyAdminReport: React.FC<{
                     ))}
                     <tr className="border-t-2 border-amber-600 bg-amber-950 font-black">
                         <td className="p-2">الإجمالي الكلي</td>
-                        <td className="p-2">{filteredAllSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="p-2">{filteredAllSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
-                        <td className="p-2">{formatWithCommas(filteredAllSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
+                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -333,9 +400,9 @@ const DailyAdminReport: React.FC<{
         </div>
         </div>
         
-        {/* Specific Categories Sales Table */}
+        {/* Specific Categories Sales Table & Summary */}
         {currentUser.isAdmin && (
-        <div className="space-y-2" ref={combinedReportRef}>
+        <div className="space-y-4">
             {currentUser.isAdmin && (
             <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
                 {isDownloading === 'products' ? (
@@ -343,132 +410,131 @@ const DailyAdminReport: React.FC<{
                 ) : (
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 )}
-                <span>{isDownloading === 'products' ? 'جاري التحميل...' : 'تحميل'}</span>
+                <span>{isDownloading === 'products' ? 'جاري التحميل...' : 'تحميل التقرير المجمع'}</span>
             </button>
             )}
-            <div className="bg-indigo-900 rounded-xl p-4 text-white">
-                <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
-            <table className="w-full text-xs text-center border-collapse">
-                <thead>
-                    <tr className="border-b border-indigo-700 text-indigo-300">
-                        <th className="p-2" rowSpan={2}>الصنف</th>
-                        <th className="p-2" colSpan={2}>مفرد</th>
-                        <th className="p-2" colSpan={2}>جملة</th>
-                    </tr>
-                    <tr className="border-b border-indigo-700 text-indigo-400">
-                        <th className="p-1">وزن</th>
-                        <th className="p-1">مبلغ</th>
-                        <th className="p-1">وزن</th>
-                        <th className="p-1">مبلغ</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {(() => {
-                        const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
-                        const stats = categories.map(catName => {
-                            const getStats = (mode: 'retail' | 'wholesale') => {
-                                const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
-                                const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-                                const amount = entries.reduce((sum, e) => {
-                                    const prod = productsList.find(p => p.productName === e.productName);
-                                    const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                                    return sum + (price * e.quantity);
-                                }, 0);
-                                return { weight, amount };
-                            };
-                            return { name: catName, retail: getStats('retail'), wholesale: getStats('wholesale') };
-                        });
+            
+            <div className="space-y-4 bg-slate-900 p-2 rounded-xl" ref={combinedReportRef}>
+                <div className="bg-indigo-900 rounded-xl p-4 text-white">
+                    <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
+                <table className="w-full text-xs text-center border-collapse">
+                    <thead>
+                        <tr className="border-b border-indigo-700 text-indigo-300">
+                            <th className="p-2" rowSpan={2}>الصنف</th>
+                            <th className="p-2" colSpan={2}>مفرد</th>
+                            <th className="p-2" colSpan={2}>جملة</th>
+                        </tr>
+                        <tr className="border-b border-indigo-700 text-indigo-400">
+                            <th className="p-1">وزن</th>
+                            <th className="p-1">مبلغ</th>
+                            <th className="p-1">وزن</th>
+                            <th className="p-1">مبلغ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(() => {
+                            const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                            const stats = categories.map(catName => {
+                                const getStats = (mode: 'retail' | 'wholesale') => {
+                                    const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
+                                    const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                                    const amount = entries.reduce((sum, e) => {
+                                        const prod = productsList.find(p => p.productName === e.productName);
+                                        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                                        return sum + (price * e.quantity);
+                                    }, 0);
+                                    return { weight, amount };
+                                };
+                                return { name: catName, retail: getStats('retail'), wholesale: getStats('wholesale') };
+                            });
 
-                        const totals = stats.reduce((acc, curr) => ({
-                            retailWeight: acc.retailWeight + curr.retail.weight,
-                            retailAmount: acc.retailAmount + curr.retail.amount,
-                            wholesaleWeight: acc.wholesaleWeight + curr.wholesale.weight,
-                            wholesaleAmount: acc.wholesaleAmount + curr.wholesale.amount
-                        }), { retailWeight: 0, retailAmount: 0, wholesaleWeight: 0, wholesaleAmount: 0 });
+                            const totals = stats.reduce((acc, curr) => ({
+                                retailWeight: acc.retailWeight + curr.retail.weight,
+                                retailAmount: acc.retailAmount + curr.retail.amount,
+                                wholesaleWeight: acc.wholesaleWeight + curr.wholesale.weight,
+                                wholesaleAmount: acc.wholesaleAmount + curr.wholesale.amount
+                            }), { retailWeight: 0, retailAmount: 0, wholesaleWeight: 0, wholesaleAmount: 0 });
 
-                        return (
-                            <>
-                                {stats.map(s => (
-                                    <tr key={s.name} className="border-b border-indigo-800">
-                                        <td className="p-2 font-bold">{s.name}</td>
-                                        <td className="p-2">{s.retail.weight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(s.retail.amount, true)}</td>
-                                        <td className="p-2">{s.wholesale.weight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
+                            return (
+                                <>
+                                    {stats.map(s => (
+                                        <tr key={s.name} className="border-b border-indigo-800">
+                                            <td className="p-2 font-bold">{s.name}</td>
+                                            <td className="p-2">{s.retail.weight.toFixed(1)}</td>
+                                            <td className="p-2">{formatWithCommas(s.retail.amount, true)}</td>
+                                            <td className="p-2">{s.wholesale.weight.toFixed(1)}</td>
+                                            <td className="p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
+                                        </tr>
+                                    ))}
+                                    <tr className="border-t-2 border-indigo-600 bg-indigo-950 font-black">
+                                        <td className="p-2">General</td>
+                                        <td className="p-2">{totals.retailWeight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(totals.retailAmount, true)}</td>
+                                        <td className="p-2">{totals.wholesaleWeight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
                                     </tr>
-                                ))}
-                                <tr className="border-t-2 border-indigo-600 bg-indigo-950 font-black">
-                                    <td className="p-2">General</td>
-                                    <td className="p-2">{totals.retailWeight.toFixed(1)}</td>
-                                    <td className="p-2">{formatWithCommas(totals.retailAmount, true)}</td>
-                                    <td className="p-2">{totals.wholesaleWeight.toFixed(1)}</td>
-                                    <td className="p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
-                                </tr>
-                            </>
-                        );
-                    })()}
-                </tbody>
-            </table>
-            </div>
-        </div>
-        )}
+                                </>
+                            );
+                        })()}
+                    </tbody>
+                </table>
+                </div>
 
-        {/* Category Summary Table (Combined) */}
-        {currentUser.isAdmin && (
-        <div className="space-y-2">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white">
-                <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
-            <table className="w-full text-xs text-center border-collapse">
-                <thead>
-                    <tr className="border-b border-slate-700 text-slate-300">
-                        <th className="p-2">الصنف</th>
-                        <th className="p-2">إجمالي الوزن (كجم)</th>
-                        <th className="p-2">إجمالي المبلغ</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {(() => {
-                        const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
-                        const stats = categories.map(catName => {
-                            const getStats = (mode: 'retail' | 'wholesale') => {
-                                const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
-                                const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-                                const amount = entries.reduce((sum, e) => {
-                                    const prod = productsList.find(p => p.productName === e.productName);
-                                    const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                                    return sum + (price * e.quantity);
-                                }, 0);
-                                return { weight, amount };
-                            };
-                            const retail = getStats('retail');
-                            const wholesale = getStats('wholesale');
-                            return { name: catName, totalWeight: retail.weight + wholesale.weight, totalAmount: retail.amount + wholesale.amount };
-                        });
-                        
-                        const grandTotal = stats.reduce((acc, curr) => ({
-                            weight: acc.weight + curr.totalWeight,
-                            amount: acc.amount + curr.totalAmount
-                        }), { weight: 0, amount: 0 });
+                {/* Category Summary Table (Combined) */}
+                <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white">
+                    <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
+                <table className="w-full text-xs text-center border-collapse">
+                    <thead>
+                        <tr className="border-b border-slate-700 text-slate-300">
+                            <th className="p-2">الصنف</th>
+                            <th className="p-2">إجمالي الوزن (كجم)</th>
+                            <th className="p-2">إجمالي المبلغ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(() => {
+                            const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                            const stats = categories.map(catName => {
+                                const getStats = (mode: 'retail' | 'wholesale') => {
+                                    const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
+                                    const weight = entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                                    const amount = entries.reduce((sum, e) => {
+                                        const prod = productsList.find(p => p.productName === e.productName);
+                                        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                                        return sum + (price * e.quantity);
+                                    }, 0);
+                                    return { weight, amount };
+                                };
+                                const retail = getStats('retail');
+                                const wholesale = getStats('wholesale');
+                                return { name: catName, totalWeight: retail.weight + wholesale.weight, totalAmount: retail.amount + wholesale.amount };
+                            });
+                            
+                            const grandTotal = stats.reduce((acc, curr) => ({
+                                weight: acc.weight + curr.totalWeight,
+                                amount: acc.amount + curr.totalAmount
+                            }), { weight: 0, amount: 0 });
 
-                        return (
-                            <>
-                                {stats.map(s => (
-                                    <tr key={s.name} className="border-b border-slate-700">
-                                        <td className="p-2 font-bold">{s.name}</td>
-                                        <td className="p-2">{s.totalWeight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(s.totalAmount, true)}</td>
+                            return (
+                                <>
+                                    {stats.map(s => (
+                                        <tr key={s.name} className="border-b border-slate-700">
+                                            <td className="p-2 font-bold">{s.name}</td>
+                                            <td className="p-2">{s.totalWeight.toFixed(1)}</td>
+                                            <td className="p-2">{formatWithCommas(s.totalAmount, true)}</td>
+                                        </tr>
+                                    ))}
+                                    <tr className="border-t-2 border-slate-600 bg-slate-950 font-black">
+                                        <td className="p-2">General</td>
+                                        <td className="p-2">{grandTotal.weight.toFixed(1)}</td>
+                                        <td className="p-2">{formatWithCommas(grandTotal.amount, true)}</td>
                                     </tr>
-                                ))}
-                                <tr className="border-t-2 border-slate-600 bg-slate-950 font-black">
-                                    <td className="p-2">General</td>
-                                    <td className="p-2">{grandTotal.weight.toFixed(1)}</td>
-                                    <td className="p-2">{formatWithCommas(grandTotal.amount, true)}</td>
-                                </tr>
-                            </>
-                        );
-                    })()}
-                </tbody>
-            </table>
+                                </>
+                            );
+                        })()}
+                    </tbody>
+                </table>
+                </div>
             </div>
         </div>
         )}
@@ -542,16 +608,24 @@ export const ReportsScreen: React.FC = () => {
 
   const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+  const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string }[]>([]);
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
     const unsub = onSnapshot(q, (snap) => {
       const completed: Record<string, boolean> = {};
+      const list: { delegate: string, completedAt: string }[] = [];
       snap.forEach(d => {
         completed[d.id] = true;
+        const data = d.data();
+        if (data.delegate && data.completedAt) {
+          list.push({ delegate: data.delegate, completedAt: data.completedAt });
+        }
       });
+      list.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
       setCompletedDelegates(completed);
+      setCompletedDelegatesList(list);
     });
     return () => unsub();
   }, []);
@@ -741,57 +815,70 @@ export const ReportsScreen: React.FC = () => {
     });
   }, [selectedDate, activeDelegateName, dailyEvaluationsHistory, salesEntries]);
 
-  const [showSummary, setShowSummary] = useState(false);
 
-  // ... (keeping existing code)
-
-  // Calculate daily summary
-  const dailySummary = useMemo(() => {
-    const todayEntries = salesEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]);
-    
-    const totalSales = todayEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
-    const invoiceCount = new Set(todayEntries.map(e => e.customerCode)).size;
-    
-    const productCounts: Record<string, number> = {};
-    todayEntries.forEach(e => {
-        productCounts[e.productName] = (productCounts[e.productName] || 0) + e.quantity;
-    });
-    
-    const mostSold = Object.entries(productCounts).sort((a, b) => b[1] - a[1])[0];
-
-    return { totalSales, invoiceCount, mostSold };
-  }, [salesEntries]);
 
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
         
-        {/* زر عرض ملخص المبيعات */}
-        <button 
-            onClick={() => setShowSummary(!showSummary)}
-            className="w-full flex items-center justify-center gap-2 bg-slate-800 text-white p-3 rounded-xl font-bold hover:bg-slate-700 transition"
-        >
-            {showSummary ? 'إخفاء ملخص المبيعات اليومية' : 'عرض ملخص المبيعات اليومية السريع'}
-        </button>
+        {/* Admin Completed Delegates Table */}
+        {currentUser.isAdmin && completedDelegatesList.length > 0 && (
+          <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-4 text-white shadow-xl space-y-3">
+            <h3 className="text-sm font-black text-amber-400">
+              📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-700 text-slate-300">
+                    <th className="p-2">التسلسل</th>
+                    <th className="p-2">اسم المندوب</th>
+                    <th className="p-2">عدد الفواتير الكلية</th>
+                    <th className="p-2">الهدف اليومي للمندوب</th>
+                    <th className="p-2">وزن المبيعات اليومي</th>
+                    <th className="p-2">النسبة المئوية بين الهدف والمبيعات</th>
+                    <th className="p-2">المبلغ الكلي</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {completedDelegatesList.map((item, idx) => {
+                    const delName = item.delegate;
+                    const delEntries = todaysEntries.filter(e => e.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase());
+                    const invoiceCount = new Set(delEntries.map(e => e.customerCode)).size;
+                    const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                    const totalAmount = delEntries.reduce((sum, e) => {
+                      const prod = productsList.find(p => p.productName === e.productName);
+                      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                      return sum + (price * e.quantity);
+                    }, 0);
+                    const targetWeight = DEFAULT_CATEGORIES_LIST.reduce((sum, cat) => {
+                      const found = delegateTargets.find(t => 
+                        t.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase() &&
+                        t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
+                      );
+                      return sum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
+                    }, 0);
+                    const pct = targetWeight > 0 ? (totalWeight / targetWeight) * 100 : 0;
 
-        {showSummary && (
-            <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg border border-slate-700 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                <div>
-                    <div className="text-slate-400 text-sm">إجمالي المبيعات</div>
-                    <div className="text-xl font-black text-emerald-400">{dailySummary.totalSales.toFixed(1)} كجم</div>
-                </div>
-                <div>
-                    <div className="text-slate-400 text-sm">عدد الفواتير</div>
-                    <div className="text-xl font-black text-indigo-400">{dailySummary.invoiceCount}</div>
-                </div>
-                <div>
-                    <div className="text-slate-400 text-sm">الأكثر مبيعاً</div>
-                    <div className="text-xl font-black text-amber-400">
-                        {dailySummary.mostSold ? `${dailySummary.mostSold[0]} (${dailySummary.mostSold[1]})` : 'لا يوجد'}
-                    </div>
-                </div>
+                    return (
+                      <tr key={delName} className="hover:bg-slate-800/50">
+                        <td className="p-2 font-bold text-amber-400">{idx + 1}</td>
+                        <td className="p-2 font-bold text-white">{delName}</td>
+                        <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
+                        <td className="p-2 font-bold">{formatWithCommas(parseFloat(targetWeight.toFixed(1)), true)} كجم</td>
+                        <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
+                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-amber-400' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
+                        <td className="p-2 font-extrabold text-indigo-300">{formatWithCommas(totalAmount, true)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+          </div>
         )}
+
+
 
       <div ref={reportRef} className="space-y-4 p-2">
         {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} />}
@@ -938,14 +1025,14 @@ export const ReportsScreen: React.FC = () => {
           <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي المبيعات اليوم</div>
             <div className="text-xl sm:text-2xl font-black text-slate-300 mt-1">
-              {totalSalesWeight.toFixed(1)} كجم
+              {formatWithCommas(parseFloat(totalSalesWeight.toFixed(1)), true)} كجم
             </div>
           </div>
 
           <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي التاركت المطلوب</div>
             <div className="text-xl sm:text-2xl font-black text-white mt-1">
-              {totalTargetWeight.toFixed(1)} كجم
+              {formatWithCommas(parseFloat(totalTargetWeight.toFixed(1)), true)} كجم
             </div>
           </div>
         </div>
@@ -1108,10 +1195,10 @@ export const ReportsScreen: React.FC = () => {
                     </div>
                   </td>
                   <td className="py-3 px-3 text-center font-extrabold text-sm">
-                    {item.dailySalesWeightKg.toFixed(1)}
+                    {formatWithCommas(parseFloat(item.dailySalesWeightKg.toFixed(1)), true)}
                   </td>
                   <td className="py-3 px-3 text-center font-bold text-sm">
-                    {item.dailyTargetWeightKg.toFixed(1)}
+                    {formatWithCommas(parseFloat(item.dailyTargetWeightKg.toFixed(1)), true)}
                   </td>
                   <td className="py-3 px-3 text-center">
                     <div className="space-y-1">
@@ -1123,7 +1210,7 @@ export const ReportsScreen: React.FC = () => {
                           </span>
                         ) : (
                           <span className="text-slate-500">
-                            متبقي: {item.remainingWeightKg.toFixed(1)} كجم
+                            متبقي: {formatWithCommas(parseFloat(item.remainingWeightKg.toFixed(1)), true)} كجم
                           </span>
                         )}
                       </div>
