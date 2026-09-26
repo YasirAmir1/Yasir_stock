@@ -13,12 +13,238 @@ export const RoutesScreen: React.FC = () => {
   const productsList = salesContext.productsList || [];
 
   const [routes, setRoutes] = useState<RouteItem[]>([]);
-
+  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
 
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    let debtsQ;
+    if (currentUser.isAdmin) {
+        debtsQ = query(collection(db, 'debts'));
+    } else if (currentUser.delegateCode) {
+        debtsQ = query(collection(db, 'debts'), where('delegateCode', '==', currentUser.delegateCode));
+    } else {
+        debtsQ = query(collection(db, 'debts'), where('delegateCode', '==', 'NONE_MATCH'));
+    }
+    
+    const unsubDebts = onSnapshot(debtsQ, (snap) => {
+      const loaded: DebtItem[] = [];
+      snap.forEach(d => loaded.push({id: d.id, ...d.data()} as DebtItem));
+      setDebts(loaded);
+    });
+    return () => unsubDebts();
+  }, [currentUser]);
+  
+  const [selectedDebt, setSelectedDebt] = useState<DebtItem | null>(null);
 
+  const DebtsTable = () => {
+    const totalDebts = debts.reduce((sum, d) => sum + d.amountDue, 0);
+    const totalCustomers = new Set(debts.map(d => d.customerCode)).size;
+    const [debtSearch, setDebtSearch] = useState('');
+    const [selectedDelegateFilter, setSelectedDelegateFilter] = useState<string | null>(null);
 
+    const filteredDebts = useMemo(() => {
+        let result = debts;
+        if (selectedDelegateFilter) {
+            result = result.filter(d => d.delegateCode === selectedDelegateFilter);
+        }
+        return result.filter(d => {
+            const searchLower = debtSearch.toLowerCase();
+            const delegateName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode || '';
+            return d.customerName.toLowerCase().includes(searchLower) ||
+                   d.customerCode.toLowerCase().includes(searchLower) ||
+                   delegateName.toLowerCase().includes(searchLower) ||
+                   d.invoiceDate.toLowerCase().includes(searchLower) ||
+                   d.paymentDueDate.toLowerCase().includes(searchLower);
+        });
+    }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
+
+    const exportToExcel = () => {
+        const worksheet = XLSX.utils.json_to_sheet(debts.map(d => ({
+            'اسم الزبون': d.customerName,
+            'كود الزبون': d.customerCode,
+            'المبلغ': d.amountDue,
+            'كود المندوب': d.delegateCode,
+            'تاريخ الفاتورة': d.invoiceDate,
+            'تاريخ السداد': d.paymentDueDate
+        })));
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'الديون');
+        XLSX.writeFile(workbook, 'الديون.xlsx');
+    };
+
+    return (
+      <div className="space-y-4">
+        {currentUser?.isAdmin && (
+          <div className={`grid grid-cols-2 gap-4 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <div className="text-center">
+                  <div className="text-[10px] font-bold text-slate-500 mb-1">إجمالي الديون المستحقة</div>
+                  <div className="text-lg font-black text-slate-900 dark:text-white">{totalDebts.toLocaleString()}</div>
+              </div>
+              <div className="text-center">
+                  <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">عدد الزبائن</div>
+                  <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">{totalCustomers}</div>
+              </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-center gap-2">
+              <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg text-center">الديون المستحقة</h3>
+              <div className="flex gap-2">
+                {currentUser?.isAdmin && (
+                    <button onClick={exportToExcel} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">تصدير Excel</button>
+                )}
+                {currentUser?.isAdmin && (
+                    <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
+                    <Upload className="w-4 h-4" />
+                    استيراد
+                    <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
+                    </label>
+                )}
+              </div>
+            </div>
+
+            {currentUser?.isAdmin && (
+                <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setSelectedDelegateFilter(null)} className={`px-3 py-1 rounded-full text-xs font-bold ${!selectedDelegateFilter ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>الكل</button>
+                    {delegateAccounts.map(d => (
+                        <button key={d.delegateCode} onClick={() => setSelectedDelegateFilter(d.delegateCode)} className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDelegateFilter === d.delegateCode ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>{d.delegateName}</button>
+                    ))}
+                </div>
+            )}
+        </div>
+
+        <input 
+          type="text" 
+          value={debtSearch} 
+          onChange={e => setDebtSearch(e.target.value)} 
+          placeholder="بحث (اسم، كود، مندوب، أو تاريخ)..." 
+          className={`w-full p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+        />
+
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table className="w-full text-[9px] sm:text-[10px] text-right">
+            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <tr>
+                {currentUser?.isAdmin && <th className="px-1 py-1 border-b dark:border-slate-700">المندوب</th>}
+                <th className="px-1 py-1 border-b dark:border-slate-700">الاسم</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">الكود</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">المبلغ</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">ت. الفاتورة</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
+                <th className="px-1 py-1 border-b dark:border-slate-700">تسديد</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+              {filteredDebts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
+                const invDate = new Date(d.invoiceDate || Date.now());
+                const payDate = new Date(d.paymentDueDate || Date.now());
+                const now = new Date();
+                const msPerDay = 1000 * 3600 * 24;
+                
+                const diffInDays = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+                
+                const mustahaqa = payDate.getTime() > now.getTime() ? 0 : diffInDays;
+                const baqia = now.getTime() > payDate.getTime() ? 0 : diffInDays;
+                
+                const daysOld = Math.round((now.getTime() - invDate.getTime()) / msPerDay);
+                const isOldDebt = daysOld > 11;
+
+                const isRed = diffInDays <= 1;
+                const isGreen = diffInDays > 5;
+                const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
+                
+                const handlePay = async (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    if(window.confirm(`هل أنت متأكد من تسديد دين الزبون ${d.customerName}؟`)) {
+                        await deleteDoc(doc(db, 'debts', d.id));
+                        addToast({ message: 'تم تسديد الدين بنجاح', type: 'success', delegateName: currentUser?.name || '', title: 'تسديد', percentage: 0 });
+                    }
+                };
+
+                return (
+                  <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
+                    {currentUser?.isAdmin && (
+                        <td className="px-1 py-1 flex items-center gap-1">
+                            {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
+                            {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
+                        </td>
+                    )}
+                    <td className="px-1 py-1">{d.customerName}</td>
+                    <td className="px-1 py-1">{d.customerCode}</td>
+                    <td className="px-1 py-1">{d.amountDue.toLocaleString()}</td>
+                    <td className="px-1 py-1">{d.invoiceDate}</td>
+                    <td className="px-1 py-1">{d.paymentDueDate}</td>
+                    <td className="px-1 py-1 text-center">{mustahaqa}</td>
+                    <td className="px-1 py-1 text-center">{baqia}</td>
+                    <td className="px-1 py-1">
+                        <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const handleImportDebts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1 });
+
+      const batch = writeBatch(db);
+      const debtsSnap = await getDocs(collection(db, 'debts'));
+      debtsSnap.forEach(d => batch.delete(d.ref));
+
+      // New format: Name, Code, Amount, DelegateCode, InvoiceDate, PaymentDate
+      jsonData.slice(1).forEach((row: any) => {
+        if (!row[0]) return;
+        
+        // Helper to convert Excel serial date to YYYY-MM-DD string
+        const excelDateToJSDate = (serial: any) => {
+            if (typeof serial === 'number') {
+                const utc_days = Math.floor(serial - 25569);
+                const utc_value = utc_days * 86400;
+                const date_info = new Date(utc_value * 1000);
+                return date_info.toISOString().split('T')[0];
+            }
+            return serial; // Assume it's already a string
+        };
+
+        const newDebt = {
+          customerName: row[0] || '',
+          customerCode: row[1] || '',
+          amountDue: parseFloat(row[2] || 0),
+          delegateCode: String(row[3] || '').trim(),
+          invoiceDate: excelDateToJSDate(row[4]),
+          paymentDueDate: excelDateToJSDate(row[5]),
+          delegateName: '', // Name might be unknown at this point
+        };
+        
+        const debtRef = doc(collection(db, 'debts'));
+        batch.set(debtRef, newDebt);
+      });
+      
+      await batch.commit();
+      addToast({ message: 'تم استيراد الديون بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'استيراد', percentage: 0 });
+    } catch (e) {
+      console.error('Error importing debts:', e);
+      addToast({ message: 'فشل استيراد الديون.', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
+    }
+  };
 
   /*
   useEffect(() => {
@@ -496,7 +722,31 @@ export const RoutesScreen: React.FC = () => {
         </div>
       )}
       
+      {/* Debt Details Modal */}
+      {selectedDebt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedDebt(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-amber-600 dark:text-amber-400 mb-4 text-center">تنبيه دين مستحق</h3>
+            <div className="space-y-3 text-sm">
+                <p><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedDebt.customerName}</p>
+                <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedDebt.customerCode}</p>
+                <p><span className="font-bold text-slate-500">تاريخ الفاتورة:</span> {selectedDebt.invoiceDate}</p>
+                <p><span className="font-bold text-slate-500">تاريخ السداد:</span> {selectedDebt.paymentDueDate}</p>
+                <p><span className="font-bold text-slate-500">المبلغ المستحق:</span> {selectedDebt.amountDue.toLocaleString()}</p>
+            </div>
+            <button 
+                onClick={() => setSelectedDebt(null)}
+                className="w-full mt-6 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl transition-colors"
+            >
+                فهمت
+            </button>
+          </div>
+        </div>
+      )}
 
+      <div className="mt-8">
+        <DebtsTable />
+      </div>
 
     </div>
   );

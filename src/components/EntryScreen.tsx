@@ -77,6 +77,8 @@ export const EntryScreen: React.FC = () => {
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
   const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+  const [showCustomExportModal, setShowCustomExportModal] = useState(false);
+  const [selectedDelegatesForExport, setSelectedDelegatesForExport] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -660,63 +662,98 @@ export const EntryScreen: React.FC = () => {
   };
 
 
-  const handleExportCSV = () => {
-    if (safeSavedEntries.length === 0) {
-      window.alert('لا توجد بيانات لتصديرها');
-      return;
-    }
-    
-    const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
-    
-    // Sort: Delegate Name (ASC), then Customer Code (ASC)
-    const sortedEntries = [...safeSavedEntries].sort((a, b) => {
-        const delegateA = (a.delegateName || 'غير محدد').localeCompare(b.delegateName || 'غير محدد');
-        if (delegateA !== 0) return delegateA;
-        return (a.customerCode || 'بدون كود').localeCompare(b.customerCode || 'بدون كود');
-    });
-
-    const worksheetData: any[] = [headers];
-    
-    let lastDelegate = '';
-    let lastCustomerCode = '';
-
-    sortedEntries.forEach((entry, index) => {
-        const delegate = entry.delegateName || 'غير محدد';
-        const customerCode = entry.customerCode || 'بدون كود';
-
-        // Add separator row for new delegate
-        if (index > 0 && delegate !== lastDelegate) {
-            worksheetData.push(Array(headers.length).fill('')); 
+    const handleExportCSV = () => {
+        if (safeSavedEntries.length === 0) {
+            window.alert('لا توجد بيانات لتصديرها');
+            return;
         }
-        // Add separator row for new customer (grouping by customer code)
-        else if (index > 0 && customerCode !== lastCustomerCode) {
-            worksheetData.push(Array(headers.length).fill(''));
+        
+        const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
+        
+        // Sort: Delegate Name (ASC), then Customer Code (ASC)
+        const sortedEntries = [...safeSavedEntries].sort((a, b) => {
+            const delegateA = (a.delegateName || 'غير محدد').localeCompare(b.delegateName || 'غير محدد');
+            if (delegateA !== 0) return delegateA;
+            return (a.customerCode || 'بدون كود').localeCompare(b.customerCode || 'بدون كود');
+        });
+
+        const worksheetData: any[] = [headers];
+        
+        let lastDelegate = '';
+        let lastCustomerCode = '';
+
+        sortedEntries.forEach((entry, index) => {
+            const delegate = entry.delegateName || 'غير محدد';
+            const customerCode = entry.customerCode || 'بدون كود';
+
+            // Add separator row for new delegate
+            if (index > 0 && delegate !== lastDelegate) {
+                worksheetData.push(Array(headers.length).fill('')); 
+            }
+            // Add separator row for new customer (grouping by customer code)
+            else if (index > 0 && customerCode !== lastCustomerCode) {
+                worksheetData.push(Array(headers.length).fill(''));
+            }
+
+            worksheetData.push([
+                entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
+                delegate,
+                entry.customerName || 'بدون اسم زبون',
+                customerCode,
+                entry.productName,
+                entry.categoryName,
+                getProductCode(entry.productName),
+                entry.quantity.toString(),
+                entry.pieceWeightKg.toString(),
+                entry.totalWeightKg.toString(),
+                entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+            ]);
+
+            lastDelegate = delegate;
+            lastCustomerCode = customerCode;
+        });
+
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+        
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
+        XLSX.writeFile(workbook, `sales_entries_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    const handleCustomExport = () => {
+        if (selectedDelegatesForExport.size === 0) {
+            window.alert('يرجى اختيار مندوب واحد على الأقل');
+            return;
         }
 
-        worksheetData.push([
-            entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
-            delegate,
-            entry.customerName || 'بدون اسم زبون',
-            customerCode,
-            entry.productName,
-            entry.categoryName,
-            getProductCode(entry.productName),
-            entry.quantity.toString(),
-            entry.pieceWeightKg.toString(),
-            entry.totalWeightKg.toString(),
-            entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
-        ]);
+        const filtered = safeSavedEntries.filter(e => selectedDelegatesForExport.has(e.delegateName || 'غير محدد'));
+        
+        const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
+        const worksheetData: any[] = [headers];
 
-        lastDelegate = delegate;
-        lastCustomerCode = customerCode;
-    });
+        filtered.forEach(entry => {
+            worksheetData.push([
+                entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
+                entry.delegateName || 'غير محدد',
+                entry.customerName || 'بدون اسم زبون',
+                entry.customerCode || 'بدون كود',
+                entry.productName,
+                entry.categoryName,
+                getProductCode(entry.productName),
+                entry.quantity.toString(),
+                entry.pieceWeightKg.toString(),
+                entry.totalWeightKg.toString(),
+                entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+            ]);
+        });
 
-    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-    
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
-    XLSX.writeFile(workbook, `sales_entries_${new Date().toISOString().split('T')[0]}.xlsx`);
-  };
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
+        XLSX.writeFile(workbook, `sales_entries_custom_${new Date().toISOString().split('T')[0]}.xlsx`);
+        
+        setShowCustomExportModal(false);
+    };
 
   const filteredSavedEntries = safeSavedEntries.filter(
     (e) => {
@@ -851,14 +888,23 @@ export const EntryScreen: React.FC = () => {
             </div>
 
             {currentUser?.isAdmin && safeSavedEntries.length > 0 && (
-              <button
-                onClick={handleExportCSV}
-                className="px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
-                title="تصدير البيانات كملف Excel"
-              >
-                <Download className="w-4 h-4" />
-                <span>تصدير الادخالات</span>
-              </button>
+              <>
+                <button
+                    onClick={handleExportCSV}
+                    className="px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                    title="تصدير البيانات كملف Excel"
+                >
+                    <Download className="w-4 h-4" />
+                    <span>تصدير الادخالات</span>
+                </button>
+                <button
+                    onClick={() => setShowCustomExportModal(true)}
+                    className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-lg border border-purple-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                >
+                    <Download className="w-4 h-4" />
+                    <span>تصدير مخصص</span>
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -1169,6 +1215,36 @@ export const EntryScreen: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Custom Export Modal */}
+      {showCustomExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowCustomExportModal(false)}>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 mb-4 text-center">اختيار المندوبين للتصدير</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
+                    {uniqueDelegatesForFilter.map(delegate => (
+                        <label key={delegate} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                            <input 
+                                type="checkbox" 
+                                checked={selectedDelegatesForExport.has(delegate)}
+                                onChange={e => {
+                                    const newSelected = new Set(selectedDelegatesForExport);
+                                    if (e.target.checked) newSelected.add(delegate);
+                                    else newSelected.delete(delegate);
+                                    setSelectedDelegatesForExport(newSelected);
+                                }}
+                            />
+                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{delegate}</span>
+                        </label>
+                    ))}
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setShowCustomExportModal(false)} className="flex-1 px-4 py-2 bg-slate-200 text-slate-800 rounded-lg font-bold">إلغاء</button>
+                    <button onClick={handleCustomExport} className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-bold">تصدير</button>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
     </PullToRefresh>
   );
