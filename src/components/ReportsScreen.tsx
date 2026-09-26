@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas-pro';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
 import {
@@ -606,9 +606,44 @@ export const ReportsScreen: React.FC = () => {
     productsList, // Added
   } = useSales();
 
-  const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string }[]>([]);
+  const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
+
+  const [showActivationModal, setShowActivationModal] = useState(false);
+  const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
+
+  const handleOpenActivationModal = () => {
+    const initial: Record<string, boolean> = {};
+    delegatesList.forEach(del => {
+      initial[del] = !!completedDelegates[del];
+    });
+    setSelectedActivationDelegates(initial);
+    setShowActivationModal(true);
+  };
+
+  const handleSaveActivation = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      for (const del of delegatesList) {
+        const docRef = doc(db, 'daily_sales_completion', del);
+        if (selectedActivationDelegates[del]) {
+          await setDoc(docRef, {
+            delegate: del,
+            date: today,
+            completedAt: new Date().toISOString(),
+          }, { merge: true });
+        } else {
+          await deleteDoc(docRef);
+        }
+      }
+      setUserMessage('تم تحديث حالة تفعيل مبيعات المندوبين بنجاح ✅');
+      setShowActivationModal(false);
+    } catch (err) {
+      console.error("Error updating activation:", err);
+      setUserMessage('حدث خطأ أثناء حفظ حالة التفعيل.');
+    }
+  };
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -1268,6 +1303,63 @@ export const ReportsScreen: React.FC = () => {
             <div className="text-emerald-600 font-black text-sm">تم إكمال مبيعات اليوم بنجاح ✅</div>
         )}
       </div>
+
+      {currentUser?.isAdmin && (
+        <div className="mt-4 p-4 bg-slate-900 border border-amber-500/50 rounded-xl text-center space-y-2">
+          <button
+            onClick={handleOpenActivationModal}
+            className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>⚙️ تفعيل المبيعات</span>
+          </button>
+        </div>
+      )}
+
+      {showActivationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowActivationModal(false)}>
+          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-md border text-right space-y-4 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <h3 className="font-black text-base text-amber-400">إدارة وتفعيل مبيعات المندوبين</h3>
+              <button onClick={() => setShowActivationModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">حدد المندوبين المراد تفعيل/إلغاء تفعيل حالة إكمال المبيعات لهم اليوم:</p>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {delegatesList.map(del => (
+                <label key={del} className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-colors ${isDarkMode ? 'bg-slate-800/80 border-slate-700 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}>
+                  <span className="font-bold text-sm">{del}</span>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedActivationDelegates[del]}
+                    onChange={(e) => {
+                      setSelectedActivationDelegates({
+                        ...selectedActivationDelegates,
+                        [del]: e.target.checked
+                      });
+                    }}
+                    className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowActivationModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs border ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'}`}
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleSaveActivation}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md"
+              >
+                حفظ التغييرات
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
     </PullToRefresh>

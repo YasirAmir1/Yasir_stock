@@ -16,6 +16,32 @@ export const RoutesScreen: React.FC = () => {
   const [debts, setDebts] = useState<DebtItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
+  const [showActivateModal, setShowActivateModal] = useState(false);
+  const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
+
+  const handleConfirmActivation = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      for (const [delName, shouldActivate] of Object.entries(selectedActivationDelegates)) {
+        if (shouldActivate) {
+          const docRef = doc(db, 'daily_sales_completion', delName);
+          await setDoc(docRef, {
+            delegate: delName,
+            date: today,
+            completedAt: new Date().toISOString(),
+          }, { merge: true });
+        } else {
+          const docRef = doc(db, 'daily_sales_completion', delName);
+          await deleteDoc(docRef);
+        }
+      }
+      setShowActivateModal(false);
+      addToast?.({ message: 'تم تحديث حالة تفعيل مبيعات المندوبين بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'تفعيل', percentage: 0 });
+    } catch (err) {
+      console.error('Error updating activation:', err);
+      addToast?.({ message: 'حدث خطأ أثناء تحديث التفعيل', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
+    }
+  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -748,6 +774,58 @@ export const RoutesScreen: React.FC = () => {
       <div className="mt-8">
         <DebtsTable />
       </div>
+
+      {currentUser?.isAdmin && (
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setShowActivateModal(true)}
+            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all"
+          >
+            تفعيل المبيعات
+          </button>
+        </div>
+      )}
+
+      {showActivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowActivateModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 text-right" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-black text-slate-900 dark:text-white text-center">تفعيل المبيعات للمندوبين</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center">اختر المندوبين المراد إلغاء إكمال مبيعاتهم (إعادة تعيين الزر):</p>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {delegateAccounts.filter(d => !d.isAdmin).map(d => (
+                <label key={d.delegateName} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedActivationDelegates[d.delegateName]}
+                    onChange={(e) => {
+                      setSelectedActivationDelegates(prev => ({
+                        ...prev,
+                        [d.delegateName]: e.target.checked
+                      }));
+                    }}
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{d.delegateName}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowActivateModal(false)}
+                className="flex-1 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleConfirmActivation}
+                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow"
+              >
+                حفظ وتفعيل
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

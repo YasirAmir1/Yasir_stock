@@ -59,6 +59,7 @@ const MainAppContent: React.FC = () => {
   const [showDelegateModal, setShowDelegateModal] = useState(false);
   const [largeFont, setLargeFont] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const handleTabChange = (tab: string) => {
     setIsLoading(true);
@@ -346,12 +347,7 @@ const MainAppContent: React.FC = () => {
 
               {/* Logout Button */}
               <button
-                onClick={() => {
-                  if (window.confirm('هل أنت متأكد أنك تريد تسجيل الخروج؟')) {
-                    setActiveTab('entry');
-                    logout();
-                  }
-                }}
+                onClick={() => setShowLogoutModal(true)}
                 className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-red-950/80 text-red-300 hover:bg-red-900 border-red-800/80'
@@ -364,6 +360,41 @@ const MainAppContent: React.FC = () => {
               </button>
             </div>
           </div>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowLogoutModal(false)}>
+          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-2xl">
+                <LogOut className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-base">تأكيد تسجيل الخروج</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">هل أنت متأكد أنك تريد تسجيل الخروج؟</p>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutModal(false);
+                  setActiveTab('entry');
+                  logout();
+                }}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md transition-all"
+              >
+                تأكيد الخروج
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         
         {/* Navigation Tabs (Always sticky at top - Hidden on Mobile) */}
         <div
