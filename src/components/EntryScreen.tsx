@@ -120,6 +120,14 @@ export const EntryScreen: React.FC = () => {
   // Edit Saved Entry State
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{ total: number; count: number } | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    subMessage?: string;
+    confirmButtonText: string;
+    onConfirm: () => void;
+  } | null>(null);
   const [editFormData, setEditFormData] = useState<{
     productName: string;
     categoryName: string;
@@ -1042,9 +1050,17 @@ export const EntryScreen: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          if(window.confirm('هل تريد حذف هذه الفاتورة ؟')) {
-                            entries.forEach(e => deleteSalesEntry(e.id));
-                          }
+                          setDeleteConfirmation({
+                            isOpen: true,
+                            title: 'حذف الفاتورة بالكامل',
+                            message: 'هل تريد حذف هذه الفاتورة ؟',
+                            subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${entries.length} سجل).`,
+                            confirmButtonText: 'نعم، حذف الفاتورة',
+                            onConfirm: () => {
+                              entries.forEach(e => deleteSalesEntry(e.id));
+                              setDeleteConfirmation(null);
+                            }
+                          });
                         }}
                         className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
                         title="حذف الفاتورة بالكامل"
@@ -1208,7 +1224,19 @@ export const EntryScreen: React.FC = () => {
                       {!completedDelegates[activeDelegateName || ''] && (
                         <button
                           type="button"
-                          onClick={() => { if(window.confirm('هل أنت متأكد من حذف هذا السجل؟')) deleteSalesEntry(entry.id) }}
+                          onClick={() => {
+                            setDeleteConfirmation({
+                              isOpen: true,
+                              title: 'حذف السجل',
+                              message: 'هل أنت متأكد من حذف هذا السجل؟',
+                              subMessage: `سيتم حذف سجل منتج "${entry.productName || 'المحدد'}" بكمية (${entry.quantity}) نهائياً.`,
+                              confirmButtonText: 'نعم، حذف السجل',
+                              onConfirm: () => {
+                                deleteSalesEntry(entry.id);
+                                setDeleteConfirmation(null);
+                              }
+                            });
+                          }}
                           className={`p-1 rounded-md transition-colors flex items-center justify-center cursor-pointer ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-900/50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
                           title="حذف السجل"
                         >
@@ -1307,6 +1335,68 @@ export const EntryScreen: React.FC = () => {
                     <button onClick={handleCustomExport} className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-bold">تصدير</button>
                 </div>
             </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal (Centered Modal with Blurred Backdrop) */}
+      {deleteConfirmation && deleteConfirmation.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200"
+          onClick={() => setDeleteConfirmation(null)}
+          dir="rtl"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl border text-center space-y-4 animate-in zoom-in-95 duration-200 ${
+              isDarkMode 
+                ? 'bg-slate-900 border-red-500/40 text-white shadow-red-950/20' 
+                : 'bg-white border-red-200 text-slate-900 shadow-slate-300/50'
+            }`}
+          >
+            {/* Trash Warning Icon */}
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/15 text-red-500 flex items-center justify-center shadow-inner border border-red-500/30">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            {/* Title & Message */}
+            <div className="space-y-1.5">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                {deleteConfirmation.title}
+              </h3>
+              <p className="text-sm sm:text-base font-black text-red-600 dark:text-red-400">
+                {deleteConfirmation.message}
+              </p>
+              {deleteConfirmation.subMessage && (
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 pt-1 leading-relaxed">
+                  {deleteConfirmation.subMessage}
+                </p>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmation(null)}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm border transition-all active:scale-95 cursor-pointer ${
+                  isDarkMode 
+                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' 
+                    : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                إلغاء
+              </button>
+
+              <button
+                type="button"
+                onClick={deleteConfirmation.onConfirm}
+                className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-500 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>{deleteConfirmation.confirmButtonText}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
