@@ -16,32 +16,6 @@ export const RoutesScreen: React.FC = () => {
   const [debts, setDebts] = useState<DebtItem[]>([]);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
-  const [showActivateModal, setShowActivateModal] = useState(false);
-  const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
-
-  const handleConfirmActivation = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    try {
-      for (const [delName, shouldActivate] of Object.entries(selectedActivationDelegates)) {
-        if (shouldActivate) {
-          const docRef = doc(db, 'daily_sales_completion', delName);
-          await setDoc(docRef, {
-            delegate: delName,
-            date: today,
-            completedAt: new Date().toISOString(),
-          }, { merge: true });
-        } else {
-          const docRef = doc(db, 'daily_sales_completion', delName);
-          await deleteDoc(docRef);
-        }
-      }
-      setShowActivateModal(false);
-      addToast?.({ message: 'تم تحديث حالة تفعيل مبيعات المندوبين بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'تفعيل', percentage: 0 });
-    } catch (err) {
-      console.error('Error updating activation:', err);
-      addToast?.({ message: 'حدث خطأ أثناء تحديث التفعيل', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
-    }
-  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -64,44 +38,44 @@ export const RoutesScreen: React.FC = () => {
   }, [currentUser]);
   
   const [selectedDebt, setSelectedDebt] = useState<DebtItem | null>(null);
+  const [debtSearch, setDebtSearch] = useState('');
+  const [selectedDelegateFilter, setSelectedDelegateFilter] = useState<string | null>(null);
 
-  const DebtsTable = () => {
-    const totalDebts = debts.reduce((sum, d) => sum + d.amountDue, 0);
-    const totalCustomers = new Set(debts.map(d => d.customerCode)).size;
-    const [debtSearch, setDebtSearch] = useState('');
-    const [selectedDelegateFilter, setSelectedDelegateFilter] = useState<string | null>(null);
+  const totalDebts = useMemo(() => debts.reduce((sum, d) => sum + d.amountDue, 0), [debts]);
+  const totalCustomers = useMemo(() => new Set(debts.map(d => d.customerCode)).size, [debts]);
 
-    const filteredDebts = useMemo(() => {
-        let result = debts;
-        if (selectedDelegateFilter) {
-            result = result.filter(d => d.delegateCode === selectedDelegateFilter);
-        }
-        return result.filter(d => {
-            const searchLower = debtSearch.toLowerCase();
-            const delegateName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode || '';
-            return d.customerName.toLowerCase().includes(searchLower) ||
-                   d.customerCode.toLowerCase().includes(searchLower) ||
-                   delegateName.toLowerCase().includes(searchLower) ||
-                   d.invoiceDate.toLowerCase().includes(searchLower) ||
-                   d.paymentDueDate.toLowerCase().includes(searchLower);
-        });
-    }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
+  const filteredDebts = useMemo(() => {
+      let result = debts;
+      if (selectedDelegateFilter) {
+          result = result.filter(d => d.delegateCode === selectedDelegateFilter);
+      }
+      return result.filter(d => {
+          const searchLower = debtSearch.toLowerCase();
+          const delegateName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode || '';
+          return (d.customerName || '').toLowerCase().includes(searchLower) ||
+                 (d.customerCode || '').toLowerCase().includes(searchLower) ||
+                 delegateName.toLowerCase().includes(searchLower) ||
+                 (d.invoiceDate || '').toLowerCase().includes(searchLower) ||
+                 (d.paymentDueDate || '').toLowerCase().includes(searchLower);
+      });
+  }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
 
-    const exportToExcel = () => {
-        const worksheet = XLSX.utils.json_to_sheet(debts.map(d => ({
-            'اسم الزبون': d.customerName,
-            'كود الزبون': d.customerCode,
-            'المبلغ': d.amountDue,
-            'كود المندوب': d.delegateCode,
-            'اسم المندوب': delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || '',
-            'تاريخ الفاتورة': d.invoiceDate,
-            'تاريخ السداد': d.paymentDueDate
-        })));
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'الديون');
-        XLSX.writeFile(workbook, 'الديون.xlsx');
-    };
+  const exportDebtsToExcel = () => {
+      const worksheet = XLSX.utils.json_to_sheet(debts.map(d => ({
+          'اسم الزبون': d.customerName,
+          'كود الزبون': d.customerCode,
+          'المبلغ': d.amountDue,
+          'كود المندوب': d.delegateCode,
+          'اسم المندوب': delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || '',
+          'تاريخ الفاتورة': d.invoiceDate,
+          'تاريخ السداد': d.paymentDueDate
+      })));
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'الديون');
+      XLSX.writeFile(workbook, 'الديون.xlsx');
+  };
 
+  const renderDebtsTable = () => {
     return (
       <div className="space-y-4">
         {currentUser?.isAdmin && (
@@ -122,7 +96,7 @@ export const RoutesScreen: React.FC = () => {
               <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg text-center">الديون المستحقة</h3>
               <div className="flex gap-2">
                 {currentUser?.isAdmin && (
-                    <button onClick={exportToExcel} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">تصدير Excel</button>
+                    <button onClick={exportDebtsToExcel} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">تصدير Excel</button>
                 )}
                 {currentUser?.isAdmin && (
                     <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
@@ -137,8 +111,8 @@ export const RoutesScreen: React.FC = () => {
             {currentUser?.isAdmin && (
                 <div className="flex flex-wrap gap-2">
                     <button key="filter-all-delegates" onClick={() => setSelectedDelegateFilter(null)} className={`px-3 py-1 rounded-full text-xs font-bold ${!selectedDelegateFilter ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>الكل</button>
-                    {delegateAccounts.map(d => (
-                        <button key={d.delegateCode} onClick={() => setSelectedDelegateFilter(d.delegateCode)} className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDelegateFilter === d.delegateCode ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>{d.delegateName}</button>
+                    {delegateAccounts.map((d, idx) => (
+                        <button key={d.username || d.delegateCode || `debts-filter-${idx}`} onClick={() => setSelectedDelegateFilter(d.delegateCode || null)} className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDelegateFilter === d.delegateCode ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>{d.delegateName || d.username}</button>
                     ))}
                 </div>
             )}
@@ -152,19 +126,19 @@ export const RoutesScreen: React.FC = () => {
           className={`w-full p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
         />
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <table className="w-full text-[9px] sm:text-[10px] text-right">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+          <table className="w-full min-w-[700px] text-[9px] sm:text-[10px] text-right whitespace-nowrap">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
               <tr>
-                {currentUser?.isAdmin && <th className="px-1 py-1 border-b dark:border-slate-700">المندوب</th>}
-                <th className="px-1 py-1 border-b dark:border-slate-700">الاسم</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">الكود</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">المبلغ</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">ت. الفاتورة</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">ت. السداد</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">مستحقة</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">باقي</th>
-                <th className="px-1 py-1 border-b dark:border-slate-700">تسديد</th>
+                {currentUser?.isAdmin && <th className="px-2 py-2 border-b dark:border-slate-700">المندوب</th>}
+                <th className="px-2 py-2 border-b dark:border-slate-700">الاسم</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">الكود</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">المبلغ</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">ت. الفاتورة</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">ت. السداد</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">مستحقة</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">باقي</th>
+                <th className="px-2 py-2 border-b dark:border-slate-700">تسديد</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -197,19 +171,19 @@ export const RoutesScreen: React.FC = () => {
                 return (
                   <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
                     {currentUser?.isAdmin && (
-                        <td className="px-1 py-1 flex items-center gap-1">
+                        <td className="px-2 py-2 flex items-center gap-1">
                             {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
                             {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
                         </td>
                     )}
-                    <td className="px-1 py-1">{d.customerName}</td>
-                    <td className="px-1 py-1">{d.customerCode}</td>
-                    <td className="px-1 py-1">{d.amountDue.toLocaleString()}</td>
-                    <td className="px-1 py-1">{d.invoiceDate}</td>
-                    <td className="px-1 py-1">{d.paymentDueDate}</td>
-                    <td className="px-1 py-1 text-center">{mustahaqa}</td>
-                    <td className="px-1 py-1 text-center">{baqia}</td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-2">{d.customerName}</td>
+                    <td className="px-2 py-2">{d.customerCode}</td>
+                    <td className="px-2 py-2">{d.amountDue.toLocaleString()}</td>
+                    <td className="px-2 py-2">{d.invoiceDate}</td>
+                    <td className="px-2 py-2">{d.paymentDueDate}</td>
+                    <td className="px-2 py-2 text-center">{mustahaqa}</td>
+                    <td className="px-2 py-2 text-center">{baqia}</td>
+                    <td className="px-2 py-2">
                         <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
                     </td>
                   </tr>
@@ -549,8 +523,8 @@ export const RoutesScreen: React.FC = () => {
               <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
                 <option key="all-delegates" value="">كل المندوبين</option>
                 {delegateAccounts && delegateAccounts.length > 0 ? (
-                  delegateAccounts.map(d => (
-                    <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
+                  delegateAccounts.map((d, idx) => (
+                    <option key={d.username || d.delegateCode || `del-opt-${idx}`} value={d.delegateCode || d.username}>{d.delegateName || d.username}</option>
                   ))
                 ) : (
                   <option key="no-delegates" disabled>لا يوجد مندوبون</option>
@@ -772,60 +746,8 @@ export const RoutesScreen: React.FC = () => {
       )}
 
       <div className="mt-8">
-        <DebtsTable />
+        {renderDebtsTable()}
       </div>
-
-      {currentUser?.isAdmin && (
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => setShowActivateModal(true)}
-            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all"
-          >
-            تفعيل المبيعات
-          </button>
-        </div>
-      )}
-
-      {showActivateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowActivateModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 text-right" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-black text-slate-900 dark:text-white text-center">تفعيل المبيعات للمندوبين</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 text-center">اختر المندوبين المراد إلغاء إكمال مبيعاتهم (إعادة تعيين الزر):</p>
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {delegateAccounts.filter(d => !d.isAdmin).map(d => (
-                <label key={d.delegateName} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!selectedActivationDelegates[d.delegateName]}
-                    onChange={(e) => {
-                      setSelectedActivationDelegates(prev => ({
-                        ...prev,
-                        [d.delegateName]: e.target.checked
-                      }));
-                    }}
-                    className="w-4 h-4 text-emerald-600 rounded"
-                  />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{d.delegateName}</span>
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setShowActivateModal(false)}
-                className="flex-1 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleConfirmActivation}
-                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow"
-              >
-                حفظ وتفعيل
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

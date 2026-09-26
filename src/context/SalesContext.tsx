@@ -154,9 +154,9 @@ interface SalesContextType {
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
-  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry> } | null;
+  prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null;
   showQuickAdd: boolean;
-  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry> } | null) => void;
+  setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null) => void;
   setShowQuickAdd: (show: boolean) => void;
   routes: RouteItem[];
   activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
@@ -228,7 +228,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [targetLockMap, setTargetLockMap] = useState<Record<string, number>>({});
   const [userMessage, setUserMessage] = useState<string | null>(null);
   const [dailyEvaluationsHistory, setDailyEvaluationsHistory] = useState<DailyEvaluationRecord[]>([]);
-  const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة' } | null>(null);
+  const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('reports');

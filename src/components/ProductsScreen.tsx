@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { ProductItem } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle } from 'lucide-react';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
@@ -446,7 +446,56 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   };
 
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showConditionsModal, setShowConditionsModal] = useState(false);
+  const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{ total: number; count: number } | null>(null);
   const [saveSummary, setSaveSummary] = useState<{ total: number, itemCount: number } | null>(null);
+
+  const isEditingInvoice = useMemo(() => {
+    const trimmedCustomerName = customerName.trim();
+    const cCode = String(customerCode || '').trim();
+    return Boolean(
+      prefilledEntryData?.isEditing ||
+      (trimmedCustomerName && rawSavedEntries.some(e => e.customerName.trim() === trimmedCustomerName)) ||
+      (cCode && rawSavedEntries.some(e => e.customerCode && String(e.customerCode).trim() === cCode))
+    );
+  }, [prefilledEntryData, customerName, customerCode, rawSavedEntries]);
+
+  // Current Invoice Totals for the sticky bottom bar and validation
+  const currentInvoiceTotals = useMemo(() => {
+    const entries = Object.entries(selectedQuantities);
+    let totalAmount = 0;
+    let totalWeightKg = 0;
+    let itemCount = 0;
+    const uniqueProducts = new Set<string>();
+
+    for (const [prodId, qtyStr] of entries) {
+      let q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+
+      const unit = entryModes[prodId] || 'piece';
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
+
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      totalAmount += (price * q);
+      itemCount += 1;
+      uniqueProducts.add(prod.productName);
+
+      const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+      const totalW = (q * wGrams) / 1000;
+      totalWeightKg += totalW;
+    }
+
+    return {
+      totalAmount,
+      totalWeightKg,
+      itemCount,
+      uniqueCount: uniqueProducts.size,
+    };
+  }, [selectedQuantities, productsList, entryModes, priceMode]);
 
   const prepareSave = () => {
     setErrorMessage(null);
@@ -461,6 +510,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     
     let total = 0;
     let itemCount = 0;
+    const uniqueProducts = new Set<string>();
 
     for (const [prodId, qtyStr] of entries) {
       let q = parseInt(qtyStr, 10);
@@ -479,6 +529,20 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       const discountedPrice = price;
       total += (discountedPrice * q);
       itemCount += 1;
+      uniqueProducts.add(prod.productName);
+    }
+
+    if (itemCount === 0) {
+      setErrorMessage('تنبيه: لم تقم باختيار أي منتجات لإضافتها للفاتورة!');
+      return;
+    }
+
+    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل
+    if (!isEditingInvoice) {
+      if (total < 25000 || uniqueProducts.size < 3) {
+        setMinInvoiceAlertData({ total, count: uniqueProducts.size });
+        return;
+      }
     }
 
     setSaveSummary({ total, itemCount });
@@ -488,8 +552,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const handleSaveQuickAdd = () => {
     // Re-calculating items for the actual save
     const trimmedCustomerName = customerName.trim();
+    if (!trimmedCustomerName) {
+      setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
+      return;
+    }
+
     const itemsToSave = [];
     const entries = Object.entries(selectedQuantities);
+    let total = 0;
+    const uniqueProducts = new Set<string>();
+
     for (const [prodId, qtyStr] of entries) {
       let q = parseInt(qtyStr, 10);
       if (isNaN(q) || q <= 0) continue;
@@ -502,6 +574,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         q = q * (Number(prod.cartonQuantity) || 1);
       }
       
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      total += (price * q);
+      uniqueProducts.add(prod.productName);
+
       const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
       const pieceWeightKg = wGrams / 1000;
       const totalW = (q * wGrams) / 1000;
@@ -523,18 +599,30 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       });
     }
 
-    if (itemsToSave.length > 0) {
-      saveSalesEntries(itemsToSave);
-      setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
-      setSelectedQuantities({});
-      setCustomerName('');
-      setCustomerCode('');
-      setCustomerAddress('');
-      setErrorMessage(null);
-      setShowQuickAdd(false);
-      setShowConfirmDialog(false);
-      setSaveSummary(null);
+    if (itemsToSave.length === 0) {
+      setErrorMessage('تنبيه: لم تقم باختيار أي منتجات لإضافتها للفاتورة!');
+      return;
     }
+
+    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل
+    if (!isEditingInvoice) {
+      if (total < 25000 || uniqueProducts.size < 3) {
+        setMinInvoiceAlertData({ total, count: uniqueProducts.size });
+        return;
+      }
+    }
+
+    saveSalesEntries(itemsToSave);
+    setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+    setSelectedQuantities({});
+    setCustomerName('');
+    setCustomerCode('');
+    setCustomerAddress('');
+    setErrorMessage(null);
+    setShowQuickAdd(false);
+    setShowConfirmDialog(false);
+    setSaveSummary(null);
+    setPrefilledEntryData(null);
   };
 
   const handleUpdateQuantity = (prodId: string, val: string) => {
@@ -548,45 +636,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300">
+    <div className={`max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300 ${showQuickAdd ? 'pb-32 sm:pb-24' : ''}`}>
       
-      {/* Sticky Header Container */}
-      <div className="sticky top-0 z-40 bg-slate-100/90 dark:bg-emerald-950/90 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 shadow-sm space-y-3">
-        {/* Quick Add Customer Info Box with Price Mode Indicator */}
-        {showQuickAdd && (
-          <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
-                السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
-              </span>
-              <button onClick={() => setShowQuickAdd(false)} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {errorMessage && (
-              <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
-                <span>{errorMessage}</span>
-                <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
-              </div>
-            )}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
-                إضافة سريعة للمنتجات (الزبون: {customerName})
-              </h3>
-              <button
-                onClick={prepareSave}
-                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
-              >
-                حفظ المنتجات
-              </button>
-            </div>
-          </div>
-        )}
-
-
-        {/* Header & Description */}
-        {isAdmin && (
+      {/* Header Container */}
+      {isAdmin && (
+        <div className="bg-slate-100/90 dark:bg-emerald-950/90 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 shadow-sm space-y-3">
+          {/* Header & Description */}
           <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
             isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
           }`}>
@@ -635,16 +690,182 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Search and Discount Bar */}
       
+      {/* Minimum Invoice Alert Modal */}
+      {minInvoiceAlertData && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 animate-in fade-in duration-200"
+          onClick={() => setMinInvoiceAlertData(null)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center shadow-inner">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
+                تنبيه شروط حفظ الفاتورة
+              </h3>
+              <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-relaxed px-2">
+                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 space-y-2 text-right text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">المبلغ الحالي للفاتورة:</span>
+                <span className={`font-black ${minInvoiceAlertData.total < 25000 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.total.toLocaleString()} د.ع (المطلوب: 25,000 د.ع على الأقل)
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">عدد الأصناف المختارة:</span>
+                <span className={`font-black ${minInvoiceAlertData.count < 3 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.count} أصناف (المطلوب: 3 أصناف على الأقل)
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setMinInvoiceAlertData(null)}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
+              >
+                حسناً، فهمت ذلك
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conditions Explanation Modal */}
+      {showConditionsModal && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in duration-200"
+          onClick={() => setShowConditionsModal(false)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border text-right space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2.5 rounded-xl ${isEditingInvoice ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                  <Info className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">حالة الفاتورة وشروط الحفظ</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">توضيح نظام الفواتير الجديدة مقابل التعديل والإضافة</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowConditionsModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg transition-colors"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Selected Customer Status Card */}
+            <div className={`p-3.5 rounded-xl border ${
+              isEditingInvoice 
+                ? 'bg-amber-500/10 border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200' 
+                : 'bg-emerald-500/10 border-emerald-300 dark:border-emerald-700/60 text-emerald-900 dark:text-emerald-200'
+            }`}>
+              <div className="flex items-center gap-2 font-black text-xs sm:text-sm mb-1.5">
+                <span className="text-base">{isEditingInvoice ? '✏️' : '🆕'}</span>
+                <span>الزبون: {customerName.trim() || 'غير محدد حتى الآن'}</span>
+              </div>
+              <div className="text-xs font-bold mb-2">
+                الحالة المطبقة: <span className="underline">{isEditingInvoice ? 'تعديل / إضافة مستثناة من الشروط' : 'فاتورة جديدة خاضعة للشروط'}</span>
+              </div>
+              <p className="text-[11px] sm:text-xs leading-relaxed opacity-90">
+                {isEditingInvoice 
+                  ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
+                  : `هذا الزبون لا يمتلك أي فاتورة مسجلة لليوم الحالي، لذا تُعتبر هذه فاتورة افتتاحية جديدة وتخضع إلزامياً لشرطي الحد الأدنى.`}
+              </p>
+            </div>
+
+            {/* Detailed Conditions Comparison */}
+            <div className="space-y-2.5 text-xs">
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-emerald-600 dark:text-emerald-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                  <span>1. الفاتورة الافتتاحية الجديدة (تخضع للشرطين):</span>
+                </div>
+                <ul className="list-disc list-inside text-slate-600 dark:text-slate-300 pr-2 space-y-1 text-[11px] leading-relaxed">
+                  <li><strong>الحد الأدنى للمبلغ:</strong> لا يقل إجمالي قيمة الفاتورة عن <span className="font-black text-emerald-600 dark:text-emerald-400">25,000 د.ع</span>.</li>
+                  <li><strong>الحد الأدنى للأصناف:</strong> يجب أن تحتوي على <span className="font-black text-emerald-600 dark:text-emerald-400">3 أصناف مختلفة</span> على الأقل.</li>
+                  <li className="text-[10px] text-slate-500 dark:text-slate-400">الهدف: ضمان الكفاءة والجدوى البيعية لزيارة الزبون الأولى.</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-amber-600 dark:text-amber-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                  <span>2. التعديل والإضافة الملحقة (مستثناة بالكامل):</span>
+                </div>
+                <ul className="list-disc list-inside text-slate-600 dark:text-slate-300 pr-2 space-y-1 text-[11px] leading-relaxed">
+                  <li>تُطبّق تلقائياً عند طلب الزبون منتجاً إضافياً لاحقاً أو تعديل كمية مادة.</li>
+                  <li><strong>مستثناة تماماً:</strong> يُسمح بحفظ حتى صنف واحد وبأي مبلغ دون قيود.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button 
+                type="button"
+                onClick={() => setShowConditionsModal(false)}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all active:scale-95"
+              >
+                حسناً، فهمت ذلك
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm Dialog */}
       {showConfirmDialog && saveSummary && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-white'}`}>
-            <h3 className="text-lg font-black mb-4">تأكيد حفظ المنتجات</h3>
+            <h3 className="text-lg font-black mb-3">تأكيد حفظ المنتجات</h3>
+            
+            {/* Status indicator inside confirm modal */}
+            <div className={`p-3 rounded-xl border text-xs font-bold mb-4 flex items-center justify-between gap-2 ${
+              isEditingInvoice 
+                ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200' 
+                : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+            }`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="shrink-0 text-sm">{isEditingInvoice ? '✏️' : '🆕'}</span>
+                <span className="truncate">
+                  {isEditingInvoice ? 'تعديل / ملحق لفاتورة (مستثناة من الشروط)' : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 3 أصناف ✅)'}
+                </span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowConditionsModal(true)} 
+                className="shrink-0 text-[11px] underline font-black text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                توضيح
+              </button>
+            </div>
+
             <div className="space-y-3 mb-6">
               <div className="flex justify-between items-center text-sm font-bold">
                 <span>عدد الأصناف:</span>
@@ -666,10 +887,30 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       {/* Quick Add Customer Info Box */}
       {showQuickAdd && (
         <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
-          <div className="mb-2 flex items-center justify-between">
-            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
-              السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
-            </span>
+          <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+              </span>
+              
+              {/* Clickable Status Badge with Info Icon */}
+              <button
+                type="button"
+                onClick={() => setShowConditionsModal(true)}
+                className={`cursor-pointer px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all shadow-xs ${
+                  isEditingInvoice 
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700' 
+                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700'
+                }`}
+                title="انقر لفتح توضيح شروط الفاتورة"
+              >
+                <span>{isEditingInvoice ? '✏️ تعديل / إضافة (مستثناة من الشروط)' : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 3 أصناف)'}</span>
+                <HelpCircle className="w-3.5 h-3.5 opacity-80" />
+              </button>
+            </div>
+            <button onClick={() => setShowQuickAdd(false)} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200" title="إغلاق">
+              <X className="w-4 h-4" />
+            </button>
           </div>
           {errorMessage && (
             <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
@@ -682,10 +923,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               إضافة سريعة للمنتجات
             </h3>
             <button
-              onClick={handleSaveQuickAdd}
+              onClick={prepareSave}
               className="w-1/2 mx-auto sm:mx-0 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-all active:scale-95"
             >
-              حفظ الفاتورة
+              حفظ المنتجات
             </button>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -1296,6 +1537,65 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 حفظ الصورة
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Bottom Bar for Current Invoice Totals */}
+      {showQuickAdd && (
+        <div className="fixed bottom-[56px] sm:bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t-2 border-emerald-500/40 dark:border-emerald-500/30 shadow-[0_-4px_25px_rgba(0,0,0,0.15)] px-3 sm:px-6 py-2.5 sm:py-3 transition-all">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+            
+            {/* Right side: Current Weight */}
+            <div className="flex items-center gap-2 sm:gap-3 text-right">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 shadow-inner">
+                <Scale className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                  الوزن الحالي للإدخالات
+                </span>
+                <span className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white">
+                  {currentInvoiceTotals.totalWeightKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span className="text-[10px] sm:text-xs font-bold text-slate-500">كغم</span>
+                  {currentInvoiceTotals.totalWeightKg >= 1000 && (
+                    <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold mr-1">
+                      ({(currentInvoiceTotals.totalWeightKg / 1000).toFixed(2)} طن)
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Center: Save Invoice Quick Button & Summary */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={prepareSave}
+                className="px-3.5 sm:px-6 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-black shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                title="معاينة وحفظ الفاتورة"
+              >
+                <span>حفظ الفاتورة</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-700/60 text-[10px] font-bold">
+                  {currentInvoiceTotals.itemCount}
+                </span>
+              </button>
+            </div>
+
+            {/* Left side: Current Total Amount */}
+            <div className="flex items-center gap-2 sm:gap-3 text-left flex-row-reverse sm:flex-row">
+              <div className="flex flex-col text-left">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                  المبلغ الكلي الحالي
+                </span>
+                <span className="text-xs sm:text-sm md:text-base font-black text-emerald-600 dark:text-emerald-400">
+                  {currentInvoiceTotals.totalAmount.toLocaleString()} <span className="text-[10px] sm:text-xs font-bold text-slate-500">د.ع</span>
+                </span>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 shadow-inner">
+                <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+            </div>
+
           </div>
         </div>
       )}

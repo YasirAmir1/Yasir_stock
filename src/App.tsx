@@ -50,6 +50,7 @@ const MainAppContent: React.FC = () => {
     pendingSyncCount,
     activeTab,
     setActiveTab,
+    showQuickAdd,
     setShowQuickAdd,
     delegateAccounts,
   } = useSales();
@@ -169,21 +170,25 @@ const MainAppContent: React.FC = () => {
               
               {/* User Info Card (Mobile Only) */}
               <div
-                className={`sm:hidden px-2.5 py-1 rounded-xl border flex flex-col text-right ${
+                className={`sm:hidden px-2.5 py-1 rounded-xl border flex ${
+                  currentUser.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
+                } ${
                   isDarkMode
                     ? 'bg-slate-800/80 border-slate-700 text-slate-200'
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className="flex flex-col text-right">
+                <div className={`flex flex-col ${currentUser.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
                     <span className="font-extrabold text-xs leading-tight">
                         {currentUser.name}
                     </span>
-                    <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                        {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
-                    </span>
+                    {!currentUser.isAdmin && (
+                      <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                          {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                      </span>
+                    )}
                 </div>
-                {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                {!currentUser.isAdmin && (delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
                     <div className="relative">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
@@ -209,21 +214,25 @@ const MainAppContent: React.FC = () => {
             <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-3 shrink-0 w-full sm:w-auto">
               {/* User Info Card (Desktop Only) */}
               <div
-                className={`hidden sm:flex px-2.5 py-1 rounded-xl border flex-col text-right ${
+                className={`hidden sm:flex px-3 py-1.5 rounded-xl border ${
+                  currentUser.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
+                } ${
                   isDarkMode
                     ? 'bg-slate-800/80 border-slate-700 text-slate-200'
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className="flex flex-col text-right">
-                    <span className="font-extrabold text-xs leading-tight">
+                <div className={`flex flex-col ${currentUser.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
+                    <span className="font-extrabold text-xs sm:text-sm leading-tight">
                         {currentUser.name}
                     </span>
-                    <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                        {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
-                    </span>
+                    {!currentUser.isAdmin && (
+                      <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                          {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                      </span>
+                    )}
                 </div>
-                {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                {!currentUser.isAdmin && (delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
                     <div className="relative">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}

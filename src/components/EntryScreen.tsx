@@ -3,7 +3,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
@@ -119,6 +119,7 @@ export const EntryScreen: React.FC = () => {
 
   // Edit Saved Entry State
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{ total: number; count: number } | null>(null);
   const [editFormData, setEditFormData] = useState<{
     productName: string;
     categoryName: string;
@@ -628,18 +629,26 @@ export const EntryScreen: React.FC = () => {
 
     if (invalidFound) return;
 
-    // Check for minimum amount
-    const totalPrice = itemsToSave.reduce((sum, e) => {
-        const prod = productsList.find(p => p.productName === e.productName);
-        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-        return sum + (price * e.quantity);
-    }, 0);
+    // Check for minimum amount (applied only for new invoices, bypassed when editing or adding to existing invoices)
+    const isEditingInvoice = Boolean(
+      prefilledEntryData?.isEditing ||
+      (trimmedCustomerName && safeSavedEntries.some(e => e.customerName.trim() === trimmedCustomerName)) ||
+      (customerCode && safeSavedEntries.some(e => e.customerCode && String(e.customerCode).trim() === String(customerCode).trim()))
+    );
 
-    const uniqueProductCount = new Set(itemsToSave.map(e => e.productName)).size;
+    if (!isEditingInvoice) {
+      const totalPrice = itemsToSave.reduce((sum, e) => {
+          const prod = productsList.find(p => p.productName === e.productName);
+          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+          return sum + (price * e.quantity);
+      }, 0);
 
-    if (totalPrice < 25000 || uniqueProductCount < 3) {
-        setErrorMessage('تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.');
-        return;
+      const uniqueProductCount = new Set(itemsToSave.map(e => e.productName)).size;
+
+      if (totalPrice < 25000 || uniqueProductCount < 3) {
+          setMinInvoiceAlertData({ total: totalPrice, count: uniqueProductCount });
+          return;
+      }
     }
 
     saveSalesEntries(itemsToSave);
@@ -1009,7 +1018,8 @@ export const EntryScreen: React.FC = () => {
                             customerCode: entries[0].customerCode || '', 
                             customerAddress: entries[0].customerAddress || '',
                             customerInvoiceType: entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد',
-                            lastInvoiceToday: { priceMode: entries[0].priceMode }
+                            lastInvoiceToday: { priceMode: entries[0].priceMode },
+                            isEditing: true
                           });
                           setShowQuickAdd(true);
                           setActiveTab('products');
@@ -1216,6 +1226,59 @@ export const EntryScreen: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Minimum Invoice Alert Modal */}
+      {minInvoiceAlertData && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 animate-in fade-in duration-200"
+          onClick={() => setMinInvoiceAlertData(null)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center shadow-inner">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
+                تنبيه شروط حفظ الفاتورة
+              </h3>
+              <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-relaxed px-2">
+                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 space-y-2 text-right text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">المبلغ الحالي للفاتورة:</span>
+                <span className={`font-black ${minInvoiceAlertData.total < 25000 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.total.toLocaleString()} د.ع (المطلوب: 25,000 د.ع على الأقل)
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">عدد الأصناف المختارة:</span>
+                <span className={`font-black ${minInvoiceAlertData.count < 3 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.count} أصناف (المطلوب: 3 أصناف على الأقل)
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setMinInvoiceAlertData(null)}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
+              >
+                حسناً، فهمت ذلك
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Custom Export Modal */}
       {showCustomExportModal && (
