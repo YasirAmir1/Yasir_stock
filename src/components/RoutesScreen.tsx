@@ -42,6 +42,19 @@ export const RoutesScreen: React.FC = () => {
   const DebtsTable = () => {
     const totalDebts = debts.reduce((sum, d) => sum + d.amountDue, 0);
     const totalCustomers = new Set(debts.map(d => d.customerCode)).size;
+    const [debtSearch, setDebtSearch] = useState('');
+
+    const filteredDebts = useMemo(() => {
+        return debts.filter(d => {
+            const searchLower = debtSearch.toLowerCase();
+            const delegateName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode || '';
+            return d.customerName.toLowerCase().includes(searchLower) ||
+                   d.customerCode.toLowerCase().includes(searchLower) ||
+                   delegateName.toLowerCase().includes(searchLower) ||
+                   d.invoiceDate.toLowerCase().includes(searchLower) ||
+                   d.paymentDueDate.toLowerCase().includes(searchLower);
+        });
+    }, [debts, debtSearch, delegateAccounts]);
 
     return (
       <div className="space-y-4">
@@ -58,16 +71,25 @@ export const RoutesScreen: React.FC = () => {
           </div>
         )}
 
-        <div className="flex justify-between items-center">
-          <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">الديون المستحقة</h3>
+        <div className="flex justify-between items-center gap-2">
+          <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg text-center">الديون المستحقة</h3>
           {currentUser?.isAdmin && (
             <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
               <Upload className="w-4 h-4" />
-              استيراد ديون
+              استيراد
               <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
             </label>
           )}
         </div>
+
+        <input 
+          type="text" 
+          value={debtSearch} 
+          onChange={e => setDebtSearch(e.target.value)} 
+          placeholder="بحث (اسم، كود، مندوب، أو تاريخ)..." 
+          className={`w-full p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+        />
+
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
           <table className="w-full text-[9px] sm:text-[10px] text-right">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
@@ -84,7 +106,7 @@ export const RoutesScreen: React.FC = () => {
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-              {debts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
+              {filteredDebts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
                 const invDate = new Date(d.invoiceDate || Date.now());
                 const payDate = new Date(d.paymentDueDate || Date.now());
                 const now = new Date();
