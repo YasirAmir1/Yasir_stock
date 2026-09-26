@@ -67,6 +67,7 @@ export const RoutesScreen: React.FC = () => {
             'كود الزبون': d.customerCode,
             'المبلغ': d.amountDue,
             'كود المندوب': d.delegateCode,
+            'اسم المندوب': delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || '',
             'تاريخ الفاتورة': d.invoiceDate,
             'تاريخ السداد': d.paymentDueDate
         })));
@@ -109,7 +110,7 @@ export const RoutesScreen: React.FC = () => {
 
             {currentUser?.isAdmin && (
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setSelectedDelegateFilter(null)} className={`px-3 py-1 rounded-full text-xs font-bold ${!selectedDelegateFilter ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>الكل</button>
+                    <button key="filter-all-delegates" onClick={() => setSelectedDelegateFilter(null)} className={`px-3 py-1 rounded-full text-xs font-bold ${!selectedDelegateFilter ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>الكل</button>
                     {delegateAccounts.map(d => (
                         <button key={d.delegateCode} onClick={() => setSelectedDelegateFilter(d.delegateCode)} className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDelegateFilter === d.delegateCode ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>{d.delegateName}</button>
                     ))}
@@ -520,7 +521,7 @@ export const RoutesScreen: React.FC = () => {
           {currentUser?.isAdmin && (
             <>
               <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
-                <option value="">كل المندوبين</option>
+                <option key="all-delegates" value="">كل المندوبين</option>
                 {delegateAccounts && delegateAccounts.length > 0 ? (
                   delegateAccounts.map(d => (
                     <option key={d.delegateCode} value={d.delegateCode}>{d.delegateName}</option>
@@ -529,14 +530,14 @@ export const RoutesScreen: React.FC = () => {
                   <option key="no-delegates" disabled>لا يوجد مندوبون</option>
                 )}
               </select>
-              <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
-                <option value="">كل الأيام</option>
-                <option value="السبت">السبت</option>
-                <option value="الأحد">الأحد</option>
-                <option value="الاثنين">الاثنين</option>
-                <option value="الثلاثاء">الثلاثاء</option>
-                <option value="الاربعاء">الاربعاء</option>
-                <option value="الخميس">الخميس</option>
+              <select key="route-filter-day-select" value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+                <option key="all-days" value="">كل الأيام</option>
+                <option key="day-sat" value="السبت">السبت</option>
+                <option key="day-sun" value="الأحد">الأحد</option>
+                <option key="day-mon" value="الاثنين">الاثنين</option>
+                <option key="day-tue" value="الثلاثاء">الثلاثاء</option>
+                <option key="day-wed" value="الاربعاء">الاربعاء</option>
+                <option key="day-thu" value="الخميس">الخميس</option>
               </select>
             </>
           )}
@@ -595,7 +596,7 @@ export const RoutesScreen: React.FC = () => {
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
-                              {!debts.some(d => String(d.customerCode) === String(r.customerCode)) && (
+                              {!debts.some(d => String(d.customerCode) === String(r.customerCode)) && !completedDelegates[r.delegateName || ''] && (
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
                                   className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}

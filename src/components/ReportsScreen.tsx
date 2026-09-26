@@ -867,7 +867,7 @@ export const ReportsScreen: React.FC = () => {
                         <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
                         <td className="p-2 font-bold">{formatWithCommas(parseFloat(targetWeight.toFixed(1)), true)} كجم</td>
                         <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
-                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-amber-400' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
+                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-red-500' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
                         <td className="p-2 font-extrabold text-indigo-300">{formatWithCommas(totalAmount, true)}</td>
                       </tr>
                     );

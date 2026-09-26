@@ -237,6 +237,7 @@ export const EntryScreen: React.FC = () => {
   };
 
   const activeDelegateName = currentUser?.isAdmin ? selectedDelegate : currentUser?.name;
+  const isRafat = activeDelegateName === 'رأفت جمال';
   const isCompleted = completedDelegates[activeDelegateName || ''] || false;
   
   // حماية آمنة للبحث
@@ -842,7 +843,7 @@ export const EntryScreen: React.FC = () => {
       )}
 
       {/* Daily Stats Summary for Admin */}
-      {currentUser?.isAdmin && (
+      {(currentUser?.isAdmin && !isRafat) && (
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
             <div className="text-[10px] text-slate-400 font-bold">عدد الفواتير اليوم</div>
