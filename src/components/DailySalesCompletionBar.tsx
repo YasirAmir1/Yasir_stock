@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
-import { Check, Clock, CheckCircle2, AlertTriangle, Users } from 'lucide-react';
+import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil } from 'lucide-react';
 
 export const DailySalesCompletionBar: React.FC = () => {
   const {
@@ -27,8 +27,14 @@ export const DailySalesCompletionBar: React.FC = () => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [countdownText, setCountdownText] = useState('00:00:00');
-  const [isPast3PM, setIsPast3PM] = useState(false);
+  const [isPastTargetTime, setIsPastTargetTime] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+
+  // Configurable auto-lock time (default 15:00 / 3:00 PM)
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState('15:00');
+  const [showEditTimeModal, setShowEditTimeModal] = useState(false);
+  const [newTimeInput, setNewTimeInput] = useState('15:00');
+  const [isUpdatingTime, setIsUpdatingTime] = useState(false);
 
   // Determine active delegate
   const activeDelegateName = currentUser?.isAdmin
@@ -64,7 +70,40 @@ export const DailySalesCompletionBar: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Countdown timer calculation to 3:00 PM (Asia/Baghdad)
+  // Real-time listener for configurable auto_lock_time setting
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (docSnap) => {
+        if (docSnap.exists() && docSnap.data()?.time) {
+          const t = docSnap.data().time;
+          setTargetAutoLockTime(t);
+          setNewTimeInput(t);
+        }
+      },
+      (err) => {
+        console.error('Error listening to auto_lock_time:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  const formattedTargetTime = useMemo(() => {
+    try {
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      let h = parseInt(hStr || '15', 10);
+      const m = mStr || '00';
+      const ampm = h >= 12 ? 'م' : 'ص';
+      h = h % 12;
+      h = h ? h : 12;
+      return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+    } catch {
+      return '3:00 م';
+    }
+  }, [targetAutoLockTime]);
+
+  // Countdown timer calculation to targetAutoLockTime (Asia/Baghdad)
   useEffect(() => {
     const calculateCountdown = () => {
       try {
@@ -82,13 +121,17 @@ export const DailySalesCompletionBar: React.FC = () => {
         const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
 
         const currentSeconds = hour * 3600 + minute * 60 + second;
-        const targetSeconds = 15 * 3600; // 3:00 PM = 15:00:00
+
+        const [hStr, mStr] = targetAutoLockTime.split(':');
+        const targetHours = parseInt(hStr || '15', 10);
+        const targetMinutes = parseInt(mStr || '00', 10);
+        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
 
         const diff = targetSeconds - currentSeconds;
         setSecondsRemaining(diff);
 
         if (diff <= 0) {
-          setIsPast3PM(true);
+          setIsPastTargetTime(true);
           setCountdownText('00:00:00');
 
           // Trigger automatic completion only once if not completed yet and Firestore status is loaded
@@ -105,7 +148,7 @@ export const DailySalesCompletionBar: React.FC = () => {
             }
           }
         } else {
-          setIsPast3PM(false);
+          setIsPastTargetTime(false);
           const h = Math.floor(diff / 3600);
           const m = Math.floor((diff % 3600) / 60);
           const s = diff % 60;
@@ -120,7 +163,7 @@ export const DailySalesCompletionBar: React.FC = () => {
     calculateCountdown();
     const interval = setInterval(calculateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [activeDelegateName, completedDelegates, isCompletedLoaded]);
+  }, [activeDelegateName, completedDelegates, isCompletedLoaded, targetAutoLockTime]);
 
   // Today's summary totals for active delegate
   const { totalWeight, totalPrice } = useMemo(() => {
@@ -200,6 +243,33 @@ export const DailySalesCompletionBar: React.FC = () => {
       alert('حدث خطأ أثناء حفظ إنهاء المبيعات. يرجى المحاولة مرة أخرى.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Save configurable auto lock time (Admin Only)
+  const handleSaveAutoLockTime = async () => {
+    if (!newTimeInput || isUpdatingTime) return;
+    setIsUpdatingTime(true);
+    try {
+      await setDoc(doc(db, 'settings', 'auto_lock_time'), {
+        time: newTimeInput,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.name || 'Admin',
+      });
+      addToast({
+        message: `تم تحديث وقت الإغلاق التلقائي بنجاح إلى (${formattedTargetTime}) ✅`,
+        type: 'success',
+        title: 'تحديث التوقيت',
+        percentage: 0,
+        delegateName: currentUser?.name || 'Admin',
+      });
+      setUserMessage(`تم تحديث وقت الإغلاق التلقائي للمبيعات إلى (${newTimeInput}) بنجاح ✅`);
+      setShowEditTimeModal(false);
+    } catch (err) {
+      console.error('Error saving auto lock time:', err);
+      alert('حدث خطأ أثناء حفظ التوقيت الجديد. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsUpdatingTime(false);
     }
   };
 
@@ -289,6 +359,75 @@ export const DailySalesCompletionBar: React.FC = () => {
         </div>
       )}
 
+      {/* Edit Auto Lock Time Modal (Admin Only) */}
+      {showEditTimeModal && currentUser?.isAdmin && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          dir="rtl"
+          onClick={() => !isUpdatingTime && setShowEditTimeModal(false)}
+        >
+          <div
+            className={`w-full max-w-sm rounded-2xl p-5 shadow-2xl border text-right space-y-4 animate-in zoom-in-95 duration-200 ${
+              isDarkMode
+                ? 'bg-slate-900 border-amber-500/40 text-white'
+                : 'bg-white border-amber-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black">تعديل وقت الإغلاق التلقائي للمبيعات</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                  يُطبق فوراً على جميع المندوبين
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-black text-slate-600 dark:text-slate-300">
+                اختر وقت الإغلاق التلقائي الجديد:
+              </label>
+              <input
+                type="time"
+                value={newTimeInput}
+                onChange={(e) => setNewTimeInput(e.target.value)}
+                className={`w-full p-3 rounded-xl border text-base font-black font-mono text-center focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                  isDarkMode
+                    ? 'bg-slate-800 border-slate-700 text-white'
+                    : 'bg-slate-50 border-slate-300 text-slate-900'
+                }`}
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isUpdatingTime}
+                onClick={() => setShowEditTimeModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-black text-xs border transition-colors cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isUpdatingTime}
+                onClick={handleSaveAutoLockTime}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                {isUpdatingTime ? 'جاري الحفظ...' : 'حفظ التوقيت'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* The Split Two-Halves Bar: 50% Button, 50% Countdown on Mobile, Tablet & Desktop */}
       <div className="w-full" dir="rtl">
         <div
@@ -334,11 +473,11 @@ export const DailySalesCompletionBar: React.FC = () => {
               )}
             </div>
 
-            {/* Half 2: Countdown Timer to 3:00 PM (Exactly 50%) */}
+            {/* Half 2: Countdown Timer to Target Time (Exactly 50%) */}
             <div className="w-full flex">
               <div
                 className={`w-full h-11 sm:h-12 px-1.5 sm:px-3 rounded-xl border flex items-center justify-center gap-1 sm:gap-2 transition-all text-center ${
-                  isPast3PM
+                  isPastTargetTime
                     ? 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-400'
                     : secondsRemaining < 1800
                     ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-600 dark:text-rose-400 animate-pulse'
@@ -349,7 +488,7 @@ export const DailySalesCompletionBar: React.FC = () => {
               >
                 <Clock
                   className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
-                    isPast3PM
+                    isPastTargetTime
                       ? 'text-amber-500'
                       : secondsRemaining < 1800
                       ? 'text-rose-500'
@@ -358,14 +497,29 @@ export const DailySalesCompletionBar: React.FC = () => {
                 />
 
                 <div className="flex flex-col sm:flex-row items-center justify-center leading-tight sm:gap-1.5">
-                  <span className="text-[9px] sm:text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
-                    {isPast3PM ? 'إغلاق (3:00 م):' : 'إغلاق تلقائي (3:00 م):'}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] sm:text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
+                      {isPastTargetTime ? `إغلاق (${formattedTargetTime}):` : `إغلاق تلقائي (${formattedTargetTime}):`}
+                    </span>
+                    {currentUser?.isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewTimeInput(targetAutoLockTime);
+                          setShowEditTimeModal(true);
+                        }}
+                        className="p-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 dark:text-amber-400 transition-colors cursor-pointer shrink-0"
+                        title="تعديل وقت الإغلاق التلقائي"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1" dir="ltr">
                     <span className="font-mono font-black text-xs sm:text-sm md:text-base tracking-wider">
                       {countdownText}
                     </span>
-                    {isPast3PM && (
+                    {isPastTargetTime && (
                       <span className="text-[8px] sm:text-[9px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1 py-0.2 rounded" dir="rtl">
                         انتهى
                       </span>

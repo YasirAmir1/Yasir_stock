@@ -168,7 +168,7 @@ interface SalesContextType {
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
 
 export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const todayDateString = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayDateString = new Date().toISOString().split('T')[0];
 
   const [selectedDate, setSelectedDate] = useState<string>(todayDateString);
 

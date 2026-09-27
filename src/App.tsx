@@ -374,8 +374,8 @@ const MainAppContent: React.FC = () => {
 
       {/* Logout Confirmation Modal */}
       {showLogoutModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowLogoutModal(false)}>
-          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`} onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-transparent" onClick={() => setShowLogoutModal(false)}>
+          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ring-1 ring-black/10 dark:ring-white/10 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`} onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3">
               <div className="p-3 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-2xl">
                 <LogOut className="w-6 h-6" />

@@ -94,51 +94,70 @@ const DailyAdminReport: React.FC<{
   salesEntries: any[], 
   productsList: any[], 
   currentUser: any, 
-  reportRef: React.RefObject<HTMLDivElement>,
+  delegatesList?: string[],
+  reportRef?: React.RefObject<HTMLDivElement>,
   isDownloading: string | null,
   setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>,
   completedDelegates: Record<string, boolean>
-}> = ({ salesEntries, productsList, currentUser, reportRef, isDownloading, setIsDownloading, completedDelegates }) => {
+}> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates }) => {
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   const productsReportRef = useRef<HTMLDivElement>(null);
   const categorySummaryReportRef = useRef<HTMLDivElement>(null);
+  const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
   const handleDownload = async () => {
-    if (reportRef.current) {
+    const targetElement = threeTablesCaptureRef.current || (reportRef ? reportRef.current : null);
+    if (targetElement) {
       try {
         setIsDownloading('main');
         await document.fonts.ready;
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        const element = reportRef.current;
-        const canvas = await html2canvas(element, {
+        const canvas = await html2canvas(targetElement, {
           backgroundColor: '#0f172a',
           scale: 2,
           useCORS: true,
           allowTaint: true,
           logging: false,
-          windowWidth: element.scrollWidth,
-          windowHeight: element.scrollHeight,
           onclone: (clonedDoc) => {
-            // Hide export button in cloned document
+            // Hide buttons & export controls
+            const noExportEls = clonedDoc.querySelectorAll('.no-export');
+            noExportEls.forEach(el => {
+              (el as HTMLElement).style.display = 'none';
+            });
             const buttons = clonedDoc.querySelectorAll('button');
             buttons.forEach(btn => {
               if (btn.textContent?.includes('تحميل') || btn.title?.includes('تحميل')) {
                 (btn as HTMLElement).style.display = 'none';
               }
             });
-            const noExportEls = clonedDoc.querySelectorAll('.no-export');
-            noExportEls.forEach(el => {
-              (el as HTMLElement).style.display = 'none';
-            });
-            sanitizeModernColors(clonedDoc, '#0f172a');
+
+            // Expand container to fixed printable width (880px) so mobile screens don't clip the tables
+            const clonedContainer = clonedDoc.getElementById('daily-three-reports-container');
+            if (clonedContainer) {
+              clonedContainer.style.width = '880px';
+              clonedContainer.style.maxWidth = 'none';
+              clonedContainer.style.padding = '20px';
+              clonedContainer.style.boxSizing = 'border-box';
+
+              const scrollContainers = clonedContainer.querySelectorAll('.overflow-x-auto');
+              scrollContainers.forEach(sc => {
+                (sc as HTMLElement).style.overflow = 'visible';
+              });
+
+              const tables = clonedContainer.querySelectorAll('table');
+              tables.forEach(t => {
+                (t as HTMLElement).style.width = '100%';
+                (t as HTMLElement).style.minWidth = '820px';
+              });
+            }
           }
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         const link = document.createElement('a');
-        link.download = `تقرير-شامل-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        link.download = `تقرير-مبيعات-اليوم-الشامل-${today}.jpg`;
         link.href = dataUrl;
         link.click();
       } catch (error) {
