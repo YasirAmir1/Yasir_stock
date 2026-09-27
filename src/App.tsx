@@ -313,8 +313,10 @@ const MainAppContent: React.FC = () => {
                 </button>
               )}
 
-              {/* Admin Button (Placed between Calculator and Theme Toggle) */}
-              {(currentUser.isAdmin || currentUser.name === 'الأدمن') && (
+              {/* Admin Button (Placed between Calculator and Theme Toggle - Hidden for Rafat / Data Entry) */}
+              {(currentUser.isAdmin || currentUser.name === 'الأدمن') &&
+                currentUser.username?.toLowerCase() !== 'rafatdata' &&
+                currentUser.role !== 'dataEntry' && (
                 <button
                   onClick={() => setActiveTab('admin')}
                   className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
@@ -533,7 +535,13 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'reports' && <ReportsScreen />}
         {activeTab === 'evaluations' && <EvaluationsScreen />}
         {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
-        {activeTab === 'admin' && <AdminScreen />}
+        {activeTab === 'admin' && (
+          currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
+            <AdminScreen />
+          ) : (
+            <EntryScreen />
+          )
+        )}
       </main>
 
       {/* Bottom Navigation (Mobile Only) */}

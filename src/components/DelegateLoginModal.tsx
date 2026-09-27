@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useSales } from '../context/SalesContext';
+import { useSales, DEFAULT_DELEGATE_ACCOUNTS_ENTITIES } from '../context/SalesContext';
 import { Lock, User, Key, X } from 'lucide-react';
+import { parseArabicDigits } from '../utils/numberUtils';
 
 interface DelegateLoginModalProps {
   isOpen: boolean;
@@ -8,39 +9,41 @@ interface DelegateLoginModalProps {
 }
 
 export const DelegateLoginModal: React.FC<DelegateLoginModalProps> = ({ isOpen, onClose }) => {
-  const { delegateAccounts, loginAccount } = useSales();
+  const { loginWithCredentials } = useSales();
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const u = usernameInput.trim();
     const p = passwordInput.trim();
 
-    const matched = delegateAccounts.find(
-      (it) =>
-        (it.username.toLowerCase() === u.toLowerCase() ||
-          it.delegateName.toLowerCase() === u.toLowerCase()) &&
-        it.password === p
-    );
+    if (!u || !p) {
+      setLoginError('يرجى كتابة اسم المستخدم والرمز السري');
+      return;
+    }
 
-    if (matched) {
-      loginAccount({
-        name: matched.delegateName,
-        roleName: matched.isAdmin ? 'مدير النظام' : 'مندوب مبيعات',
-        isAdmin: matched.isAdmin,
-        username: matched.username,
-        monthlyTargetKg: matched.monthlyTargetKg,
-      });
-      setUsernameInput('');
-      setPasswordInput('');
-      setLoginError(null);
-      onClose();
-    } else {
-      setLoginError('اسم المستخدم أو الرمز السري غير صحيح');
+    setIsSubmitting(true);
+    setLoginError(null);
+    try {
+      const res = await loginWithCredentials(u, p);
+      if (res.success) {
+        setUsernameInput('');
+        setPasswordInput('');
+        setLoginError(null);
+        onClose();
+      } else {
+        setLoginError(res.error || 'اسم المستخدم أو الرمز السري غير صحيح');
+      }
+    } catch (err) {
+      console.error('Delegate login error:', err);
+      setLoginError('حدث خطأ أثناء الاتصال بقاعدة البيانات.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -119,9 +122,10 @@ export const DelegateLoginModal: React.FC<DelegateLoginModalProps> = ({ isOpen, 
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/40"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 disabled:opacity-70 text-white hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/40"
             >
-              دخول
+              {isSubmitting ? 'جاري التحقق...' : 'دخول'}
             </button>
           </div>
         </form>

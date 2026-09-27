@@ -445,6 +445,17 @@ export const AdminScreen: React.FC = () => {
   const [editingAccountUsername, setEditingAccountUsername] = useState<string | null>(null);
   const [editingIsAdmin, setEditingIsAdmin] = useState(false);
 
+  const rafatCurrentAcc = delegateAccounts.find(d => d.username?.toLowerCase() === 'rafatdata' || d.role === 'dataEntry');
+  const [rafatUsernameInput, setRafatUsernameInput] = useState(rafatCurrentAcc?.username || 'rafatdata');
+  const [rafatPasswordInput, setRafatPasswordInput] = useState(rafatCurrentAcc?.password || '10001');
+
+  useEffect(() => {
+    if (rafatCurrentAcc) {
+      setRafatUsernameInput(rafatCurrentAcc.username);
+      setRafatPasswordInput(rafatCurrentAcc.password);
+    }
+  }, [rafatCurrentAcc?.username, rafatCurrentAcc?.password]);
+
   // Lock status for currently selected delegate
   const lockStatus = selectedAdminDelegate === 'الكل'
     ? { isLocked: false, daysRemaining: 0, setDateStr: '', unlockDateStr: '' }
@@ -1518,39 +1529,57 @@ export const AdminScreen: React.FC = () => {
           <div className="flex gap-2">
             <input 
               type="text" placeholder="اسم المستخدم" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-              value={accountUsernameInput} onChange={e => setAccountUsernameInput(e.target.value)}
+              value={rafatUsernameInput} onChange={e => setRafatUsernameInput(e.target.value)}
             />
             <input 
               type="text" placeholder="كلمة المرور" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-              value={accountPasswordInput} onChange={e => setAccountPasswordInput(e.target.value)}
+              value={rafatPasswordInput} onChange={e => setRafatPasswordInput(e.target.value)}
             />
           </div>
           <button 
             onClick={() => {
-              // Logic to update Rafatdata account details
-              const rafatAcc = delegateAccounts.find(d => d.username === 'Rafatdata');
-              if (rafatAcc) {
-                const updatedRafat = { ...rafatAcc, username: accountUsernameInput, password: accountPasswordInput };
-                saveDelegateAccount(updatedRafat);
-                
-                // If username changed, delete the old one
-                if (rafatAcc.username !== accountUsernameInput) {
-                  deleteDelegateAccount(rafatAcc.username);
-                }
-
-                setSaveFeedbackMessage('تم تحديث بيانات مدخل البيانات بنجاح.');
-                setTimeout(() => setSaveFeedbackMessage(null), 3000);
+              const u = rafatUsernameInput.trim().toLowerCase();
+              const p = rafatPasswordInput.trim();
+              if (!u || !p) {
+                alert('يرجى ملء اسم المستخدم وكلمة المرور لمدخل البيانات');
+                return;
               }
+
+              const rafatAcc = delegateAccounts.find(d => d.username?.toLowerCase() === 'rafatdata' || d.role === 'dataEntry') || {
+                username: 'rafatdata',
+                password: '10001',
+                delegateName: 'رأفت جمال',
+                monthlyTargetKg: 0,
+                isAdmin: true,
+                role: 'dataEntry' as const,
+              };
+
+              const updatedRafat = { 
+                ...rafatAcc, 
+                username: u, 
+                password: p,
+                delegateName: 'رأفت جمال',
+                isAdmin: true,
+                role: 'dataEntry' as const,
+              };
+              saveDelegateAccount(updatedRafat);
+              
+              if (rafatAcc.username && rafatAcc.username.toLowerCase() !== u) {
+                deleteDelegateAccount(rafatAcc.username);
+              }
+
+              setSaveFeedbackMessage('تم تحديث بيانات مدخل البيانات بنجاح.');
+              setTimeout(() => setSaveFeedbackMessage(null), 3000);
             }}
-            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg"
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg cursor-pointer"
           >
             حفظ بيانات مدخل البيانات
           </button>
-          {saveFeedbackMessage && <div className="text-[10px] text-emerald-400 text-center">{saveFeedbackMessage}</div>}
+          {saveFeedbackMessage && <div className="text-[10px] text-emerald-400 text-center font-bold">{saveFeedbackMessage}</div>}
           
           <div className="mt-3 p-3 bg-slate-800 rounded-xl text-[10px] text-slate-400 space-y-1 border border-slate-700">
-              <p>اسم المستخدم: <span className="text-white">{accountUsernameInput}</span></p>
-              <p>كلمة المرور: <span className="text-white">{accountPasswordInput}</span></p>
+              <p>اسم المستخدم: <span className="text-white font-bold">{rafatUsernameInput}</span></p>
+              <p>كلمة المرور: <span className="text-white font-bold">{rafatPasswordInput}</span></p>
           </div>
         </div>
       </div>

@@ -680,36 +680,47 @@ export const EntryScreen: React.FC = () => {
   };
 
 
-    const handleExportCSV = () => {
-        if (safeSavedEntries.length === 0) {
-            window.alert('لا توجد بيانات لتصديرها');
-            return;
-        }
-        
+    const formatEntriesForExport = (entries: typeof safeSavedEntries) => {
         const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
-        
-        // Sort: Delegate Name (ASC), then Customer Code (ASC)
-        const sortedEntries = [...safeSavedEntries].sort((a, b) => {
-            const delegateA = (a.delegateName || 'غير محدد').localeCompare(b.delegateName || 'غير محدد');
-            if (delegateA !== 0) return delegateA;
-            return (a.customerCode || 'بدون كود').localeCompare(b.customerCode || 'بدون كود');
+
+        const getCustomerSortKey = (entry: typeof safeSavedEntries[0]) => {
+            const rawCode = entry.customerCode ? String(entry.customerCode).trim() : '';
+            if (rawCode) return rawCode;
+            const rawName = entry.customerName ? entry.customerName.trim() : '';
+            return rawName || 'بدون كود';
+        };
+
+        // Sort: Delegate Name (ASC Arabic), then Customer Code / Key (ASC Arabic numeric), then timestamp
+        const sortedEntries = [...entries].sort((a, b) => {
+            const delegateA = (a.delegateName || 'غير محدد').trim();
+            const delegateB = (b.delegateName || 'غير محدد').trim();
+            const delCompare = delegateA.localeCompare(delegateB, 'ar');
+            if (delCompare !== 0) return delCompare;
+
+            const keyA = getCustomerSortKey(a);
+            const keyB = getCustomerSortKey(b);
+            const keyCompare = keyA.localeCompare(keyB, 'ar', { numeric: true });
+            if (keyCompare !== 0) return keyCompare;
+
+            return (a.timestamp || 0) - (b.timestamp || 0);
         });
 
         const worksheetData: any[] = [headers];
-        
+
         let lastDelegate = '';
-        let lastCustomerCode = '';
+        let lastCustomerKey = '';
 
         sortedEntries.forEach((entry, index) => {
-            const delegate = entry.delegateName || 'غير محدد';
-            const customerCode = entry.customerCode || 'بدون كود';
+            const delegate = (entry.delegateName || 'غير محدد').trim();
+            const customerKey = getCustomerSortKey(entry);
+            const customerCode = entry.customerCode ? String(entry.customerCode).trim() : 'بدون كود';
 
             // Add separator row for new delegate
             if (index > 0 && delegate !== lastDelegate) {
                 worksheetData.push(Array(headers.length).fill('')); 
             }
             // Add separator row for new customer (grouping by customer code)
-            else if (index > 0 && customerCode !== lastCustomerCode) {
+            else if (index > 0 && customerKey !== lastCustomerKey) {
                 worksheetData.push(Array(headers.length).fill(''));
             }
 
@@ -728,11 +739,20 @@ export const EntryScreen: React.FC = () => {
             ]);
 
             lastDelegate = delegate;
-            lastCustomerCode = customerCode;
+            lastCustomerKey = customerKey;
         });
 
+        return worksheetData;
+    };
+
+    const handleExportCSV = () => {
+        if (safeSavedEntries.length === 0) {
+            window.alert('لا توجد بيانات لتصديرها');
+            return;
+        }
+
+        const worksheetData = formatEntriesForExport(safeSavedEntries);
         const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-        
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
         XLSX.writeFile(workbook, `sales_entries_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -745,26 +765,12 @@ export const EntryScreen: React.FC = () => {
         }
 
         const filtered = safeSavedEntries.filter(e => selectedDelegatesForExport.has(e.delegateName || 'غير محدد'));
-        
-        const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
-        const worksheetData: any[] = [headers];
+        if (filtered.length === 0) {
+            window.alert('لا توجد بيانات للمندوبين المحددين لتصديرها');
+            return;
+        }
 
-        filtered.forEach(entry => {
-            worksheetData.push([
-                entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB') : '',
-                entry.delegateName || 'غير محدد',
-                entry.customerName || 'بدون اسم زبون',
-                entry.customerCode || 'بدون كود',
-                entry.productName,
-                entry.categoryName,
-                getProductCode(entry.productName),
-                entry.quantity.toString(),
-                entry.pieceWeightKg.toString(),
-                entry.totalWeightKg.toString(),
-                entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
-            ]);
-        });
-
+        const worksheetData = formatEntriesForExport(filtered);
         const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesData');
@@ -860,7 +866,7 @@ export const EntryScreen: React.FC = () => {
       )}
 
       {/* Daily Stats Summary for Admin */}
-      {(currentUser?.isAdmin && !isRafat) && (
+      {currentUser?.isAdmin && (
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
             <div className="text-[10px] text-slate-400 font-bold">عدد الفواتير اليوم</div>

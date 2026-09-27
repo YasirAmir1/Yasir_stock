@@ -9,17 +9,27 @@ export const LoginScreen: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usernameInput.trim() || !passwordInput.trim()) {
       setLoginError('يرجى كتابة اسم المستخدم والرمز السري');
       return;
     }
 
-    const res = loginWithCredentials(usernameInput, passwordInput);
-    if (!res.success) {
-      setLoginError(res.error || 'اسم المستخدم أو الرمز السري غير صحيح');
+    setIsSubmitting(true);
+    setLoginError(null);
+    try {
+      const res = await loginWithCredentials(usernameInput, passwordInput);
+      if (!res.success) {
+        setLoginError(res.error || 'اسم المستخدم أو الرمز السري غير صحيح');
+      }
+    } catch (err) {
+      console.error('Error during login:', err);
+      setLoginError('حدث خطأ أثناء الاتصال بقاعدة البيانات. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -163,10 +173,11 @@ export const LoginScreen: React.FC = () => {
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+              disabled={isSubmitting}
+              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-70 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
             >
               <LogIn className="w-5 h-5" />
-              <span>تسجيل الدخول</span>
+              <span>{isSubmitting ? 'جاري التحقق...' : 'تسجيل الدخول'}</span>
             </button>
           </form>
 

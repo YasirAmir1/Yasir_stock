@@ -1266,43 +1266,45 @@ export const ReportsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Sales Daily Completion Card */}
-      <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
-        {showCompletionConfirmModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <div className={`p-5 rounded-2xl shadow-xl w-full max-w-sm border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-              <h2 className={`text-lg font-black mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>تأكيد إنهاء مبيعات اليوم</h2>
-              <p className={`mb-4 text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>هل أنت متأكد من إكمال مبيعات اليوم؟ لا يمكن التراجع عن هذا الإجراء.</p>
-              <div className={`flex flex-col gap-2 p-3 rounded-xl mb-4 text-sm font-black ${isDarkMode ? 'bg-slate-900 text-emerald-300' : 'bg-emerald-50 text-emerald-950'}`}>
-                <div className="flex justify-between">
-                  <span>إجمالي الوزن:</span>
-                  <span>{modalTotalWeight.toFixed(2)} كجم</span>
+      {/* Sales Daily Completion Card - Hidden for Rafat (Data Entry) */}
+      {!(currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry') && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
+          {showCompletionConfirmModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+              <div className={`p-5 rounded-2xl shadow-xl w-full max-w-sm border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                <h2 className={`text-lg font-black mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>تأكيد إنهاء مبيعات اليوم</h2>
+                <p className={`mb-4 text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>هل أنت متأكد من إكمال مبيعات اليوم؟ لا يمكن التراجع عن هذا الإجراء.</p>
+                <div className={`flex flex-col gap-2 p-3 rounded-xl mb-4 text-sm font-black ${isDarkMode ? 'bg-slate-900 text-emerald-300' : 'bg-emerald-50 text-emerald-950'}`}>
+                  <div className="flex justify-between">
+                    <span>إجمالي الوزن:</span>
+                    <span>{modalTotalWeight.toFixed(2)} كجم</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>إجمالي المبلغ:</span>
+                    <span>{formatWithCommas(modalTotalPrice, true)}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span>إجمالي المبلغ:</span>
-                  <span>{formatWithCommas(modalTotalPrice, true)}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowCompletionConfirmModal(false)} className={`flex-1 p-3 rounded-xl font-black text-sm border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`}>إلغاء</button>
+                  <button onClick={handleConfirmCompletion} className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-xl border border-red-800">تأكيد</button>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setShowCompletionConfirmModal(false)} className={`flex-1 p-3 rounded-xl font-black text-sm border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`}>إلغاء</button>
-                <button onClick={handleConfirmCompletion} className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-xl border border-red-800">تأكيد</button>
               </div>
             </div>
-          </div>
-        )}
-        {!completedDelegates[activeDelegateName || ''] && (
-          <button
-            onClick={() => setShowCompletionConfirmModal(true)}
-            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 w-full"
-          >
-            <Check className="w-5 h-5" />
-            <span>لقد أكملت مبيعات اليوم</span>
-          </button>
-        )}
-        {completedDelegates[activeDelegateName || ''] && (
-            <div className="text-emerald-600 font-black text-sm">تم إكمال مبيعات اليوم بنجاح ✅</div>
-        )}
-      </div>
+          )}
+          {!completedDelegates[activeDelegateName || ''] && (
+            <button
+              onClick={() => setShowCompletionConfirmModal(true)}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 w-full"
+            >
+              <Check className="w-5 h-5" />
+              <span>لقد أكملت مبيعات اليوم</span>
+            </button>
+          )}
+          {completedDelegates[activeDelegateName || ''] && (
+              <div className="text-emerald-600 font-black text-sm">تم إكمال مبيعات اليوم بنجاح ✅</div>
+          )}
+        </div>
+      )}
 
       {currentUser?.isAdmin && (
         <div className="mt-4 p-4 bg-slate-900 border border-amber-500/50 rounded-xl text-center space-y-2">

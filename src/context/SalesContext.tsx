@@ -3,6 +3,7 @@ import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, query, wher
 import { db } from '../lib/firebase';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
+import { parseArabicDigits } from '../utils/numberUtils';
 import {
   UserAccount,
   DelegateTarget,
@@ -100,7 +101,7 @@ interface SalesContextType {
   togglePowerSavingMode: () => void;
   setUserMessage: (msg: string | null) => void;
   loginAccount: (acc: UserAccount) => void;
-  loginWithCredentials: (username: string, password: string) => { success: boolean; error?: string };
+  loginWithCredentials: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   setSelectedDelegate: (delName: string) => void;
   setSelectedDate: (dateStr: string) => void;
@@ -241,6 +242,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setRoutes(loaded);
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    // Seed and guarantee rafatdata exists in Firestore
+    const rafatSeed: DelegateAccount = {
+      username: 'rafatdata',
+      password: '10001',
+      delegateName: 'رأفت جمال',
+      monthlyTargetKg: 0,
+      isAdmin: true,
+      role: 'dataEntry',
+    };
+    setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true })
+      .catch((err) => console.error('Failed to seed rafatdata to Firestore:', err));
   }, []);
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
@@ -994,17 +1009,34 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const unsubAccounts = onSnapshot(collection(db, 'delegate_accounts'), (snapshot) => {
       const accs: DelegateAccount[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data() as DelegateAccount;
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as DelegateAccount;
         if (data && data.username) {
           accs.push(data);
         }
       });
-      if (accs.length > 0) {
-        setDelegateAccounts(accs);
+
+      // Merge with default accounts to guarantee accounts like rafatdata and YASIR always exist
+      const mergedAccs = [...accs];
+      DEFAULT_DELEGATE_ACCOUNTS_ENTITIES.forEach((defAcc) => {
+        const exists = mergedAccs.some(
+          (a) => a.username.toLowerCase() === defAcc.username.toLowerCase()
+        );
+        if (!exists) {
+          mergedAccs.push(defAcc);
+          // Persist missing default account to Firestore so it stays synced
+          setDoc(doc(db, 'delegate_accounts', defAcc.username.toLowerCase()), defAcc, { merge: true })
+            .catch((err) => console.error('Failed to sync default account to Firestore:', defAcc.username, err));
+        }
+      });
+
+      if (mergedAccs.length > 0) {
+        setDelegateAccounts(mergedAccs);
       }
     }, (err) => {
       console.error('Accounts listener error:', err);
+      // Fallback to default accounts so delegate data is never broken
+      setDelegateAccounts(prev => prev.length > 0 ? prev : DEFAULT_DELEGATE_ACCOUNTS_ENTITIES);
     });
 
     return () => {
@@ -1160,17 +1192,29 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       { name: 'الأدمن', roleName: 'مدير النظام', isAdmin: true, username: 'YASIR', monthlyTargetKg: 0 },
     ];
 
-    delegateAccounts
-      .filter((a) => !a.isAdmin)
-      .forEach((a) => {
-        accs.push({
-          name: a.delegateName,
-          roleName: 'مندوب مبيعات',
-          isAdmin: false,
-          username: a.username,
-          monthlyTargetKg: a.monthlyTargetKg,
-        });
+    delegateAccounts.forEach((a) => {
+      if (a.username.toLowerCase() === 'yasir') return;
+      accs.push({
+        name: a.delegateName,
+        roleName: a.isAdmin ? (a.role === 'dataEntry' ? 'مدخل بيانات / مدير' : 'مدير النظام') : 'مندوب مبيعات',
+        isAdmin: a.isAdmin,
+        role: a.role,
+        username: a.username,
+        monthlyTargetKg: a.monthlyTargetKg,
+        delegateCode: a.delegateCode,
       });
+    });
+
+    if (!accs.some((a) => a.username?.toLowerCase() === 'rafatdata')) {
+      accs.push({
+        name: 'رأفت جمال',
+        roleName: 'مدخل بيانات / مدير',
+        isAdmin: true,
+        role: 'dataEntry',
+        username: 'rafatdata',
+        monthlyTargetKg: 0,
+      });
+    }
 
     return accs;
   }, [delegateAccounts]);
@@ -1269,39 +1313,101 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUserMessage(`تم تسجيل الدخول بنجاح كـ: ${normalizedAccount.name}`);
   };
 
-  const loginWithCredentials = (
+  const loginWithCredentials = async (
     usernameInput: string,
     passwordInput: string
-  ): { success: boolean; error?: string } => {
+  ): Promise<{ success: boolean; error?: string }> => {
     const u = usernameInput.trim().toLowerCase();
-    const p = passwordInput.trim();
+    const p = parseArabicDigits(passwordInput.trim());
 
-    const matched = delegateAccounts.find(
-      (it) => (it.username.toLowerCase() === u || it.delegateName.toLowerCase() === u) && it.password === p
+    // 1. Check in local delegateAccounts state (normalized Arabic digits)
+    let matched: any = delegateAccounts.find(
+      (it) =>
+        (it.username.toLowerCase() === u || it.delegateName.toLowerCase() === u) &&
+        parseArabicDigits(it.password) === p
     );
 
-    if (matched) {
-      const userAcc: UserAccount = {
-        name: matched.delegateName,
-        roleName: matched.isAdmin ? 'مدير النظام' : 'مندوب مبيعات',
-        isAdmin: matched.isAdmin,
-        username: matched.username,
-        monthlyTargetKg: matched.monthlyTargetKg,
-        delegateCode: matched.delegateCode,
-      };
-      loginAccount(userAcc);
-      return { success: true };
+    // 2. Direct Firestore check to verify live against the database
+    if (!matched) {
+      try {
+        const docRef = doc(db, 'delegate_accounts', u);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data() as DelegateAccount;
+          if (data && parseArabicDigits(data.password) === p) {
+            matched = data;
+          }
+        } else {
+          const q = query(collection(db, 'delegate_accounts'), where('username', '==', u));
+          const querySnap = await getDocs(q);
+          if (!querySnap.empty) {
+            const data = querySnap.docs[0].data() as DelegateAccount;
+            if (data && parseArabicDigits(data.password) === p) {
+              matched = data;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Firestore direct lookup error during login:', err);
+      }
     }
 
-    if (u === 'yasir' && p === '377377') {
-      const adminAcc: UserAccount = {
+    // 3. Fallback check in DEFAULT_DELEGATE_ACCOUNTS_ENTITIES
+    if (!matched) {
+      matched = DEFAULT_DELEGATE_ACCOUNTS_ENTITIES.find(
+        (it) =>
+          (it.username.toLowerCase() === u || it.delegateName.toLowerCase() === u) &&
+          parseArabicDigits(it.password) === p
+      );
+    }
+
+    // 4. Explicit fallback for rafatdata / رأفت جمال (10001)
+    if (
+      !matched &&
+      (u === 'rafatdata' || u === 'رأفت' || u === 'رأفت جمال') &&
+      p === '10001'
+    ) {
+      matched = {
+        username: 'rafatdata',
+        password: '10001',
+        delegateName: 'رأفت جمال',
+        monthlyTargetKg: 0,
+        isAdmin: true,
+        role: 'dataEntry',
+      };
+      setDoc(doc(db, 'delegate_accounts', 'rafatdata'), matched, { merge: true }).catch(console.error);
+    }
+
+    // 5. Explicit fallback for YASIR (377377)
+    if (!matched && u === 'yasir' && p === '377377') {
+      matched = {
         name: 'الأدمن',
         roleName: 'مدير النظام',
         isAdmin: true,
         username: 'YASIR',
         monthlyTargetKg: 0,
       };
-      loginAccount(adminAcc);
+    }
+
+    if (matched) {
+      // Ensure the account is synced to Firestore
+      if (matched.username) {
+        setDoc(doc(db, 'delegate_accounts', matched.username.toLowerCase()), matched, { merge: true })
+          .catch((e) => console.error('Failed to sync account to Firestore:', e));
+      }
+
+      const userAcc: UserAccount = {
+        name: matched.delegateName || matched.name,
+        roleName: matched.isAdmin
+          ? (matched.role === 'dataEntry' ? 'مدخل بيانات / مدير' : 'مدير النظام')
+          : 'مندوب مبيعات',
+        isAdmin: !!matched.isAdmin,
+        role: matched.role,
+        username: matched.username,
+        monthlyTargetKg: matched.monthlyTargetKg || 0,
+        delegateCode: matched.delegateCode,
+      };
+      loginAccount(userAcc);
       return { success: true };
     }
 

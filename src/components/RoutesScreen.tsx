@@ -3,9 +3,31 @@ import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { RouteItem, DebtItem } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getFormattedWeekday } from '../utils/dateUtils';
+
+// Helper for comprehensive Arabic text normalization and digit conversion
+const normalizeArabic = (text: any): string => {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .trim()
+    .toLowerCase()
+    // Replace Arabic-Indic digits with standard digits (e.g. ١٢٣ -> 123)
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    // Remove diacritics / tashkeel
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    // Normalize Alefs
+    .replace(/[أإآٱ]/g, 'ا')
+    // Normalize Ta Marbuta to Ha
+    .replace(/ة/g, 'ه')
+    // Normalize Ya and Alef Maqsura
+    .replace(/[يى]/g, 'ي')
+    // Remove tatweel (kashida)
+    .replace(/ـ/g, '')
+    // Collapse multiple whitespace
+    .replace(/\s+/g, ' ');
+};
 
 export const RoutesScreen: React.FC = () => {
   const salesContext = useSales();
@@ -33,6 +55,8 @@ export const RoutesScreen: React.FC = () => {
       const loaded: DebtItem[] = [];
       snap.forEach(d => loaded.push({id: d.id, ...d.data()} as DebtItem));
       setDebts(loaded);
+    }, (err) => {
+      console.error('Debts listener error:', err);
     });
     return () => unsubDebts();
   }, [currentUser]);
@@ -44,7 +68,7 @@ export const RoutesScreen: React.FC = () => {
   const [debtSearch, setDebtSearch] = useState('');
 
   const handleSavePayment = async () => {
-    if (!paymentModalDebt) return;
+    if (!paymentModalDebt || !currentUser?.isAdmin) return;
     const paidAmount = parseFloat(paymentAmountInput);
     if (isNaN(paidAmount) || paidAmount <= 0) {
       alert('يرجى إدخال مبلغ تسديد صحيح أكبر من الصفر');
@@ -116,31 +140,37 @@ export const RoutesScreen: React.FC = () => {
   const filteredDebts = useMemo(() => {
       let result = debts;
       if (selectedDelegateFilter) {
-          const filterLower = selectedDelegateFilter.toLowerCase();
+          const filterNorm = normalizeArabic(selectedDelegateFilter);
           const targetAcc = delegateAccounts.find(
-            a => (a.delegateCode && a.delegateCode.toLowerCase() === filterLower) ||
-                 (a.username && a.username.toLowerCase() === filterLower) ||
-                 (a.delegateName && a.delegateName.toLowerCase() === filterLower)
+            a => (a.delegateCode && normalizeArabic(a.delegateCode) === filterNorm) ||
+                 (a.username && normalizeArabic(a.username) === filterNorm) ||
+                 (a.delegateName && normalizeArabic(a.delegateName) === filterNorm)
           );
-          const matchCode = targetAcc?.delegateCode?.toLowerCase() || filterLower;
-          const matchUser = targetAcc?.username?.toLowerCase() || filterLower;
-          const matchName = targetAcc?.delegateName?.toLowerCase() || filterLower;
+          const matchCode = targetAcc?.delegateCode ? normalizeArabic(targetAcc.delegateCode) : filterNorm;
+          const matchUser = targetAcc?.username ? normalizeArabic(targetAcc.username) : filterNorm;
+          const matchName = targetAcc?.delegateName ? normalizeArabic(targetAcc.delegateName) : filterNorm;
 
           result = result.filter(d => {
-            const dCode = (d.delegateCode || '').toLowerCase();
-            const dName = (d.delegateName || '').toLowerCase();
-            return dCode === matchCode || dCode === matchUser || dCode === filterLower ||
-                   dName === matchName || dName === matchUser || dName === filterLower;
+            const dCode = normalizeArabic(d.delegateCode);
+            const dName = normalizeArabic(d.delegateName);
+            return dCode === matchCode || dCode === matchUser || dCode === filterNorm ||
+                   dName === matchName || dName === matchUser || dName === filterNorm;
           });
       }
+
+      const q = normalizeArabic(debtSearch);
+      if (!q) return result;
+
       return result.filter(d => {
-          const searchLower = debtSearch.toLowerCase();
           const delegateName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode || '';
-          return (d.customerName || '').toLowerCase().includes(searchLower) ||
-                 (d.customerCode || '').toLowerCase().includes(searchLower) ||
-                 delegateName.toLowerCase().includes(searchLower) ||
-                 (d.invoiceDate || '').toLowerCase().includes(searchLower) ||
-                 (d.paymentDueDate || '').toLowerCase().includes(searchLower);
+          const searchable = [
+            normalizeArabic(d.customerName),
+            normalizeArabic(d.customerCode),
+            normalizeArabic(delegateName),
+            normalizeArabic(d.invoiceDate),
+            normalizeArabic(d.paymentDueDate)
+          ].join(' ');
+          return searchable.includes(q);
       });
   }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
 
@@ -269,7 +299,7 @@ export const RoutesScreen: React.FC = () => {
                 <th className="px-2 py-2 border-b dark:border-slate-700">ت. السداد</th>
                 <th className="px-2 py-2 border-b dark:border-slate-700">مستحقة</th>
                 <th className="px-2 py-2 border-b dark:border-slate-700">باقي</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">تسديد</th>
+                {currentUser?.isAdmin && <th className="px-2 py-2 border-b dark:border-slate-700">تسديد</th>}
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -312,9 +342,11 @@ export const RoutesScreen: React.FC = () => {
                     <td className="px-2 py-2">{d.paymentDueDate}</td>
                     <td className="px-2 py-2 text-center">{mustahaqa}</td>
                     <td className="px-2 py-2 text-center">{baqia}</td>
-                    <td className="px-2 py-2">
-                        <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
-                    </td>
+                    {currentUser?.isAdmin && (
+                      <td className="px-2 py-2">
+                          <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -484,24 +516,30 @@ export const RoutesScreen: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
     
-    let routesQ;
-    if (currentUser.isAdmin) {
-        routesQ = query(collection(db, 'routes'));
-    } else {
-        const delegateName = String(currentUser.name || '').trim();
-        
-        if (delegateName) {
-            routesQ = query(collection(db, 'routes'), where('delegateName', '==', delegateName));
-        } else {
-            setRoutes([]);
-            return;
-        }
-    }
+    // Always load all routes; permissions are granted in rules and delegate filtering is handled securely in memory
+    const routesQ = query(collection(db, 'routes'));
 
     const unsubRoutes = onSnapshot(routesQ, (snap) => {
       const loaded: RouteItem[] = [];
-      snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as RouteItem));
+      snap.forEach(d => {
+        const data = d.data();
+        loaded.push({
+          id: d.id,
+          ...data,
+          customerName: String(data.customerName ?? '').trim(),
+          customerCode: String(data.customerCode ?? '').trim(),
+          customerAddress: String(data.customerAddress ?? '').trim(),
+          customerPhone: data.customerPhone ? String(data.customerPhone).trim() : '',
+          delegateName: String(data.delegateName ?? '').trim(),
+          delegateCode: String(data.delegateCode ?? '').trim(),
+          path: String(data.path ?? '').trim(),
+          customerType: data.customerType || 'مفرد',
+          position: typeof data.position === 'number' ? data.position : 0,
+        } as RouteItem);
+      });
       setRoutes(loaded);
+    }, (err) => {
+      console.error('Routes listener error:', err);
     });
     return () => unsubRoutes();
   }, [currentUser]);
@@ -510,57 +548,110 @@ export const RoutesScreen: React.FC = () => {
   const isCompleted = completedDelegates[currentUser?.name || ''] || false;
 
   const isVisited = React.useCallback((r: RouteItem) => {
-    const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
+    const cCode = String(r.customerCode ?? '').trim();
+    const customerEntries = allSalesEntries.filter(e => String(e.customerCode ?? '').trim() === cCode);
     const todayStr = new Date().toISOString().split('T')[0];
     const hasSale = customerEntries.some(e => e.dateString === todayStr);
-    return hasSale || !!manualVisits[r.customerCode];
+    return hasSale || !!manualVisits[cCode];
   }, [allSalesEntries, manualVisits]);
 
   const filteredRoutes = useMemo(() => {
+    const rawQuery = searchQuery.trim();
+    const normalizedQuery = normalizeArabic(rawQuery);
+    const searchTerms = normalizedQuery.split(' ').filter(Boolean);
+    const isSearching = searchTerms.length > 0;
+
     return routes.filter(r => {
-      // Delegate matching for Admin
+      // 1. Delegate matching
       let delegateMatch = true;
-      if (currentUser?.isAdmin && routeFilterDelegate) {
-        const filterVal = routeFilterDelegate.trim().toLowerCase();
-        
-        const matchedAccount = delegateAccounts.find(
-          a => (a.delegateCode && a.delegateCode.toLowerCase() === filterVal) ||
-               (a.username && a.username.toLowerCase() === filterVal) ||
-               (a.delegateName && a.delegateName.trim().toLowerCase() === filterVal)
-        );
+      if (currentUser?.isAdmin) {
+        if (routeFilterDelegate) {
+          const filterNorm = normalizeArabic(routeFilterDelegate);
+          const rDelName = normalizeArabic(r.delegateName);
+          const rDelCode = normalizeArabic(r.delegateCode);
 
-        const rDelegateName = String(r.delegateName || '').trim().toLowerCase();
-        const rDelegateCode = String(r.delegateCode || '').trim().toLowerCase();
+          const matchedAccount = delegateAccounts.find(
+            a => (a.delegateCode && normalizeArabic(a.delegateCode) === filterNorm) ||
+                 (a.username && normalizeArabic(a.username) === filterNorm) ||
+                 (a.delegateName && normalizeArabic(a.delegateName) === filterNorm)
+          );
 
-        const matchCode = matchedAccount?.delegateCode?.toLowerCase() || '';
-        const matchName = matchedAccount?.delegateName?.trim().toLowerCase() || '';
-        const matchUser = matchedAccount?.username?.toLowerCase() || '';
+          const matchCode = matchedAccount?.delegateCode ? normalizeArabic(matchedAccount.delegateCode) : '';
+          const matchName = matchedAccount?.delegateName ? normalizeArabic(matchedAccount.delegateName) : '';
+          const matchUser = matchedAccount?.username ? normalizeArabic(matchedAccount.username) : '';
 
-        delegateMatch = 
-          (rDelegateName !== '' && (
-            rDelegateName === filterVal ||
-            (matchName !== '' && rDelegateName === matchName) ||
-            (matchUser !== '' && rDelegateName === matchUser) ||
-            rDelegateName.includes(filterVal)
-          )) ||
-          (rDelegateCode !== '' && (
-            rDelegateCode === filterVal ||
-            (matchCode !== '' && rDelegateCode === matchCode) ||
-            (matchUser !== '' && rDelegateCode === matchUser)
-          ));
+          delegateMatch = 
+            (rDelName !== '' && (
+              rDelName === filterNorm ||
+              rDelName.includes(filterNorm) ||
+              filterNorm.includes(rDelName) ||
+              (matchName !== '' && (rDelName === matchName || rDelName.includes(matchName))) ||
+              (matchUser !== '' && (rDelName === matchUser || rDelName.includes(matchUser)))
+            )) ||
+            (rDelCode !== '' && (
+              rDelCode === filterNorm ||
+              rDelCode.includes(filterNorm) ||
+              (matchCode !== '' && (rDelCode === matchCode || rDelCode.includes(matchCode))) ||
+              (matchUser !== '' && (rDelCode === matchUser || rDelCode.includes(matchUser)))
+            ));
+        }
+      } else {
+        // Non-admin delegate: match only their own routes
+        const currentName = normalizeArabic(currentUser?.name);
+        const currentCode = normalizeArabic(currentUser?.delegateCode);
+        const currentUsername = normalizeArabic(currentUser?.username);
+        const rDelName = normalizeArabic(r.delegateName);
+        const rDelCode = normalizeArabic(r.delegateCode);
+
+        delegateMatch = (currentName !== '' && (rDelName.includes(currentName) || currentName.includes(rDelName))) ||
+                        (currentCode !== '' && (rDelCode === currentCode || rDelName.includes(currentCode))) ||
+                        (currentUsername !== '' && (rDelName.includes(currentUsername) || rDelCode === currentUsername));
       }
 
-      const dayMatch = currentUser?.isAdmin
-          ? (routeFilterDay ? r.path?.includes(routeFilterDay) : true)
-          : r.path?.includes(currentDay);
+      if (!delegateMatch) return false;
 
-      const searchMatch = searchQuery 
-        ? ((r.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
-           (r.delegateName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-           (r.customerCode || '').toLowerCase().includes(searchQuery.toLowerCase()))
-        : true;
+      // 2. Day matching
+      let dayMatch = true;
+      if (!isSearching) {
+        if (currentUser?.isAdmin) {
+          if (routeFilterDay) {
+            dayMatch = normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
+          }
+        } else {
+          // For delegate: default view is today's route
+          const normCurrentDay = normalizeArabic(currentDay);
+          const normPath = normalizeArabic(r.path);
+          dayMatch = normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
+        }
+      } else {
+        // When actively searching:
+        // Admin: if a specific day is selected in dropdown, respect it
+        if (currentUser?.isAdmin && routeFilterDay) {
+          dayMatch = normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
+        }
+        // Delegate: search across all days/paths so any customer can be found
+      }
 
-      return delegateMatch && dayMatch && searchMatch;
+      if (!dayMatch) return false;
+
+      // 3. Search matching across customer fields
+      if (isSearching) {
+        const searchableText = [
+          normalizeArabic(r.customerName),
+          normalizeArabic(r.customerCode),
+          normalizeArabic(r.customerAddress),
+          normalizeArabic(r.customerPhone),
+          normalizeArabic(r.path),
+          normalizeArabic(r.delegateName),
+          normalizeArabic(r.delegateCode),
+          normalizeArabic(r.customerType)
+        ].join(' ');
+
+        const matchesAll = searchTerms.every(term => searchableText.includes(term));
+        if (!matchesAll) return false;
+      }
+
+      return true;
     }).sort((a, b) => {
       // Primary: Position (descending, latest moved to top)
       const aPos = a.position || 0;
@@ -721,14 +812,28 @@ export const RoutesScreen: React.FC = () => {
       })()}
       
       {/* Search and Filters */}
-      <div className={`p-3 rounded-xl border flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <input 
-            type="text" 
-            value={searchQuery} 
-            onChange={e => setSearchQuery(e.target.value)} 
-            placeholder="بحث عن زبون..." 
-            className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
-          />
+      <div className={`p-3 rounded-xl border flex flex-col gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
+            <input 
+              type="text" 
+              value={searchQuery} 
+              onChange={e => setSearchQuery(e.target.value)} 
+              placeholder="بحث عن زبون (الاسم، الكود، العنوان، الهاتف، المسار)..." 
+              className={`w-full pr-9 pl-8 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+            />
+            {searchQuery && (
+              <button 
+                type="button" 
+                onClick={() => setSearchQuery('')} 
+                className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold p-0.5"
+                title="مسح البحث"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           {currentUser?.isAdmin && (
             <>
               <select 
@@ -757,20 +862,51 @@ export const RoutesScreen: React.FC = () => {
             </>
           )}
         </div>
+        {searchQuery.trim() && (
+          <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-1">
+            <span>نتائج البحث: تم العثور على {finalRoutes.length} زبون</span>
+            <button 
+              type="button" 
+              onClick={() => setSearchQuery('')}
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
+            >
+              إلغاء البحث
+            </button>
+          </div>
+        )}
+      </div>
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
         <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {finalRoutes.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-slate-500 font-bold">لا توجد محلات مجدولة لهذا اليوم.</td>
+                <td colSpan={6} className="text-center py-10 text-slate-500 font-bold">
+                  {searchQuery.trim() ? (
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Search className="w-8 h-8 text-slate-400" />
+                      <span>لا توجد نتائج مطابقة لبحثك عن "{searchQuery}"</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setSearchQuery('')}
+                        className="text-emerald-600 hover:underline text-xs"
+                      >
+                        مسح البحث وعرض الكل
+                      </button>
+                    </div>
+                  ) : (
+                    'لا توجد محلات مجدولة لهذا اليوم.'
+                  )}
+                </td>
               </tr>
             ) : (
-              Object.entries(finalRoutes.slice(0, displayLimit).reduce((acc, r) => {
-                const day = r.path || 'غير مصنف';
-                if (!acc[day]) acc[day] = [];
-                acc[day].push(r);
-                return acc;
-              }, {} as Record<string, RouteItem[]>))
+              Object.entries(
+                (searchQuery.trim() ? finalRoutes : finalRoutes.slice(0, displayLimit)).reduce((acc, r) => {
+                  const day = r.path || 'غير مصنف';
+                  if (!acc[day]) acc[day] = [];
+                  acc[day].push(r);
+                  return acc;
+                }, {} as Record<string, RouteItem[]>)
+              )
               .sort((a, b) => a[0].localeCompare(b[0])) // Sort paths (days) alphabetically
               .map(([day, dayRoutes]) => (
                 <React.Fragment key={day}>
@@ -783,8 +919,9 @@ export const RoutesScreen: React.FC = () => {
                     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
                     const todayStr = new Date().toISOString().split('T')[0];
                     
-                    const isHidden = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
+                    const isSearching = searchQuery.trim().length > 0;
                     const hasOrderIn12Hours = allSalesEntries.some(e => String(e.customerCode) === String(r.customerCode) && (Date.now() - e.timestamp < 12 * 60 * 60 * 1000));
+                    const isHidden = !isSearching && !currentUser?.isAdmin && hasOrderIn12Hours;
                     
                     const totalWeightToday = customerEntries.filter(e => e.dateString === todayStr).reduce((sum, e) => sum + e.totalWeightKg, 0);
 
@@ -843,7 +980,7 @@ export const RoutesScreen: React.FC = () => {
           </tbody>
         </table>
       </div>
-      {displayLimit < filteredRoutes.length && (
+      {!searchQuery.trim() && displayLimit < finalRoutes.length && (
         <button
           onClick={() => setDisplayLimit(l => l + 20)}
           className="w-full p-3 text-center bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-400 font-black text-xs rounded-xl"
@@ -957,25 +1094,27 @@ export const RoutesScreen: React.FC = () => {
                 >
                     إغلاق
                 </button>
-                <button 
-                    onClick={() => {
-                        const target = selectedDebt;
-                        setSelectedDebt(null);
-                        setPaymentModalDebt(target);
-                        setPaymentAmountInput(target.amountDue.toString());
-                    }}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                    <CreditCard className="w-4 h-4" />
-                    <span>تسديد الدين</span>
-                </button>
+                {currentUser?.isAdmin && (
+                  <button 
+                      onClick={() => {
+                          const target = selectedDebt;
+                          setSelectedDebt(null);
+                          setPaymentModalDebt(target);
+                          setPaymentAmountInput(target.amountDue.toString());
+                      }}
+                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                      <CreditCard className="w-4 h-4" />
+                      <span>تسديد الدين</span>
+                  </button>
+                )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Debt Settlement Modal (Centered with Blurred Backdrop) */}
-      {paymentModalDebt && (
+      {/* Debt Settlement Modal (Centered with Blurred Backdrop) - Admin Only */}
+      {paymentModalDebt && currentUser?.isAdmin && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => !isProcessingPayment && setPaymentModalDebt(null)}
