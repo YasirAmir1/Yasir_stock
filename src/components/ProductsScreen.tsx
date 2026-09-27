@@ -163,6 +163,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [imageUploadError, setImageUploadError] = useState('');
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
+  const isRafat = currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry' || currentUser?.name === 'رأفت جمال';
   const isNewInvoice = !!prefilledEntryData;
 
   const exportProductCardsPdf = () => {
@@ -395,7 +396,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   };
 
   const startEditing = (p: ProductItem) => {
-    if (!isAdmin) return;
+    if (!isAdmin || isRafat) return;
     setEditingId(p.id);
     setEditCategoryName(p.categoryName);
     setEditProductCode(p.productCode);
@@ -657,13 +658,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
             {/* Admin Excel Upload & Add Product Buttons */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={exportProductCardsPdf}
-                className="cursor-pointer px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              >
-                <Package className="w-3 h-3" />
-                <span>تصدير PDF (بطاقات)</span>
-              </button>
+              {!isRafat && (
+                <button
+                  onClick={exportProductCardsPdf}
+                  className="cursor-pointer px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                >
+                  <Package className="w-3 h-3" />
+                  <span>تصدير PDF (بطاقات)</span>
+                </button>
+              )}
+
               <button
                 onClick={() => document.getElementById('excel-upload')?.click()}
                 className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
@@ -673,21 +677,25 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               </button>
               <input id="excel-upload" type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} />
               
-              <button
-                onClick={() => setShowImageUploadModal(true)}
-                className="cursor-pointer px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              >
-                <ImagePlus className="w-3 h-3" />
-                <span>تغيير صورة</span>
-              </button>
+              {!isRafat && (
+                <>
+                  <button
+                    onClick={() => setShowImageUploadModal(true)}
+                    className="cursor-pointer px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                  >
+                    <ImagePlus className="w-3 h-3" />
+                    <span>تغيير صورة</span>
+                  </button>
 
-              <button
-                onClick={addProduct}
-                className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              >
-                <Plus className="w-3 h-3" />
-                <span>إضافة منتج</span>
-              </button>
+                  <button
+                    onClick={addProduct}
+                    className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>إضافة منتج</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1128,7 +1136,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       )}
                     </div>
                     {/* Actions */}
-                    {isAdmin && (
+                    {isAdmin && !isRafat && (
                       <div className="shrink-0">
                         {isEditing ? (
                           <div className="flex items-center gap-1">
@@ -1475,7 +1483,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'
         }`}>
           <span>إجمالي المنتجات: <strong className="text-emerald-500">{filteredProducts.length}</strong></span>
-          {isAdmin && (
+          {isAdmin && !isRafat && (
             <span className="text-amber-500 dark:text-amber-400">✨ يمكنك تعديل أي منتج بالضغط على أيقونة التعديل</span>
           )}
         </div>

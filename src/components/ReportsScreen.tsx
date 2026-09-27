@@ -15,6 +15,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
+import { DailySalesCompletionBar } from './DailySalesCompletionBar';
 
 const sanitizeModernColors = (clonedDoc: Document, fallback: string = '#0f172a') => {
   // Remove external stylesheets that might contain unparseable oklab/oklch
@@ -856,12 +857,23 @@ export const ReportsScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
         
+        {/* Daily Sales Completion Bar (Split into two halves: Button + 3:00 PM Countdown) */}
+        <DailySalesCompletionBar />
+
         {/* Admin Completed Delegates Table */}
         {currentUser.isAdmin && completedDelegatesList.length > 0 && (
           <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-4 text-white shadow-xl space-y-3">
-            <h3 className="text-sm font-black text-amber-400">
-              📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
-            </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-sm font-black text-amber-400">
+                📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
+              </h3>
+              <button
+                onClick={handleOpenActivationModal}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
+              >
+                <span>⚙️ إدارة وتفعيل المبيعات</span>
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-center border-collapse">
                 <thead>
@@ -1265,46 +1277,6 @@ export const ReportsScreen: React.FC = () => {
           </table>
         </div>
       </div>
-
-      {/* Sales Daily Completion Card - Hidden for Rafat (Data Entry) */}
-      {!(currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry') && (
-        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500 rounded-xl p-4 text-center">
-          {showCompletionConfirmModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-              <div className={`p-5 rounded-2xl shadow-xl w-full max-w-sm border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                <h2 className={`text-lg font-black mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>تأكيد إنهاء مبيعات اليوم</h2>
-                <p className={`mb-4 text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>هل أنت متأكد من إكمال مبيعات اليوم؟ لا يمكن التراجع عن هذا الإجراء.</p>
-                <div className={`flex flex-col gap-2 p-3 rounded-xl mb-4 text-sm font-black ${isDarkMode ? 'bg-slate-900 text-emerald-300' : 'bg-emerald-50 text-emerald-950'}`}>
-                  <div className="flex justify-between">
-                    <span>إجمالي الوزن:</span>
-                    <span>{modalTotalWeight.toFixed(2)} كجم</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>إجمالي المبلغ:</span>
-                    <span>{formatWithCommas(modalTotalPrice, true)}</span>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowCompletionConfirmModal(false)} className={`flex-1 p-3 rounded-xl font-black text-sm border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`}>إلغاء</button>
-                  <button onClick={handleConfirmCompletion} className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-xl border border-red-800">تأكيد</button>
-                </div>
-              </div>
-            </div>
-          )}
-          {!completedDelegates[activeDelegateName || ''] && (
-            <button
-              onClick={() => setShowCompletionConfirmModal(true)}
-              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 w-full"
-            >
-              <Check className="w-5 h-5" />
-              <span>لقد أكملت مبيعات اليوم</span>
-            </button>
-          )}
-          {completedDelegates[activeDelegateName || ''] && (
-              <div className="text-emerald-600 font-black text-sm">تم إكمال مبيعات اليوم بنجاح ✅</div>
-          )}
-        </div>
-      )}
 
       {currentUser?.isAdmin && (
         <div className="mt-4 p-4 bg-slate-900 border border-amber-500/50 rounded-xl text-center space-y-2">

@@ -504,7 +504,6 @@ const MainAppContent: React.FC = () => {
         </div>
       </header>
 
-
       {/* Products Under 50% Widget - Visible in Reports Tab Only */}
       {activeTab === 'reports' && <LowAchievementWidget />}
 
