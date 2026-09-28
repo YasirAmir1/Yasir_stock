@@ -107,7 +107,7 @@ const DailyAdminReport: React.FC<{
   const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
   const handleDownload = async () => {
-    const targetElement = threeTablesCaptureRef.current || (reportRef ? reportRef.current : null);
+    const targetElement = threeTablesCaptureRef.current;
     if (targetElement) {
       try {
         setIsDownloading('main');
@@ -122,6 +122,8 @@ const DailyAdminReport: React.FC<{
           allowTaint: true,
           logging: false,
           onclone: (clonedDoc) => {
+            sanitizeModernColors(clonedDoc, '#0f172a');
+
             // Hide buttons & export controls
             const noExportEls = clonedDoc.querySelectorAll('.no-export');
             noExportEls.forEach(el => {
@@ -129,18 +131,18 @@ const DailyAdminReport: React.FC<{
             });
             const buttons = clonedDoc.querySelectorAll('button');
             buttons.forEach(btn => {
-              if (btn.textContent?.includes('تحميل') || btn.title?.includes('تحميل')) {
-                (btn as HTMLElement).style.display = 'none';
-              }
+              (btn as HTMLElement).style.display = 'none';
             });
 
-            // Expand container to fixed printable width (880px) so mobile screens don't clip the tables
+            // Expand container to fixed width (880px) so mobile screens don't clip the tables
             const clonedContainer = clonedDoc.getElementById('daily-three-reports-container');
             if (clonedContainer) {
               clonedContainer.style.width = '880px';
               clonedContainer.style.maxWidth = 'none';
-              clonedContainer.style.padding = '20px';
+              clonedContainer.style.padding = '24px';
               clonedContainer.style.boxSizing = 'border-box';
+              clonedContainer.style.backgroundColor = '#0f172a';
+              clonedContainer.style.borderRadius = '16px';
 
               const scrollContainers = clonedContainer.querySelectorAll('.overflow-x-auto');
               scrollContainers.forEach(sc => {
@@ -150,16 +152,42 @@ const DailyAdminReport: React.FC<{
               const tables = clonedContainer.querySelectorAll('table');
               tables.forEach(t => {
                 (t as HTMLElement).style.width = '100%';
-                (t as HTMLElement).style.minWidth = '820px';
+                (t as HTMLElement).style.minWidth = '800px';
               });
             }
           }
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        const link = document.createElement('a');
-        link.download = `تقرير-مبيعات-اليوم-الشامل-${today}.jpg`;
-        link.href = dataUrl;
-        link.click();
+
+        const fileName = `تقرير-مبيعات-اليوم-(مفرد-وجملة-والكل)-${today}.jpg`;
+
+        // Check if device supports navigator.share with files (mobile WhatsApp sharing)
+        canvas.toBlob(async (blob) => {
+          if (blob && navigator.canShare) {
+            try {
+              const file = new File([blob], fileName, { type: 'image/jpeg' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  files: [file],
+                  title: 'تقرير مبيعات اليوم الشامل',
+                  text: `تقرير مبيعات اليوم (${today}) - جدول المفرد + جدول الجملة + جدول الكل`,
+                });
+                return;
+              }
+            } catch (err: any) {
+              if (err.name === 'AbortError') return; // User closed share dialog
+            }
+          }
+
+          // Fallback to standard anchor file download
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          const link = document.createElement('a');
+          link.download = fileName;
+          link.href = dataUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }, 'image/jpeg', 0.95);
+
       } catch (error) {
         console.error("html2canvas error:", error);
         alert("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
@@ -316,103 +344,144 @@ const DailyAdminReport: React.FC<{
   const totalWholesale = useMemo(() => wholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [wholesaleSales]);
 
   return (
-    <div className="space-y-4 p-4">
-        <div className="space-y-4 p-2 bg-slate-900 rounded-xl" ref={reportRef}>
-            <div className="flex justify-between items-center bg-slate-800 p-3 rounded-xl border border-slate-700">
-                <h3 className="font-extrabold text-white text-sm">التقرير اليومي للمبيعات (مفرد + جملة)</h3>
-                <button onClick={handleDownload} disabled={isDownloading === 'main'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
-                    {isDownloading === 'main' ? (
-                      <span className="animate-spin">⏳</span>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    )}
-                    <span>{isDownloading === 'main' ? 'جاري التحميل...' : 'تحميل التقرير'}</span>
-                </button>
+    <div className="space-y-3 sm:space-y-4 px-0 sm:px-2 py-1.5 sm:py-4 w-full max-w-5xl mx-auto">
+        {/* Three Daily Sales Tables Container for Image Export (Retail + Wholesale + All) */}
+        <div 
+          ref={threeTablesCaptureRef} 
+          id="daily-three-reports-container"
+          className="space-y-3 sm:space-y-4 p-1 sm:p-5 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800 shadow-xl w-full"
+        >
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 bg-slate-800/90 p-1.5 sm:p-4 rounded-xl border border-slate-700 shadow-md">
+                <div>
+                    <h3 className="font-extrabold text-white text-xs sm:text-base flex items-center gap-1.5 sm:gap-2">
+                        <span>📊 تقرير مبيعات اليوم الشامل</span>
+                        <span className="text-[10px] sm:text-[11px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-lg border border-amber-500/30">
+                            مفرد + جملة + الكل
+                        </span>
+                    </h3>
+                    <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold mt-0.5 sm:mt-1">
+                        التاريخ: {today}
+                    </p>
+                </div>
+                <div className="no-export w-full sm:w-auto flex justify-end">
+                    <button 
+                      onClick={handleDownload} 
+                      disabled={isDownloading === 'main'} 
+                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 sm:py-2 sm:px-4 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
+                      title="تحميل تقرير المبيعات (المفرد + الجملة + الكل) كصورة واحدة"
+                    >
+                        {isDownloading === 'main' ? (
+                          <span className="animate-spin">⏳</span>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        )}
+                        <span>{isDownloading === 'main' ? 'جاري إنشاء الصورة...' : 'تحميل التقرير'}</span>
+                    </button>
+                </div>
             </div>
 
-            {/* Retail Sales Table */}
-            <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg">
-            <h3 className="font-bold mb-3 text-emerald-400">جدول مبيعات المفرد (لليوم)</h3>
-            <div className="overflow-x-auto">
-            <table className="w-full text-xs text-center border-collapse">
+            {/* 1. Retail Sales Table */}
+            <div className="bg-slate-800 rounded-xl p-1 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-emerald-400 flex items-center gap-1.5">
+                <span>🛒</span>
+                <span>جدول مبيعات المفرد (لليوم)</span>
+            </h3>
+            <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
                 <thead>
-                    <tr className="border-b border-slate-600 text-slate-400">
-                        <th className="p-2">المندوب</th>
-                        <th className="p-2">عدد الفواتير</th>
-                        <th className="p-2">الوزن (كجم)</th>
-                        <th className="p-2">المبلغ</th>
+                    <tr className="border-b border-slate-600 text-slate-300 bg-slate-900/60 font-bold">
+                        <th className="py-1 px-1 sm:p-2">المندوب</th>
+                        <th className="py-1 px-1 sm:p-2">عدد الفواتير</th>
+                        <th className="py-1 px-1 sm:p-2">الوزن (كجم)</th>
+                        <th className="py-1 px-1 sm:p-2">المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {retailSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
-                            <td className="p-2 font-bold">{s.name}</td>
-                            <td className="p-2">{s.count}</td>
-                            <td className="p-2">{s.weight.toFixed(1)}</td>
-                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
+                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
+                    <tr className="border-t-2 border-emerald-600 bg-slate-900 font-black">
+                        <td className="py-1.5 px-1 sm:p-2 text-emerald-400">إجمالي المفرد</td>
+                        <td className={`py-1.5 px-1 sm:p-2 ${retailSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{retailSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{totalRetail.weight.toFixed(1)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totalRetail.amount, true)}</td>
+                    </tr>
                 </tbody>
             </table>
             </div>
         </div>
 
-        {/* Wholesale Sales Table */}
-        <div className="bg-slate-800 rounded-xl p-4 text-white shadow-lg">
-            <h3 className="font-bold mb-3 text-indigo-400">جدول مبيعات الجملة (لليوم)</h3>
-            <div className="overflow-x-auto">
-            <table className="w-full text-xs text-center border-collapse">
+        {/* 2. Wholesale Sales Table */}
+        <div className="bg-slate-800 rounded-xl p-1 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-indigo-400 flex items-center gap-1.5">
+                <span>📦</span>
+                <span>جدول مبيعات الجملة (لليوم)</span>
+            </h3>
+            <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
                 <thead>
-                    <tr className="border-b border-slate-600 text-slate-400">
-                        <th className="p-2">المندوب</th>
-                        <th className="p-2">عدد الفواتير</th>
-                        <th className="p-2">الوزن (كجم)</th>
-                        <th className="p-2">المبلغ</th>
+                    <tr className="border-b border-slate-600 text-slate-300 bg-slate-900/60 font-bold">
+                        <th className="py-1 px-1 sm:p-2">المندوب</th>
+                        <th className="py-1 px-1 sm:p-2">عدد الفواتير</th>
+                        <th className="py-1 px-1 sm:p-2">الوزن (كجم)</th>
+                        <th className="py-1 px-1 sm:p-2">المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {wholesaleSales.map(s => (
                         <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
-                            <td className="p-2 font-bold">{s.name}</td>
-                            <td className="p-2">{s.count}</td>
-                            <td className="p-2">{s.weight.toFixed(1)}</td>
-                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
+                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
+                    <tr className="border-t-2 border-indigo-600 bg-slate-900 font-black">
+                        <td className="py-1.5 px-1 sm:p-2 text-indigo-400">إجمالي الجملة</td>
+                        <td className={`py-1.5 px-1 sm:p-2 ${wholesaleSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{wholesaleSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{totalWholesale.weight.toFixed(1)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totalWholesale.amount, true)}</td>
+                    </tr>
                 </tbody>
             </table>
             </div>
         </div>
 
-
-
-        {/* All Sales Summary Table */}
-        <div className="bg-amber-900 rounded-xl p-4 text-white shadow-lg">
-            <h3 className="font-bold mb-3 text-amber-400">جدول مبيعات الكل (مفرد + جملة)</h3>
-            <div className="overflow-x-auto">
-            <table className="w-full text-xs text-center border-collapse">
+        {/* 3. All Sales Summary Table */}
+        <div className="bg-amber-950/70 border border-amber-600/60 rounded-xl p-1 sm:p-4 text-white shadow-lg w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-amber-400 flex items-center gap-1.5">
+                <span>🏆</span>
+                <span>جدول مبيعات الكل (مفرد + جملة)</span>
+            </h3>
+            <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
                 <thead>
-                    <tr className="border-b border-amber-700 text-amber-300">
-                        <th className="p-2">المندوب</th>
-                        <th className="p-2">إجمالي الفواتير</th>
-                        <th className="p-2">إجمالي الوزن (كجم)</th>
-                        <th className="p-2">إجمالي المبلغ</th>
+                    <tr className="border-b border-amber-700 text-amber-300 bg-amber-900/40 font-bold">
+                        <th className="py-1 px-1 sm:p-2">المندوب</th>
+                        <th className="py-1 px-1 sm:p-2">إجمالي الفواتير</th>
+                        <th className="py-1 px-1 sm:p-2">إجمالي الوزن (كجم)</th>
+                        <th className="py-1 px-1 sm:p-2">إجمالي المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {allSales.map(s => (
-                        <tr key={s.name} className="border-b border-amber-800 hover:bg-amber-800/50">
-                            <td className={`p-2 font-bold ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
-                            <td className="p-2">{s.count}</td>
-                            <td className="p-2">{s.weight.toFixed(1)}</td>
-                            <td className="p-2">{formatWithCommas(s.amount, true)}</td>
+                        <tr key={s.name} className="border-b border-amber-800/80 hover:bg-amber-800/40">
+                            <td className={`py-1.5 px-1 sm:p-2 font-bold ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
+                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
+                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
-                    <tr className="border-t-2 border-amber-600 bg-amber-950 font-black">
-                        <td className="p-2">الإجمالي الكلي</td>
-                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
-                        <td className="p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
+                    <tr className="border-t-2 border-amber-500 bg-amber-950 font-black text-amber-300">
+                        <td className="py-1.5 px-1 sm:p-2">الإجمالي الكلي</td>
+                        <td className={`py-1.5 px-1 sm:p-2 ${allSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -422,9 +491,9 @@ const DailyAdminReport: React.FC<{
         
         {/* Specific Categories Sales Table & Summary */}
         {currentUser.isAdmin && (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4 w-full">
             {currentUser.isAdmin && (
-            <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg shadow-md transition-all text-xs" title="تحميل التقرير كصورة">
+            <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs cursor-pointer active:scale-95" title="تحميل التقرير كصورة">
                 {isDownloading === 'products' ? (
                   <span className="animate-spin">⏳</span>
                 ) : (
@@ -434,26 +503,27 @@ const DailyAdminReport: React.FC<{
             </button>
             )}
             
-            <div className="space-y-4 bg-slate-900 p-2 rounded-xl" ref={combinedReportRef}>
-                <div className="bg-indigo-900 rounded-xl p-4 text-white">
-                    <h3 className="font-bold mb-2">مبيعات أصناف مختارة (مفرد/جملة)</h3>
-                <table className="w-full text-xs text-center border-collapse">
+            <div className="space-y-3 sm:space-y-4 bg-slate-900 p-1 sm:p-3 rounded-xl w-full" ref={combinedReportRef}>
+                <div className="bg-indigo-900 rounded-xl p-1 sm:p-4 text-white w-full">
+                    <h3 className="font-bold mb-2 text-xs sm:text-sm">مبيعات أصناف مختارة (مفرد/جملة)</h3>
+                <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[340px] sm:min-w-full text-[11px] sm:text-xs text-center border-collapse">
                     <thead>
                         <tr className="border-b border-indigo-700 text-indigo-300">
-                            <th className="p-2" rowSpan={2}>الصنف</th>
-                            <th className="p-2" colSpan={2}>مفرد</th>
-                            <th className="p-2" colSpan={2}>جملة</th>
+                            <th className="py-1 px-1 sm:p-2" rowSpan={2}>الصنف</th>
+                            <th className="py-1 px-1 sm:p-2" colSpan={2}>مفرد</th>
+                            <th className="py-1 px-1 sm:p-2" colSpan={2}>جملة</th>
                         </tr>
                         <tr className="border-b border-indigo-700 text-indigo-400">
-                            <th className="p-1">وزن</th>
-                            <th className="p-1">مبلغ</th>
-                            <th className="p-1">وزن</th>
-                            <th className="p-1">مبلغ</th>
+                            <th className="py-1 px-0.5">وزن</th>
+                            <th className="py-1 px-0.5">مبلغ</th>
+                            <th className="py-1 px-0.5">وزن</th>
+                            <th className="py-1 px-0.5">مبلغ</th>
                         </tr>
                     </thead>
                     <tbody>
                         {(() => {
-                            const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                            const categories = ['صوصج', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
                             const stats = categories.map(catName => {
                                 const getStats = (mode: 'retail' | 'wholesale') => {
                                     const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
@@ -479,19 +549,19 @@ const DailyAdminReport: React.FC<{
                                 <>
                                     {stats.map(s => (
                                         <tr key={s.name} className="border-b border-indigo-800">
-                                            <td className="p-2 font-bold">{s.name}</td>
-                                            <td className="p-2">{s.retail.weight.toFixed(1)}</td>
-                                            <td className="p-2">{formatWithCommas(s.retail.amount, true)}</td>
-                                            <td className="p-2">{s.wholesale.weight.toFixed(1)}</td>
-                                            <td className="p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{s.retail.weight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.retail.amount, true)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{s.wholesale.weight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
                                         </tr>
                                     ))}
                                     <tr className="border-t-2 border-indigo-600 bg-indigo-950 font-black">
-                                        <td className="p-2">General</td>
-                                        <td className="p-2">{totals.retailWeight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(totals.retailAmount, true)}</td>
-                                        <td className="p-2">{totals.wholesaleWeight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">General</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{totals.retailWeight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totals.retailAmount, true)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{totals.wholesaleWeight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
                                     </tr>
                                 </>
                             );
@@ -499,21 +569,23 @@ const DailyAdminReport: React.FC<{
                     </tbody>
                 </table>
                 </div>
+                </div>
 
                 {/* Category Summary Table (Combined) */}
-                <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-white">
-                    <h3 className="font-bold mb-2">مجموع (مفرد + جملة) لكل صنف</h3>
-                <table className="w-full text-xs text-center border-collapse">
+                <div className="bg-slate-800 border border-slate-700 rounded-xl p-1 sm:p-4 text-white w-full">
+                    <h3 className="font-bold mb-2 text-xs sm:text-sm">مجموع (مفرد + جملة) لكل صنف</h3>
+                <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
                     <thead>
                         <tr className="border-b border-slate-700 text-slate-300">
-                            <th className="p-2">الصنف</th>
-                            <th className="p-2">إجمالي الوزن (كجم)</th>
-                            <th className="p-2">إجمالي المبلغ</th>
+                            <th className="py-1 px-1 sm:p-2">الصنف</th>
+                            <th className="py-1 px-1 sm:p-2">إجمالي الوزن (كجم)</th>
+                            <th className="py-1 px-1 sm:p-2">إجمالي المبلغ</th>
                         </tr>
                     </thead>
                     <tbody>
                         {(() => {
-                            const categories = ['صوصج', 'مقرمش', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
+                            const categories = ['صوصج', 'جبن بيتزا', 'بيتزا جاهز وبركر ومقرمش', 'خضراوات مجمدة و فنكر'];
                             const stats = categories.map(catName => {
                                 const getStats = (mode: 'retail' | 'wholesale') => {
                                     const entries = entriesToday.filter(e => e.categoryName === catName && e.priceMode === mode);
@@ -539,15 +611,15 @@ const DailyAdminReport: React.FC<{
                                 <>
                                     {stats.map(s => (
                                         <tr key={s.name} className="border-b border-slate-700">
-                                            <td className="p-2 font-bold">{s.name}</td>
-                                            <td className="p-2">{s.totalWeight.toFixed(1)}</td>
-                                            <td className="p-2">{formatWithCommas(s.totalAmount, true)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{s.totalWeight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.totalAmount, true)}</td>
                                         </tr>
                                     ))}
                                     <tr className="border-t-2 border-slate-600 bg-slate-950 font-black">
-                                        <td className="p-2">General</td>
-                                        <td className="p-2">{grandTotal.weight.toFixed(1)}</td>
-                                        <td className="p-2">{formatWithCommas(grandTotal.amount, true)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">General</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{grandTotal.weight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(grandTotal.amount, true)}</td>
                                     </tr>
                                 </>
                             );
@@ -556,6 +628,7 @@ const DailyAdminReport: React.FC<{
                 </table>
                 </div>
             </div>
+        </div>
         </div>
         )}
     </div>
@@ -874,14 +947,14 @@ export const ReportsScreen: React.FC = () => {
 
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
-      <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900">
+      <div className="px-0 sm:px-3 py-2 sm:p-4 max-w-5xl mx-auto space-y-3 sm:space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900 w-full">
         
         {/* Daily Sales Completion Bar (Split into two halves: Button + 3:00 PM Countdown) */}
         <DailySalesCompletionBar />
 
         {/* Admin Completed Delegates Table */}
         {currentUser.isAdmin && completedDelegatesList.length > 0 && (
-          <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-4 text-white shadow-xl space-y-3">
+          <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-1.5 sm:p-4 text-white shadow-xl space-y-3 w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <h3 className="text-sm font-black text-amber-400">
                 📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
@@ -893,8 +966,8 @@ export const ReportsScreen: React.FC = () => {
                 <span>⚙️ إدارة وتفعيل المبيعات</span>
               </button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-center border-collapse">
+            <div className="overflow-x-auto w-full">
+              <table className="w-full min-w-[540px] text-xs text-center border-collapse">
                 <thead>
                   <tr className="border-b border-slate-700 text-slate-300">
                     <th className="p-2">التسلسل</th>
@@ -944,15 +1017,8 @@ export const ReportsScreen: React.FC = () => {
           </div>
         )}
 
-
-
-      <div ref={reportRef} className="space-y-4 p-2">
-        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} reportRef={reportRef} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} />}
-        
-        {/* The tables are already inside DailyAdminReport, 
-            so we just ensure it is wrapped correctly to be captured. 
-            The current implementation of DailyAdminReport contains all the tables shown in the image.
-        */}
+      <div className="space-y-3 sm:space-y-4 p-0 sm:p-2 w-full">
+        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} />}
       </div>
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
@@ -1073,7 +1139,7 @@ export const ReportsScreen: React.FC = () => {
 
 
       {/* Summary Metrics Banner */}
-      <div className="bg-slate-950 border-2 border-slate-500 rounded-2xl p-4 text-white shadow-xl space-y-3 print:hidden">
+      <div className="bg-slate-950 border-2 border-slate-500 rounded-2xl p-2.5 sm:p-4 text-white shadow-xl space-y-3 print:hidden w-full">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-base sm:text-lg font-black text-white">
             تقرير مبيعات ({activeDelegateName})
@@ -1087,17 +1153,17 @@ export const ReportsScreen: React.FC = () => {
 
         <hr className="border-slate-800" />
 
-        <div className="grid grid-cols-2 gap-3 text-center">
-          <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 text-center">
+          <div className="bg-slate-900/50 p-2 sm:p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي المبيعات اليوم</div>
-            <div className="text-xl sm:text-2xl font-black text-slate-300 mt-1">
+            <div className="text-lg sm:text-2xl font-black text-slate-300 mt-1">
               {formatWithCommas(parseFloat(totalSalesWeight.toFixed(1)), true)} كجم
             </div>
           </div>
 
-          <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+          <div className="bg-slate-900/50 p-2 sm:p-3 rounded-xl border border-slate-800">
             <div className="text-xs font-bold text-slate-300">إجمالي التاركت المطلوب</div>
-            <div className="text-xl sm:text-2xl font-black text-white mt-1">
+            <div className="text-lg sm:text-2xl font-black text-white mt-1">
               {formatWithCommas(parseFloat(totalTargetWeight.toFixed(1)), true)} كجم
             </div>
           </div>
@@ -1115,7 +1181,7 @@ export const ReportsScreen: React.FC = () => {
       </div>
 
       {/* Total Saved Weight Summary Card */}
-      <div className="bg-white border-2 border-emerald-600 rounded-xl p-4 shadow-md text-center space-y-3">
+      <div className="bg-white border-2 border-emerald-600 rounded-xl p-2.5 sm:p-4 shadow-md text-center space-y-3 w-full">
         <h2 className="font-extrabold text-slate-900 text-base flex items-center justify-center gap-2">
           مجموع وزن إدخالات ({activeDelegateName})
         </h2>
@@ -1219,29 +1285,29 @@ export const ReportsScreen: React.FC = () => {
       */}
 
       {/* Category Reports Table */}
-      <div className="bg-white border-2 border-slate-600 rounded-2xl overflow-hidden shadow-xl space-y-0">
-        <div className="bg-slate-950 p-3.5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+      <div className="bg-white border-2 border-slate-600 rounded-2xl overflow-hidden shadow-xl space-y-0 w-full">
+        <div className="bg-slate-950 p-2.5 sm:p-3.5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
           <div>
-            <h3 className="font-extrabold text-white text-sm sm:text-base">
+            <h3 className="font-extrabold text-white text-xs sm:text-base">
               تفاصيل المبيعات والتاركت حسب الأصناف (16 صنف)
             </h3>
-            <p className="text-[11px] text-emerald-300/90 font-bold mt-0.5">
+            <p className="text-[10px] sm:text-[11px] text-emerald-300/90 font-bold mt-0.5">
               مرتبة تصاعدياً من الأصناف الأقل تحقيقاً (0%) إلى الأعلى إنجازاً (100%)
             </p>
           </div>
-          <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 px-2.5 py-1 rounded-lg border border-emerald-700/50">
+          <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-emerald-700/50">
             {achievedCategories.length} أصناف محققة
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse text-xs">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full min-w-[340px] sm:min-w-full text-right border-collapse text-xs">
             <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
               <tr>
-                <th className="py-3 px-3 w-[33%]">الصنف</th>
-                <th className="py-3 px-3 text-center w-[20%]">المبيعات (كجم)</th>
-                <th className="py-3 px-3 text-center w-[20%]">التاركت (كجم)</th>
-                <th className="py-3 px-3 text-center w-[27%]">نسبة الإنجاز %</th>
+                <th className="py-2.5 sm:py-3 px-1.5 sm:px-3 w-[33%]">الصنف</th>
+                <th className="py-2.5 sm:py-3 px-1 sm:px-3 text-center w-[20%]">المبيعات (كجم)</th>
+                <th className="py-2.5 sm:py-3 px-1 sm:px-3 text-center w-[20%]">التاركت (كجم)</th>
+                <th className="py-2.5 sm:py-3 px-1.5 sm:px-3 text-center w-[27%]">نسبة الإنجاز %</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
@@ -1250,25 +1316,25 @@ export const ReportsScreen: React.FC = () => {
                   key={item.categoryName}
                   className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}
                 >
-                  <td className="py-3 px-3 font-bold">
+                  <td className="py-2.5 sm:py-3 px-1.5 sm:px-3 font-bold">
                     <div className="flex items-center gap-1.5">
                       <span>{item.categoryName}</span>
                       {item.isAchieved && (
-                        <span className="px-2 py-0.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-full shadow-sm">
+                        <span className="px-1.5 py-0.5 bg-amber-400 text-slate-950 font-black text-[9px] sm:text-[10px] rounded-full shadow-sm">
                           🏆 100%
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-center font-extrabold text-sm">
+                  <td className="py-2.5 sm:py-3 px-1 sm:px-3 text-center font-extrabold text-xs sm:text-sm">
                     {formatWithCommas(parseFloat(item.dailySalesWeightKg.toFixed(1)), true)}
                   </td>
-                  <td className="py-3 px-3 text-center font-bold text-sm">
+                  <td className="py-2.5 sm:py-3 px-1 sm:px-3 text-center font-bold text-xs sm:text-sm">
                     {formatWithCommas(parseFloat(item.dailyTargetWeightKg.toFixed(1)), true)}
                   </td>
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-2.5 sm:py-3 px-1.5 sm:px-3 text-center">
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[11px] font-bold">
+                      <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold">
                         <span>{item.percentage.toFixed(0)}%</span>
                         {item.isAchieved ? (
                           <span className="text-emerald-500 flex items-center gap-0.5">

@@ -2,11 +2,33 @@ import React, { useState, useEffect } from 'react';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
-export const UnreadBadge: React.FC<{ delegateName: string }> = ({ delegateName }) => {
+export const UnreadBadge: React.FC<{ delegateName: string; isAdmin?: boolean; role?: string }> = ({ delegateName, isAdmin, role }) => {
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const isAdminOrDataEntry = Boolean(isAdmin || role === 'dataEntry' || delegateName === 'الأدمن' || delegateName?.includes('مدخل'));
 
   useEffect(() => {
     if (!delegateName) return;
+
+    if (isAdminOrDataEntry) {
+      let alertsCount = 0;
+      let notesCount = 0;
+
+      const unsubAlerts = onSnapshot(collection(db, 'admin_data_entry_alerts'), (snap) => {
+        alertsCount = snap.size;
+        setUnreadCount(alertsCount + notesCount);
+      });
+
+      const unsubNotes = onSnapshot(collection(db, 'admin_data_entry_notes'), (snap) => {
+        notesCount = snap.size;
+        setUnreadCount(alertsCount + notesCount);
+      });
+
+      return () => {
+        unsubAlerts();
+        unsubNotes();
+      };
+    }
 
     let notifs: any[] = [];
     let reads: Record<string, number> = {};
@@ -69,12 +91,12 @@ export const UnreadBadge: React.FC<{ delegateName: string }> = ({ delegateName }
       unsubTask();
       unsubTaskRead();
     };
-  }, [delegateName]);
+  }, [delegateName, isAdminOrDataEntry]);
 
   if (unreadCount === 0) return null;
 
   return (
-    <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full shadow-sm animate-pulse">
+    <div className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 bg-red-500 text-white text-[7px] sm:text-[9px] font-black w-3 h-3 sm:w-4 sm:h-4 flex items-center justify-center rounded-full shadow-sm animate-pulse pointer-events-none">
       {unreadCount > 9 ? '9+' : unreadCount}
     </div>
   );

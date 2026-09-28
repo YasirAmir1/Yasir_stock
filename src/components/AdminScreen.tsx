@@ -7,6 +7,7 @@ import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, delete
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import { CollapsibleCard } from './admin/CollapsibleCard';
+import { showConfirm } from '../utils/dialogService';
 import {
   Lock,
   Unlock,
@@ -136,7 +137,7 @@ export const AdminScreen: React.FC = () => {
   }, [allSalesEntries]);
 
   const handleResetAllInvoices = async () => {
-    if (!window.confirm("هل أنت متأكد من تصفير فواتير جميع المندوبين لهذا الشهر؟ هذه العملية غير قابلة للتراجع.")) return;
+    if (!(await showConfirm("هل أنت متأكد من تصفير فواتير جميع المندوبين لهذا الشهر؟ هذه العملية غير قابلة للتراجع."))) return;
 
     setBackupStatusMsg('جاري تصفير الفواتير...');
     try {
@@ -299,7 +300,7 @@ export const AdminScreen: React.FC = () => {
   };
 
   const handleDeleteDebt = async (debtId: string) => {
-    if (!window.confirm("هل أنت متأكد من حذف هذا الدين؟")) return;
+    if (!(await showConfirm("هل أنت متأكد من حذف هذا الدين؟"))) return;
     try {
       await deleteDoc(doc(db, 'debts', debtId));
     } catch (err) {
@@ -1145,8 +1146,8 @@ export const AdminScreen: React.FC = () => {
             {editingAccountUsername && (
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm('هل أنت متأكد من حذف حساب المندوب هذا تماماً من النظام؟')) {
+                onClick={async () => {
+                  if (await showConfirm('هل أنت متأكد من حذف حساب المندوب هذا تماماً من النظام؟')) {
                     deleteDelegateAccount(editingAccountUsername);
                     handleCancelEditAccount();
                   }
@@ -1208,7 +1209,7 @@ export const AdminScreen: React.FC = () => {
                   {!acc.isAdmin && (
                     <button
                       type="button"
-                      onClick={() => { if(window.confirm('هل أنت متأكد من حذف حساب المندوب هذا؟')) deleteDelegateAccount(acc.username) }}
+                      onClick={async () => { if(await showConfirm('هل أنت متأكد من حذف حساب المندوب هذا؟')) deleteDelegateAccount(acc.username) }}
                       className="px-2 py-1 bg-red-950/60 text-red-300 hover:bg-red-900 border border-red-800 rounded-lg text-[11px] font-bold transition-colors"
                     >
                       حذف
@@ -1277,7 +1278,7 @@ export const AdminScreen: React.FC = () => {
         
         <button
           onClick={async () => {
-            if (!window.confirm("هل أنت متأكد من أرشفة الفواتير التي مر عليها أكثر من شهر؟")) return;
+            if (!(await showConfirm("هل أنت متأكد من أرشفة الفواتير التي مر عليها أكثر من شهر؟"))) return;
             setBackupStatusMsg('جاري أرشفة الفواتير...');
             try {
               const oneMonthAgo = new Date();
@@ -1874,7 +1875,7 @@ export const AdminScreen: React.FC = () => {
                             alert('تم التحديث');
                         }} className="text-emerald-300 font-bold">حفظ</button>
                         <button onClick={async() => {
-                            if(window.confirm('هل أنت متأكد من الحذف؟')) await deleteDoc(doc(db, 'debts', d.id));
+                            if(await showConfirm('هل أنت متأكد من الحذف؟')) await deleteDoc(doc(db, 'debts', d.id));
                         }} className="text-red-300 font-bold">حذف</button>
                     </td>
                   </tr>
@@ -1923,7 +1924,7 @@ export const AdminScreen: React.FC = () => {
         </div>
         <button
           onClick={async () => {
-            if (window.confirm('هل تريد حذف المندوب القديم (del6) نهائياً من قاعدة البيانات؟')) {
+            if (await showConfirm('هل تريد حذف المندوب القديم (del6) نهائياً من قاعدة البيانات؟')) {
               try {
                 await deleteDoc(doc(db, 'delegate_accounts', 'del6'));
                 alert('تم حذف البيانات القديمة بنجاح!');

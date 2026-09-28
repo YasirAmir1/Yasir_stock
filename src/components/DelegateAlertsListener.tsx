@@ -15,11 +15,32 @@ export const DelegateAlertsListener: React.FC = () => {
   const { currentUser } = useSales();
   const [activeAlerts, setActiveAlerts] = useState<AlertData[]>([]);
 
+  const isAdminOrDataEntry = Boolean(
+    currentUser?.isAdmin ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.name === 'الأدمن' ||
+    currentUser?.name?.includes('مدخل')
+  );
+
   useEffect(() => {
     if (!currentUser) return;
 
     let unsub: () => void;
-    if (!currentUser.isAdmin) {
+    if (isAdminOrDataEntry) {
+      const alertsQ = collection(db, 'admin_data_entry_alerts');
+      unsub = onSnapshot(alertsQ, (snap) => {
+        const loaded: AlertData[] = [];
+        snap.forEach(d => {
+          const data = d.data() as AlertData;
+          if (!data.notified) {
+            loaded.push({ ...data, id: d.id });
+          }
+        });
+        setActiveAlerts(loaded);
+      });
+    } else {
       const delegateName = currentUser.name;
       const alertsQ = query(collection(db, 'delegate_alerts'), where('delegateName', '==', delegateName));
       unsub = onSnapshot(alertsQ, (snap) => {
@@ -59,7 +80,7 @@ export const DelegateAlertsListener: React.FC = () => {
       if (unsub) unsub();
       clearInterval(interval);
     };
-  }, [currentUser]);
+  }, [currentUser, isAdminOrDataEntry]);
 
   useEffect(() => {
     if (activeAlerts.length === 0) return;
@@ -69,7 +90,11 @@ export const DelegateAlertsListener: React.FC = () => {
         if (now >= alertItem.targetTime) {
            alert(`تنبيه جديد: ${alertItem.note}`);
            try {
-             await updateDoc(doc(db, 'delegate_alerts', alertItem.id), { notified: true });
+             if (isAdminOrDataEntry) {
+               await updateDoc(doc(db, 'admin_data_entry_alerts', alertItem.id), { notified: true });
+             } else {
+               await updateDoc(doc(db, 'delegate_alerts', alertItem.id), { notified: true });
+             }
            } catch (e) {
              console.error('Error updating alert status:', e);
            }
@@ -79,7 +104,7 @@ export const DelegateAlertsListener: React.FC = () => {
     checkAlerts();
     const interval = setInterval(checkAlerts, 30000);
     return () => clearInterval(interval);
-  }, [activeAlerts]);
+  }, [activeAlerts, isAdminOrDataEntry]);
 
   return null;
 };

@@ -17,6 +17,8 @@ import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
 import { RoutesScreen } from './components/RoutesScreen';
 import { BottomNav } from './components/BottomNav';
+import { GlobalDialogModal } from './components/GlobalDialogModal';
+import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
   FileText,
@@ -35,6 +37,7 @@ import {
   Type,
   User,
   MapPin,
+  Bell,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -211,7 +214,7 @@ const MainAppContent: React.FC = () => {
             </div>
 
             {/* Buttons Group & Desktop User Profile Info */}
-            <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-3 shrink-0 w-full sm:w-auto">
+            <div className="flex items-center justify-center sm:justify-end gap-1 sm:gap-2.5 shrink-0 w-full sm:w-auto">
               {/* User Info Card (Desktop Only) */}
               <div
                 className={`hidden sm:flex px-3 py-1.5 rounded-xl border ${
@@ -254,24 +257,22 @@ const MainAppContent: React.FC = () => {
                 </div>
               </div>
 
-              {/* Delegate Button */}
-              {!currentUser.isAdmin && (
-                <button
-                  onClick={() => setShowDelegateModal(true)}
-                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
-                    isDarkMode
-                      ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
-                      : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
-                  }`}
-                  title="لوحة المندوب"
-                >
-                  <div className="relative">
-                    <User className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <UnreadBadge delegateName={currentUser.name} />
-                  </div>
-                  <span className="text-[9px] sm:text-[11px] leading-tight">اشعارات</span>
-                </button>
-              )}
+              {/* Notification Button (Available for Admin, Data Entry, and Delegates) - Ultra compact on mobile */}
+              <button
+                onClick={() => setShowDelegateModal(true)}
+                className={`py-1 px-1 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl border font-black text-[7.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[32px] sm:min-w-[60px] shrink-0 cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
+                    : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
+                }`}
+                title="لوحة الإشعارات والتنبيهات"
+              >
+                <div className="relative flex items-center justify-center">
+                  <Bell className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} />
+                </div>
+                <span className="text-[7.5px] sm:text-[11px] leading-tight">اشعارات</span>
+              </button>
 
               {/* Calculator Button */}
               <button
@@ -568,6 +569,7 @@ export const App: React.FC = () => {
   return (
     <SalesProvider>
       <MainAppContent />
+      <GlobalDialogModal />
     </SalesProvider>
   );
 };

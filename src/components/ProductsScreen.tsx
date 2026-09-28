@@ -4,6 +4,7 @@ import { ProductItem } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import { showConfirm } from '../utils/dialogService';
 
 const getAvatarProps = (name: string) => {
   const colors = [
@@ -1158,8 +1159,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         ) : (
                           <div className="flex items-center gap-1">
                             <button
-                              onClick={() => {
-                                if(window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+                              onClick={async () => {
+                                if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
                                   deleteProduct(prod.id);
                                 }
                               }}
@@ -1338,34 +1339,52 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   {!isEditing && showQuickAdd && (
                     <div className="mt-0.5 flex items-center gap-2">
                       {addingQuantityId === prod.id ? (
-                        <div className="grid grid-cols-5 gap-1 w-full bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                          <input
-                            type="number"
-                            min="1"
-                            placeholder="العدد"
-                            value={selectedQuantities[prod.id] || ''}
-                            onChange={(e) => handleUpdateQuantity(prod.id, e.target.value)}
-                            className="col-span-3 w-full px-2 py-1 text-xs font-bold rounded-md border border-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:scale-105 transition-all text-center shadow-sm focus:shadow-emerald-500/30"
-                            autoFocus
-                          />
+                        <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                          {/* عمود إدخال العدد وفوقه زر التبديل بين قطعة وكارتون - أوسع وأطول */}
+                          <div className="col-span-5 flex flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEntryModes(prev => ({...prev, [prod.id]: prev[prod.id] === 'carton' ? 'piece' : 'carton'}));
+                              }}
+                              className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
+                                entryModes[prod.id] === 'carton'
+                                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-600/30'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-emerald-600/30'
+                              }`}
+                              title="تبديل بين قطعة وكارتون"
+                            >
+                              <span>{entryModes[prod.id] === 'carton' ? 'كارتون' : 'قطعة'}</span>
+                            </button>
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="العدد"
+                              value={selectedQuantities[prod.id] || ''}
+                              onChange={(e) => handleUpdateQuantity(prod.id, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.stopPropagation();
+                                  setAddingQuantityId(null);
+                                }
+                              }}
+                              className="w-full h-10 px-2 py-2 text-sm sm:text-base font-extrabold rounded-md border-2 border-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:scale-[1.02] transition-all text-center shadow-sm"
+                              autoFocus
+                            />
+                          </div>
+
+                          {/* زر الصح - تم تصغيره قليلاً ليتناسب مع تكبير مربع الرقم */}
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEntryModes(prev => ({...prev, [prod.id]: prev[prod.id] === 'carton' ? 'piece' : 'carton'}));
-                            }}
-                            className="col-span-1 w-full flex items-center justify-center py-1 bg-slate-300 hover:bg-slate-400 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-md transition-colors text-[10px] font-black shadow-sm"
-                            title="تبديل بين قطعة وكارتون"
-                          >
-                            {entryModes[prod.id] === 'carton' ? 'ك' : 'ق'}
-                          </button>
-                          <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               setAddingQuantityId(null);
                             }}
-                            className="col-span-1 w-full flex items-center justify-center py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors shadow-sm"
+                            className="col-span-2 w-full h-full min-h-[58px] flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-md transition-all shadow-md"
+                            title="تأكيد"
                           >
-                            <Check className="w-4 h-4" />
+                            <Check className="w-5 h-5 stroke-[2.5]" />
                           </button>
                         </div>
                       ) : selectedQuantities[prod.id] ? (
