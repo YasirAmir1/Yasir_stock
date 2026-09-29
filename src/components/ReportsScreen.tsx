@@ -143,6 +143,7 @@ const DailyAdminReport: React.FC<{
               clonedContainer.style.boxSizing = 'border-box';
               clonedContainer.style.backgroundColor = '#0f172a';
               clonedContainer.style.borderRadius = '16px';
+              clonedContainer.style.color = '#ffffff';
 
               const scrollContainers = clonedContainer.querySelectorAll('.overflow-x-auto');
               scrollContainers.forEach(sc => {
@@ -151,8 +152,35 @@ const DailyAdminReport: React.FC<{
 
               const tables = clonedContainer.querySelectorAll('table');
               tables.forEach(t => {
-                (t as HTMLElement).style.width = '100%';
-                (t as HTMLElement).style.minWidth = '800px';
+                const tableEl = t as HTMLTableElement;
+                tableEl.style.width = '100%';
+                tableEl.style.minWidth = '800px';
+                tableEl.style.borderCollapse = 'collapse';
+                tableEl.style.border = '2px solid #2563eb';
+                tableEl.style.textAlign = 'center';
+              });
+
+              // Apply blue grid lines, white font, and centered text for all table cells
+              const cells = clonedContainer.querySelectorAll('th, td');
+              cells.forEach(c => {
+                const cell = c as HTMLElement;
+                cell.style.border = '1.5px solid #2563eb';
+                cell.style.textAlign = 'center';
+                cell.style.verticalAlign = 'middle';
+                cell.style.padding = '8px 6px';
+                cell.style.boxSizing = 'border-box';
+                if (!cell.classList.contains('text-red-500') && !cell.classList.contains('text-red-400')) {
+                  cell.style.color = '#ffffff';
+                }
+              });
+
+              // Ensure all headings and text in the container are white
+              const textEls = clonedContainer.querySelectorAll('h3, p, span, div');
+              textEls.forEach(el => {
+                const htmlEl = el as HTMLElement;
+                if (!htmlEl.classList.contains('text-red-500') && !htmlEl.classList.contains('text-red-400') && !htmlEl.classList.contains('text-yellow-400')) {
+                  htmlEl.style.color = '#ffffff';
+                }
               });
             }
           }
@@ -208,12 +236,34 @@ const DailyAdminReport: React.FC<{
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(combinedReportRef.current, {
-          backgroundColor: '#312e81',
+          backgroundColor: '#1e1b4b',
           scale: 2,
           useCORS: true,
           allowTaint: true,
           logging: false,
-          onclone: (clonedDoc) => sanitizeModernColors(clonedDoc, '#312e81')
+          onclone: (clonedDoc) => {
+            sanitizeModernColors(clonedDoc, '#1e1b4b');
+            const tables = clonedDoc.querySelectorAll('table');
+            tables.forEach(t => {
+              const tableEl = t as HTMLTableElement;
+              tableEl.style.borderCollapse = 'collapse';
+              tableEl.style.border = '2px solid #2563eb';
+              tableEl.style.textAlign = 'center';
+            });
+            const cells = clonedDoc.querySelectorAll('th, td');
+            cells.forEach(c => {
+              const cell = c as HTMLElement;
+              cell.style.border = '1.5px solid #2563eb';
+              cell.style.textAlign = 'center';
+              cell.style.verticalAlign = 'middle';
+              cell.style.color = '#ffffff';
+              cell.style.padding = '8px 6px';
+            });
+            const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
+            textEls.forEach(el => {
+              (el as HTMLElement).style.color = '#ffffff';
+            });
+          }
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         const link = document.createElement('a');
@@ -840,13 +890,22 @@ export const ReportsScreen: React.FC = () => {
     return dailyEvaluationsHistory.filter((r) => r.dateString && r.dateString >= startDate && r.dateString <= endDate);
   }, [dailyEvaluationsHistory, useRange, selectedDate, startDate, endDate]);
 
-  const { totalSalesWeight } = useMemo(() => {
+  const { totalSalesWeight, totalDailyInvoicesCount } = useMemo(() => {
     const relevant = activeDelegateName === 'الكل'
       ? rangeFilteredSales
       : rangeFilteredSales.filter((e) => e.delegateName?.trim().toLowerCase() === activeDelegateName.trim().toLowerCase());
       
     const weight = relevant.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-    return { totalSalesWeight: weight };
+    const uniqueInvoices = new Set<string>();
+    relevant.forEach((e) => {
+      const invKey = `${e.delegateName?.trim()}_${e.customerCode || e.invoiceId || e.id}`;
+      uniqueInvoices.add(invKey);
+    });
+
+    return { 
+      totalSalesWeight: weight,
+      totalDailyInvoicesCount: uniqueInvoices.size
+    };
   }, [rangeFilteredSales, activeDelegateName]);
 
   const totalTargetWeight = useMemo(() => {
@@ -1183,10 +1242,22 @@ export const ReportsScreen: React.FC = () => {
       {/* Total Saved Weight Summary Card */}
       <div className="bg-white border-2 border-emerald-600 rounded-xl p-2.5 sm:p-4 shadow-md text-center space-y-3 w-full">
         <h2 className="font-extrabold text-slate-900 text-base flex items-center justify-center gap-2">
-          مجموع وزن إدخالات ({activeDelegateName})
+          {activeDelegateName === 'الكل' ? 'التقرير الكلي للمندوبين اليوم' : `مجموع وزن إدخالات (${activeDelegateName})`}
         </h2>
         
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-12">
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-xs font-bold text-slate-500 mb-1">
+              {activeDelegateName === 'الكل' ? 'عدد الفواتير الكلي اليومي للمندوبين' : 'عدد الفواتير الكلي اليومي'}
+            </span>
+            <div className="text-3xl font-black text-indigo-600">
+              {formatWithCommas(totalDailyInvoicesCount, true)}
+            </div>
+          </div>
+          
+          <div className="hidden sm:block w-px h-12 bg-slate-200"></div>
+          <div className="block sm:hidden w-full h-px bg-slate-200"></div>
+
           <div className="flex flex-col items-center justify-center">
             <span className="text-xs font-bold text-slate-500 mb-1">الوزن الكلي</span>
             <div className="text-3xl font-black text-slate-900">

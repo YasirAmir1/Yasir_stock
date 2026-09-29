@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
-import { RouteItem, DebtItem } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X } from 'lucide-react';
+import { RouteItem, DebtItem, SalesEntry } from '../types';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
@@ -66,6 +66,16 @@ export const RoutesScreen: React.FC = () => {
   const [paymentAmountInput, setPaymentAmountInput] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [debtSearch, setDebtSearch] = useState('');
+
+  // Monthly Customer Reports States (Admin only)
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [monthlyOrderedSearch, setMonthlyOrderedSearch] = useState<string>('');
+  const [monthlyOrderedDelegate, setMonthlyOrderedDelegate] = useState<string>('الكل');
+  const [monthlyUnorderedSearch, setMonthlyUnorderedSearch] = useState<string>('');
+  const [monthlyUnorderedDelegate, setMonthlyUnorderedDelegate] = useState<string>('الكل');
 
   const handleSavePayment = async () => {
     if (!paymentModalDebt || !currentUser?.isAdmin) return;
@@ -787,6 +797,576 @@ export const RoutesScreen: React.FC = () => {
     }
   };
 
+  // 1. Monthly Ordered Customers Data (Strictly deduplicated by customer code across the entire month)
+  const monthlyOrderedData = useMemo(() => {
+    if (!currentUser?.isAdmin) return { list: [], totalWeight: 0, totalAmount: 0, totalInvoices: 0 };
+
+    // Combine all sales entry sources to guarantee no monthly record is missed
+    const allEntriesMap = new Map<string, SalesEntry>();
+    if (Array.isArray(allSalesEntries)) {
+      allSalesEntries.forEach(e => { if (e && (e.id || e.customerCode || e.customerName)) allEntriesMap.set(e.id || `${e.dateString}_${e.customerCode}_${e.productName}`, e); });
+    }
+    if (Array.isArray(salesEntries)) {
+      salesEntries.forEach(e => { if (e && (e.id || e.customerCode || e.customerName)) allEntriesMap.set(e.id || `${e.dateString}_${e.customerCode}_${e.productName}`, e); });
+    }
+    const combinedEntries = Array.from(allEntriesMap.values());
+
+    // Matches any entry belonging to the selected month (from day 01 to the last day)
+    const isEntryInSelectedMonth = (dateStr?: string) => {
+      if (!dateStr) return false;
+      const clean = dateStr.replace(/\//g, '-').trim();
+      const parts = clean.split('-');
+      if (parts.length >= 2) {
+        const y = parts[0];
+        const m = parts[1].padStart(2, '0');
+        return `${y}-${m}` === monthlyReportMonth;
+      }
+      return clean.startsWith(monthlyReportMonth);
+    };
+
+    const monthEntries = combinedEntries.filter((e) => isEntryInSelectedMonth(e.dateString));
+
+    // Lookup caches from routes to correlate customerCode <-> customerName and address
+    const codeToRoute = new Map<string, RouteItem>();
+    const nameToRoute = new Map<string, RouteItem>();
+    routes.forEach(r => {
+      const c = (r.customerCode || '').trim();
+      const n = (r.customerName || '').trim();
+      if (c && !codeToRoute.has(c.toLowerCase())) codeToRoute.set(c.toLowerCase(), r);
+      if (n && !nameToRoute.has(n.toLowerCase())) nameToRoute.set(n.toLowerCase(), r);
+    });
+
+    const map = new Map<string, {
+      customerCode: string;
+      customerName: string;
+      customerAddress: string;
+      delegateName: string;
+      totalWeight: number;
+      totalAmount: number;
+      invoicesCount: number;
+      uniqueInvoices: Set<string>;
+    }>();
+
+    monthEntries.forEach((entry) => {
+      let code = (entry.customerCode || '').trim();
+      let name = (entry.customerName || '').trim();
+
+      // If code is missing, correlate from routes via customerName
+      if (!code && name && nameToRoute.has(name.toLowerCase())) {
+        code = (nameToRoute.get(name.toLowerCase())?.customerCode || '').trim();
+      }
+      // If name is missing, correlate from routes via customerCode
+      if (!name && code && codeToRoute.has(code.toLowerCase())) {
+        name = (codeToRoute.get(code.toLowerCase())?.customerName || '').trim();
+      }
+
+      // PRIMARY DEDUPLICATION KEY: Strictly customerCode if available, otherwise customerName
+      const key = code ? `code_${code.toLowerCase()}` : (name ? `name_${name.toLowerCase()}` : '');
+      if (!key) return;
+
+      if (!map.has(key)) {
+        const routeMatch = (code ? codeToRoute.get(code.toLowerCase()) : undefined) || (name ? nameToRoute.get(name.toLowerCase()) : undefined);
+        map.set(key, {
+          customerCode: code || (routeMatch?.customerCode || '').trim(),
+          customerName: name || (routeMatch?.customerName || '').trim() || 'غير محدد',
+          customerAddress: (entry.customerAddress || '').trim() || (routeMatch?.customerAddress || '').trim() || 'غير محدد',
+          delegateName: (entry.delegateName || '').trim() || (routeMatch?.delegateName || '').trim() || 'غير محدد',
+          totalWeight: 0,
+          totalAmount: 0,
+          invoicesCount: 0,
+          uniqueInvoices: new Set<string>()
+        });
+      }
+
+      const item = map.get(key)!;
+      if (!item.customerName && name) item.customerName = name;
+      if (!item.customerCode && code) item.customerCode = code;
+      if ((item.customerAddress === 'غير محدد' || !item.customerAddress) && entry.customerAddress?.trim()) {
+        item.customerAddress = entry.customerAddress.trim();
+      }
+      if ((item.delegateName === 'غير محدد' || !item.delegateName) && entry.delegateName?.trim()) {
+        item.delegateName = entry.delegateName.trim();
+      }
+
+      // Monthly accumulated weight
+      item.totalWeight += (entry.totalWeightKg || 0);
+
+      // Monthly accumulated amount
+      const prod = productsList.find((p) => p.productName === entry.productName);
+      const price = prod ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      item.totalAmount += (price * (entry.quantity || 0));
+
+      // Monthly accumulated distinct invoices count
+      const invKey = entry.invoiceId || `${entry.dateString}_${entry.delegateName || ''}_${code || name}`;
+      item.uniqueInvoices.add(invKey);
+      item.invoicesCount = item.uniqueInvoices.size;
+    });
+
+    const list = Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+    const totalWeight = list.reduce((sum, item) => sum + item.totalWeight, 0);
+    const totalAmount = list.reduce((sum, item) => sum + item.totalAmount, 0);
+    const totalInvoices = list.reduce((sum, item) => sum + item.invoicesCount, 0);
+
+    return { list, totalWeight, totalAmount, totalInvoices };
+  }, [allSalesEntries, salesEntries, monthlyReportMonth, routes, productsList, currentUser?.isAdmin]);
+
+  // Filtered Monthly Ordered Customers
+  const filteredMonthlyOrdered = useMemo(() => {
+    return monthlyOrderedData.list.filter((c) => {
+      const matchDelegate = monthlyOrderedDelegate === 'الكل' || c.delegateName === monthlyOrderedDelegate;
+      if (!matchDelegate) return false;
+
+      if (!monthlyOrderedSearch.trim()) return true;
+      const q = normalizeArabic(monthlyOrderedSearch);
+      return (
+        normalizeArabic(c.customerName).includes(q) ||
+        normalizeArabic(c.customerCode).includes(q) ||
+        normalizeArabic(c.customerAddress).includes(q) ||
+        normalizeArabic(c.delegateName).includes(q)
+      );
+    });
+  }, [monthlyOrderedData.list, monthlyOrderedDelegate, monthlyOrderedSearch]);
+
+  // 2. Customers with NO orders throughout the entire month (Compared strictly by customer code)
+  const monthlyUnorderedCustomers = useMemo(() => {
+    if (!currentUser?.isAdmin) return [];
+
+    // Set of customer codes and names that have orders in the month
+    const orderedCodes = new Set<string>();
+    const orderedNames = new Set<string>();
+    monthlyOrderedData.list.forEach((c) => {
+      if (c.customerCode) orderedCodes.add(c.customerCode.trim().toLowerCase());
+      if (c.customerName) orderedNames.add(c.customerName.trim().toLowerCase());
+    });
+
+    // Deduplicate routes strictly by customerCode so each customer appears only ONCE
+    const uniqueMap = new Map<string, RouteItem>();
+    routes.forEach((r) => {
+      const code = (r.customerCode || '').trim();
+      const name = (r.customerName || '').trim();
+      if (!code && !name) return;
+
+      // Comparison based on customer code (or customer name if no code)
+      const hasOrderedInMonth = (code && orderedCodes.has(code.toLowerCase())) ||
+                                (!code && name && orderedNames.has(name.toLowerCase()));
+
+      if (hasOrderedInMonth) return;
+
+      // Deduplicate strictly by customer code (or name if no code)
+      const key = code ? `code_${code.toLowerCase()}` : `name_${name.toLowerCase()}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, r);
+      }
+    });
+
+    return Array.from(uniqueMap.values()).sort((a, b) => (a.customerName || '').localeCompare(b.customerName || '', 'ar'));
+  }, [routes, monthlyOrderedData.list, currentUser?.isAdmin]);
+
+  // Filtered Unordered Customers
+  const filteredMonthlyUnordered = useMemo(() => {
+    return monthlyUnorderedCustomers.filter((r) => {
+      const matchDelegate = monthlyUnorderedDelegate === 'الكل' || r.delegateName === monthlyUnorderedDelegate;
+      if (!matchDelegate) return false;
+
+      if (!monthlyUnorderedSearch.trim()) return true;
+      const q = normalizeArabic(monthlyUnorderedSearch);
+      return (
+        normalizeArabic(r.customerName).includes(q) ||
+        normalizeArabic(r.customerCode).includes(q) ||
+        normalizeArabic(r.customerAddress).includes(q) ||
+        normalizeArabic(r.delegateName).includes(q)
+      );
+    });
+  }, [monthlyUnorderedCustomers, monthlyUnorderedDelegate, monthlyUnorderedSearch]);
+
+  const exportMonthlyOrderedExcel = () => {
+    const data = filteredMonthlyOrdered.map((c, idx) => ({
+      'ت': idx + 1,
+      'اسم الزبون': c.customerName,
+      'كود الزبون': c.customerCode,
+      'عنوان الزبون': c.customerAddress,
+      'اسم المندوب': c.delegateName,
+      'عدد الفواتير الشهرية': c.invoicesCount,
+      'الوزن الكلي الشهري (كجم)': Number(c.totalWeight.toFixed(2)),
+      'المبلغ الكلي الشهري (د.ع)': Math.round(c.totalAmount),
+      'الشهر المالي': monthlyReportMonth
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'فواتير الزبائن الشهرية');
+    XLSX.writeFile(workbook, `تقرير_فواتير_الزبائن_الشهرية_${monthlyReportMonth}.xlsx`);
+  };
+
+  const exportMonthlyUnorderedExcel = () => {
+    const data = filteredMonthlyUnordered.map((r, idx) => ({
+      'ت': idx + 1,
+      'اسم الزبون': r.customerName,
+      'كود الزبون': r.customerCode,
+      'عنوان الزبون': r.customerAddress || 'غير محدد',
+      'اسم المندوب': r.delegateName,
+      'عدد الفواتير الشهرية': 0,
+      'الوزن الكلي الشهري (كجم)': 0,
+      'المبلغ الكلي الشهري (د.ع)': 0,
+      'حالة الشهر': 'لم يتم طلب أي فاتورة طوال هذا الشهر',
+      'الشهر المالي': monthlyReportMonth
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'زبائن بدون فواتير شهرية');
+    XLSX.writeFile(workbook, `زبائن_بدون_فواتير_شهرية_${monthlyReportMonth}.xlsx`);
+  };
+
+  const renderMonthlyCustomerReports = () => {
+    if (!currentUser?.isAdmin) return null;
+
+    const delegateOptions = [
+      'الكل',
+      ...Array.from(new Set(delegateAccounts.map(a => a.delegateName).filter(Boolean)))
+    ];
+
+    const currentFilteredWeight = filteredMonthlyOrdered.reduce((sum, c) => sum + c.totalWeight, 0);
+    const currentFilteredAmount = filteredMonthlyOrdered.reduce((sum, c) => sum + c.totalAmount, 0);
+    const currentFilteredInvoices = filteredMonthlyOrdered.reduce((sum, c) => sum + c.invoicesCount, 0);
+
+    return (
+      <div className="space-y-4 mt-6">
+        {/* Main Section Header Card */}
+        <div className={`p-2.5 sm:p-3.5 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <div className="p-1.5 rounded-lg bg-emerald-600/10 text-emerald-600 dark:text-emerald-400">
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                  تقارير فواتير وطلبات الزبائن الشهرية (تراكمي شهر {monthlyReportMonth})
+                </h3>
+              </div>
+              <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                حسابات شهرية تراكمية بدون تكرار الزبون وبالمقارنة حسب كود الزبون (العدد + الوزن + المبلغ)
+              </p>
+            </div>
+
+            {/* Month Picker Control */}
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">الشهر:</span>
+              <input
+                type="month"
+                value={monthlyReportMonth}
+                onChange={(e) => setMonthlyReportMonth(e.target.value)}
+                className={`text-[11px] font-bold px-1.5 py-0.5 rounded border focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer ${
+                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mt-2.5">
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">الزبائن أصحاب الفواتير</span>
+              <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                {monthlyOrderedData.list.length.toLocaleString()} زبون
+              </div>
+            </div>
+
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">عدد الفواتير الكلي للشهر</span>
+              <div className="text-xs sm:text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                {monthlyOrderedData.totalInvoices.toLocaleString()} فاتورة
+              </div>
+            </div>
+
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">الوزن الشهري التراكمي</span>
+              <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                {monthlyOrderedData.totalWeight.toLocaleString(undefined, { maximumFractionDigits: 1 })} كجم
+              </div>
+            </div>
+
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">المبلغ الشهري التراكمي</span>
+              <div className="text-xs sm:text-sm font-black text-blue-600 dark:text-blue-400 mt-0.5">
+                {Math.round(monthlyOrderedData.totalAmount).toLocaleString()} د.ع
+              </div>
+            </div>
+
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center col-span-2 sm:col-span-1 ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">زبائن بدون فواتير بالشهر</span>
+              <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">
+                {monthlyUnorderedCustomers.length.toLocaleString()} زبون
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* TABLE 1: Customers with Orders in Current Month */}
+        {/* ======================================================== */}
+        <div className={`p-2.5 sm:p-3.5 rounded-xl border shadow-sm space-y-2.5 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                <span>🛒</span>
+                <span>جدول فواتير وطلبات الزبائن في الشهر الحالي ({monthlyReportMonth})</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+                  {filteredMonthlyOrdered.length} زبون
+                </span>
+              </h4>
+              <p className="text-[10px] text-slate-500 font-bold">
+                حسابات تراكمية شهرية تجمع جميع الفواتير الصادرة لكل زبون بدون تكرار
+              </p>
+            </div>
+
+            {/* Export Excel Button */}
+            <button
+              onClick={exportMonthlyOrderedExcel}
+              disabled={filteredMonthlyOrdered.length === 0}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-50 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+              title="تصدير جدول طلبات الزبائن الشهرية كملف إكسل"
+            >
+              <Download className="w-3 h-3" />
+              <span>تصدير التقرير (Excel)</span>
+            </button>
+          </div>
+
+          {/* Filters Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div className="relative">
+              <Search className="w-3 h-3 absolute right-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={monthlyOrderedSearch}
+                onChange={(e) => setMonthlyOrderedSearch(e.target.value)}
+                placeholder="بحث باسم الزبون، الكود، العنوان، أو المندوب..."
+                className={`w-full pr-7 pl-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                  isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
+                }`}
+              />
+            </div>
+
+            <select
+              value={monthlyOrderedDelegate}
+              onChange={(e) => setMonthlyOrderedDelegate(e.target.value)}
+              className={`w-full py-1 px-2 rounded-lg border text-[11px] font-bold ${
+                isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
+              }`}
+            >
+              <option value="الكل">جميع المندوبين (الكل)</option>
+              {delegateOptions.filter(d => d !== 'الكل').map((delName) => (
+                <option key={`ordered-del-${delName}`} value={delName}>
+                  {delName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
+              <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                <tr>
+                  <th className="px-2 py-1.5 text-center w-8">ت</th>
+                  <th className="px-2 py-1.5">اسم الزبون</th>
+                  <th className="px-2 py-1.5">كود الزبون</th>
+                  <th className="px-2 py-1.5">عنوان الزبون</th>
+                  <th className="px-2 py-1.5">اسم المندوب</th>
+                  <th className="px-2 py-1.5 text-center">عدد الفواتير</th>
+                  <th className="px-2 py-1.5 text-center">الوزن الكلي</th>
+                  <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+                {filteredMonthlyOrdered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-6 text-center text-slate-400 font-bold">
+                      لا توجد فواتير أو طلبات مسجلة للزبائن في هذا الشهر حسب معايير البحث.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMonthlyOrdered.map((c, idx) => (
+                    <tr key={`ordered-${c.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{c.customerName}</td>
+                      <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{c.customerCode || '-'}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={c.customerAddress}>{c.customerAddress}</td>
+                      <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{c.delegateName}</td>
+                      <td className="px-2 py-1 text-center font-black text-indigo-600 dark:text-indigo-400">
+                        {c.invoicesCount}
+                      </td>
+                      <td className="px-2 py-1 text-center font-black text-emerald-600 dark:text-emerald-400">
+                        {c.totalWeight.toFixed(1)} كجم
+                      </td>
+                      <td className="px-2 py-1 text-center font-black text-blue-600 dark:text-blue-400">
+                        {Math.round(c.totalAmount).toLocaleString()} د.ع
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {filteredMonthlyOrdered.length > 0 && (
+                <tfoot className={`font-black border-t ${isDarkMode ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`}>
+                  <tr>
+                    <td colSpan={5} className="px-2 py-1.5 font-black text-emerald-600 dark:text-emerald-400">
+                      المجموع ({filteredMonthlyOrdered.length} زبون)
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-indigo-600 dark:text-indigo-400">
+                      {currentFilteredInvoices.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-emerald-600 dark:text-emerald-400">
+                      {currentFilteredWeight.toFixed(1)} كجم
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-blue-600 dark:text-blue-400">
+                      {Math.round(currentFilteredAmount).toLocaleString()} د.ع
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* SEPARATING LINE BETWEEN THE TWO REPORTS */}
+        {/* ======================================================== */}
+        <div className="relative py-2 flex items-center justify-center">
+          <div className="w-full border-t border-dashed border-slate-300 dark:border-slate-700"></div>
+          <div className="absolute bg-slate-100 dark:bg-slate-950 px-3 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black text-amber-600 dark:text-amber-400 border border-amber-500/40 shadow-xs flex items-center gap-1">
+            <span>⚠️</span>
+            <span>فاصل: زبائن لحد الان لم يتم طلب فاتورة لهم ({monthlyReportMonth})</span>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* TABLE 2: Customers with NO Orders this Month */}
+        {/* ======================================================== */}
+        <div className={`p-2.5 sm:p-3.5 rounded-xl border shadow-sm space-y-2.5 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                <span>⚠️</span>
+                <span>زبائن لحد الان لم يتم طلب فاتورة لهم ({monthlyReportMonth})</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                  {filteredMonthlyUnordered.length} زبون
+                </span>
+              </h4>
+              <p className="text-[10px] text-slate-500 font-bold">
+                الزبائن المسجلون الذين لم يتم طلب أي فاتورة لهم ولا يملكون وزن أو مبلغ في الشهر الحالي
+              </p>
+            </div>
+
+            {/* Export Excel Button */}
+            <button
+              onClick={exportMonthlyUnorderedExcel}
+              disabled={filteredMonthlyUnordered.length === 0}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 active:scale-95 disabled:opacity-50 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+              title="تصدير قائمة الزبائن الذين لم يطلبوا كملف إكسل"
+            >
+              <Download className="w-3 h-3" />
+              <span>تصدير الزبائن غير الطالبين (Excel)</span>
+            </button>
+          </div>
+
+          {/* Filters Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div className="relative">
+              <Search className="w-3 h-3 absolute right-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={monthlyUnorderedSearch}
+                onChange={(e) => setMonthlyUnorderedSearch(e.target.value)}
+                placeholder="بحث باسم الزبون، الكود، العنوان، أو المندوب..."
+                className={`w-full pr-7 pl-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                  isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
+                }`}
+              />
+            </div>
+
+            <select
+              value={monthlyUnorderedDelegate}
+              onChange={(e) => setMonthlyUnorderedDelegate(e.target.value)}
+              className={`w-full py-1 px-2 rounded-lg border text-[11px] font-bold ${
+                isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
+              }`}
+            >
+              <option value="الكل">جميع المندوبين (الكل)</option>
+              {delegateOptions.filter(d => d !== 'الكل').map((delName) => (
+                <option key={`unordered-del-${delName}`} value={delName}>
+                  {delName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
+              <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                <tr>
+                  <th className="px-2 py-1.5 text-center w-8">ت</th>
+                  <th className="px-2 py-1.5">اسم الزبون</th>
+                  <th className="px-2 py-1.5">كود الزبون</th>
+                  <th className="px-2 py-1.5">عنوان الزبون</th>
+                  <th className="px-2 py-1.5">اسم المندوب</th>
+                  <th className="px-2 py-1.5 text-center">عدد الفواتير</th>
+                  <th className="px-2 py-1.5 text-center">الوزن الكلي</th>
+                  <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>
+                  <th className="px-2 py-1.5 text-center">حالة الشهر</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+                {filteredMonthlyUnordered.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-6 text-center text-slate-400 font-bold">
+                      {monthlyUnorderedCustomers.length === 0
+                        ? 'ممتاز! تم طلب فواتير لجميع الزبائن المسجلين في هذا الشهر 🎉'
+                        : 'لا توجد نتائج تطابق معايير البحث الحالية.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMonthlyUnordered.map((r, idx) => (
+                    <tr key={`unordered-${r.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{r.customerName}</td>
+                      <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{r.customerCode || '-'}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={r.customerAddress}>{r.customerAddress || 'غير محدد'}</td>
+                      <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{r.delegateName || 'غير محدد'}</td>
+                      <td className="px-2 py-1 text-center font-bold text-slate-400">0</td>
+                      <td className="px-2 py-1 text-center font-bold text-slate-400">0.0 كجم</td>
+                      <td className="px-2 py-1 text-center font-bold text-slate-400">0 د.ع</td>
+                      <td className="px-2 py-1 text-center">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                          <XCircle className="w-2.5 h-2.5" />
+                          لم يطلب
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {filteredMonthlyUnordered.length > 0 && (
+                <tfoot className={`font-black border-t ${isDarkMode ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`}>
+                  <tr>
+                    <td colSpan={5} className="px-2 py-1.5 font-black text-amber-600 dark:text-amber-400">
+                      مجموع الزبائن غير الطالبين ({filteredMonthlyUnordered.length} زبون)
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-slate-400">0</td>
+                    <td className="px-2 py-1.5 text-center text-slate-400">0.0 كجم</td>
+                    <td className="px-2 py-1.5 text-center text-slate-400">0 د.ع</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
@@ -1228,6 +1808,12 @@ export const RoutesScreen: React.FC = () => {
       <div className="mt-8">
         {renderDebtsTable()}
       </div>
+
+      {currentUser?.isAdmin && (
+        <div className="mt-10">
+          {renderMonthlyCustomerReports()}
+        </div>
+      )}
 
     </div>
   );
