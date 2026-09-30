@@ -3,7 +3,7 @@ import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { RouteItem, DebtItem, SalesEntry } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
@@ -33,6 +33,21 @@ export const RoutesScreen: React.FC = () => {
   const salesContext = useSales();
   const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = salesContext;
   const productsList = salesContext.productsList || [];
+
+  // Data Entry account check
+  const isDataEntry = Boolean(
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.roleName?.includes('مدخل') ||
+    currentUser?.name?.includes('مدخل') ||
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال'
+  );
+
+  // Monthly reports visible for Data Entry and Admin, strictly hidden from delegates
+  const canViewMonthlyReports = Boolean(
+    (currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
+  );
 
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [debts, setDebts] = useState<DebtItem[]>([]);
@@ -74,8 +89,107 @@ export const RoutesScreen: React.FC = () => {
   });
   const [monthlyOrderedSearch, setMonthlyOrderedSearch] = useState<string>('');
   const [monthlyOrderedDelegate, setMonthlyOrderedDelegate] = useState<string>('الكل');
+  const [monthlyOrderedShowAll, setMonthlyOrderedShowAll] = useState<boolean>(false);
   const [monthlyUnorderedSearch, setMonthlyUnorderedSearch] = useState<string>('');
   const [monthlyUnorderedDelegate, setMonthlyUnorderedDelegate] = useState<string>('الكل');
+  const [monthlyUnorderedShowAll, setMonthlyUnorderedShowAll] = useState<boolean>(false);
+
+  // Configurable auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  const [timeTick, setTimeTick] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (docSnap) => {
+        if (docSnap.exists() && docSnap.data()?.time) {
+          setTargetAutoLockTime(docSnap.data().time);
+        }
+      },
+      (err) => {
+        console.error('Error listening to auto_lock_time in RoutesScreen:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Live timer tick every 10 seconds to detect closing time trigger in real-time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(Date.now());
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  const formattedTargetTime = useMemo(() => {
+    try {
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      let h = parseInt(hStr || '15', 10);
+      const m = mStr || '00';
+      const ampm = h >= 12 ? 'م' : 'ص';
+      h = h % 12;
+      h = h ? h : 12;
+      return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+    } catch {
+      return '03:00 م';
+    }
+  }, [targetAutoLockTime]);
+
+  // Current Baghdad date info & whether official closing time has been reached
+  const baghdadStatus = useMemo(() => {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Baghdad',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const todayBaghdad = formatter.format(now); // "YYYY-MM-DD"
+
+      const timeFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+      const parts = timeFormatter.formatToParts(now);
+      const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+
+      const currentSeconds = hour * 3600 + minute * 60 + second;
+
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      const targetHours = parseInt(hStr || '15', 10);
+      const targetMinutes = parseInt(mStr || '00', 10);
+      const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+      const isPastClosing = currentSeconds >= targetSeconds;
+
+      return { todayBaghdad, isPastClosing };
+    } catch {
+      const todayBaghdad = new Date().toISOString().split('T')[0];
+      return { todayBaghdad, isPastClosing: false };
+    }
+  }, [targetAutoLockTime, timeTick]);
+
+  // Check if a representative has marked today's sales as completed
+  const isDelegateCompletedToday = (delName?: string, delCode?: string) => {
+    if (!delName && !delCode) return false;
+    const nName = delName ? normalizeArabic(delName) : '';
+    const nCode = delCode ? normalizeArabic(delCode) : '';
+
+    for (const [key, val] of Object.entries(completedDelegates)) {
+      if (!val) continue;
+      const nKey = normalizeArabic(key);
+      if (nName && (nKey === nName || nKey.includes(nName) || nName.includes(nKey))) return true;
+      if (nCode && nKey === nCode) return true;
+    }
+    return false;
+  };
 
   const handleSavePayment = async () => {
     if (!paymentModalDebt || !currentUser?.isAdmin) return;
@@ -443,11 +557,17 @@ export const RoutesScreen: React.FC = () => {
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
+    const baghdadToday = baghdadStatus.todayBaghdad;
+    const queryDates = Array.from(new Set([today, baghdadToday]));
+    const q = query(collection(db, 'daily_sales_completion'), where('date', 'in', queryDates));
     const unsub = onSnapshot(q, (snap) => {
       const completed: Record<string, boolean> = {};
       snap.forEach(d => {
         completed[d.id] = true;
+        const data = d.data();
+        if (data.delegate) completed[data.delegate] = true;
+        if (data.delegateName) completed[data.delegateName] = true;
+        if (data.delegateCode) completed[data.delegateCode] = true;
       });
       setCompletedDelegates(completed);
     });
@@ -469,7 +589,7 @@ export const RoutesScreen: React.FC = () => {
     return () => unsub();
   }, [currentUser]);
 
-  const [routeFilterDelegate, setRouteFilterDelegate] = useState(currentUser?.isAdmin ? '' : currentUser?.delegateCode || '');
+  const [routeFilterDelegate, setRouteFilterDelegate] = useState((currentUser?.isAdmin || isDataEntry) ? '' : currentUser?.delegateCode || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -565,6 +685,33 @@ export const RoutesScreen: React.FC = () => {
     return hasSale || !!manualVisits[cCode];
   }, [allSalesEntries, manualVisits]);
 
+  // Precompute distinct invoice counts per customer code/name
+  const customerInvoicesCountMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    allSalesEntries.forEach(e => {
+      const cCode = (e.customerCode || '').trim().toLowerCase();
+      const cName = (e.customerName || '').trim().toLowerCase();
+      const invKey = e.invoiceId || `${e.dateString}_${e.delegateName || ''}_${cCode || cName}`;
+      if (cCode) {
+        if (!map.has(cCode)) map.set(cCode, new Set());
+        map.get(cCode)!.add(invKey);
+      }
+      if (cName) {
+        if (!map.has(cName)) map.set(cName, new Set());
+        map.get(cName)!.add(invKey);
+      }
+    });
+    return map;
+  }, [allSalesEntries]);
+
+  const getRouteItemInvoicesCount = React.useCallback((r: RouteItem) => {
+    const cCode = (r.customerCode || '').trim().toLowerCase();
+    const cName = (r.customerName || '').trim().toLowerCase();
+    const byCode = cCode ? customerInvoicesCountMap.get(cCode)?.size : 0;
+    const byName = cName ? customerInvoicesCountMap.get(cName)?.size : 0;
+    return byCode || byName || 0;
+  }, [customerInvoicesCountMap]);
+
   const filteredRoutes = useMemo(() => {
     const rawQuery = searchQuery.trim();
     const normalizedQuery = normalizeArabic(rawQuery);
@@ -574,7 +721,7 @@ export const RoutesScreen: React.FC = () => {
     return routes.filter(r => {
       // 1. Delegate matching
       let delegateMatch = true;
-      if (currentUser?.isAdmin) {
+      if (currentUser?.isAdmin || isDataEntry) {
         if (routeFilterDelegate) {
           const filterNorm = normalizeArabic(routeFilterDelegate);
           const rDelName = normalizeArabic(r.delegateName);
@@ -620,26 +767,17 @@ export const RoutesScreen: React.FC = () => {
 
       if (!delegateMatch) return false;
 
-      // 2. Day matching
+      // 2. Day / Active Route matching (Strictly restricted to currently active/selected route)
       let dayMatch = true;
-      if (!isSearching) {
-        if (currentUser?.isAdmin) {
-          if (routeFilterDay) {
-            dayMatch = normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
-          }
-        } else {
-          // For delegate: default view is today's route
-          const normCurrentDay = normalizeArabic(currentDay);
-          const normPath = normalizeArabic(r.path);
-          dayMatch = normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
-        }
-      } else {
-        // When actively searching:
-        // Admin: if a specific day is selected in dropdown, respect it
-        if (currentUser?.isAdmin && routeFilterDay) {
+      if (currentUser?.isAdmin || isDataEntry) {
+        if (routeFilterDay) {
           dayMatch = normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
         }
-        // Delegate: search across all days/paths so any customer can be found
+      } else {
+        // For delegate / representative: restricted strictly to today's active route
+        const normCurrentDay = normalizeArabic(currentDay);
+        const normPath = normalizeArabic(r.path);
+        dayMatch = normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
       }
 
       if (!dayMatch) return false;
@@ -663,19 +801,24 @@ export const RoutesScreen: React.FC = () => {
 
       return true;
     }).sort((a, b) => {
-      // Primary: Position (descending, latest moved to top)
+      // 1. Total invoices count (descending: highest to lowest)
+      const aInvoices = getRouteItemInvoicesCount(a);
+      const bInvoices = getRouteItemInvoicesCount(b);
+      if (aInvoices !== bInvoices) return bInvoices - aInvoices;
+
+      // 2. Primary: Position (descending, latest moved to top)
       const aPos = a.position || 0;
       const bPos = b.position || 0;
       if (aPos !== bPos) return bPos - aPos;
 
-      // Secondary: Visited
+      // 3. Secondary: Visited
       const aVisited = isVisited(a);
       const bVisited = isVisited(b);
       if (aVisited === bVisited) return 0;
       // Unvisited (false) should come before Visited (true)
       return aVisited ? 1 : -1;
     });
-  }, [routes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isVisited]);
+  }, [routes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isVisited, getRouteItemInvoicesCount]);
 
   const finalRoutes = filteredRoutes;
 
@@ -713,7 +856,7 @@ export const RoutesScreen: React.FC = () => {
   }, [currentUser, delegateAccounts]);
 
   // Optionally keep a check, but inform instead of block, or just rely on the effective code
-  if (!currentUser?.isAdmin && !effectiveDelegateCode) {
+  if (!currentUser?.isAdmin && !isDataEntry && !effectiveDelegateCode) {
       return (
           <div className="text-center py-10">
             <AlertCircle className="w-12 h-12 mx-auto text-amber-500 mb-2" />
@@ -799,7 +942,7 @@ export const RoutesScreen: React.FC = () => {
 
   // 1. Monthly Ordered Customers Data (Strictly deduplicated by customer code across the entire month)
   const monthlyOrderedData = useMemo(() => {
-    if (!currentUser?.isAdmin) return { list: [], totalWeight: 0, totalAmount: 0, totalInvoices: 0 };
+    if (!canViewMonthlyReports) return { list: [], totalWeight: 0, totalAmount: 0, totalInvoices: 0 };
 
     // Combine all sales entry sources to guarantee no monthly record is missed
     const allEntriesMap = new Map<string, SalesEntry>();
@@ -811,16 +954,29 @@ export const RoutesScreen: React.FC = () => {
     }
     const combinedEntries = Array.from(allEntriesMap.values());
 
+    // Robust Date Normalizer to ISO YYYY-MM-DD
+    const normalizeDateStr = (dateStr?: any): string => {
+      if (!dateStr) return '';
+      const eng = String(dateStr)
+        .replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
+        .replace(/[\u06f0-\u06f9]/g, d => String(d.charCodeAt(0) - 0x06f0))
+        .replace(/\//g, '-')
+        .trim();
+      const parts = eng.split('-').map(p => p.trim());
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        } else if (parts[2].length === 4) {
+          return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+      return eng;
+    };
+
     // Matches any entry belonging to the selected month (from day 01 to the last day)
     const isEntryInSelectedMonth = (dateStr?: string) => {
       if (!dateStr) return false;
-      const clean = dateStr.replace(/\//g, '-').trim();
-      const parts = clean.split('-');
-      if (parts.length >= 2) {
-        const y = parts[0];
-        const m = parts[1].padStart(2, '0');
-        return `${y}-${m}` === monthlyReportMonth;
-      }
+      const clean = normalizeDateStr(dateStr);
       return clean.startsWith(monthlyReportMonth);
     };
 
@@ -830,10 +986,44 @@ export const RoutesScreen: React.FC = () => {
     const codeToRoute = new Map<string, RouteItem>();
     const nameToRoute = new Map<string, RouteItem>();
     routes.forEach(r => {
-      const c = (r.customerCode || '').trim();
+      const c = String(r.customerCode ?? '').trim();
       const n = (r.customerName || '').trim();
       if (c && !codeToRoute.has(c.toLowerCase())) codeToRoute.set(c.toLowerCase(), r);
       if (n && !nameToRoute.has(n.toLowerCase())) nameToRoute.set(n.toLowerCase(), r);
+    });
+
+    // Helper to verify if an invoice entry is adopted according to the conditional calculation trigger:
+    // - Past days: adopted (day has officially closed)
+    // - Future days: not yet adopted
+    // - Today: adopted if representative clicked "I have completed today's sales" OR official closing time reached
+    const isEntryAdopted = (dateStr?: string, delName?: string, delCode?: string) => {
+      if (!dateStr) return false;
+      const cleanDate = normalizeDateStr(dateStr);
+      const { todayBaghdad, isPastClosing } = baghdadStatus;
+
+      // 1. Past dates in the month: closing time has already passed
+      if (cleanDate < todayBaghdad) {
+        return true;
+      }
+
+      // 2. Future dates: not reached yet
+      if (cleanDate > todayBaghdad) {
+        return false;
+      }
+
+      // 3. Current day (today):
+      // If official closing time has been reached, automatically adopt all active remaining invoices in the system
+      if (isPastClosing) {
+        return true;
+      }
+
+      // Otherwise, only adopt if the representative has clicked "I have completed today's sales"
+      return isDelegateCompletedToday(delName, delCode);
+    };
+
+    // Filter entries to only those that meet the adoption trigger condition
+    const adoptedMonthEntries = monthEntries.filter(entry => {
+      return isEntryAdopted(entry.dateString, entry.delegateName, (entry as any).delegateCode);
     });
 
     const map = new Map<string, {
@@ -844,16 +1034,17 @@ export const RoutesScreen: React.FC = () => {
       totalWeight: number;
       totalAmount: number;
       invoicesCount: number;
-      uniqueInvoices: Set<string>;
+      invoiceDates: Set<string>;
     }>();
 
-    monthEntries.forEach((entry) => {
-      let code = (entry.customerCode || '').trim();
+    // 1. Process adopted daily sales entries
+    adoptedMonthEntries.forEach((entry) => {
+      let code = String(entry.customerCode ?? '').trim();
       let name = (entry.customerName || '').trim();
 
       // If code is missing, correlate from routes via customerName
       if (!code && name && nameToRoute.has(name.toLowerCase())) {
-        code = (nameToRoute.get(name.toLowerCase())?.customerCode || '').trim();
+        code = String(nameToRoute.get(name.toLowerCase())?.customerCode ?? '').trim();
       }
       // If name is missing, correlate from routes via customerCode
       if (!name && code && codeToRoute.has(code.toLowerCase())) {
@@ -867,20 +1058,20 @@ export const RoutesScreen: React.FC = () => {
       if (!map.has(key)) {
         const routeMatch = (code ? codeToRoute.get(code.toLowerCase()) : undefined) || (name ? nameToRoute.get(name.toLowerCase()) : undefined);
         map.set(key, {
-          customerCode: code || (routeMatch?.customerCode || '').trim(),
+          customerCode: code || String(routeMatch?.customerCode ?? '').trim(),
           customerName: name || (routeMatch?.customerName || '').trim() || 'غير محدد',
           customerAddress: (entry.customerAddress || '').trim() || (routeMatch?.customerAddress || '').trim() || 'غير محدد',
           delegateName: (entry.delegateName || '').trim() || (routeMatch?.delegateName || '').trim() || 'غير محدد',
           totalWeight: 0,
           totalAmount: 0,
           invoicesCount: 0,
-          uniqueInvoices: new Set<string>()
+          invoiceDates: new Set<string>()
         });
       }
 
       const item = map.get(key)!;
-      if (!item.customerName && name) item.customerName = name;
-      if (!item.customerCode && code) item.customerCode = code;
+      if (!item.customerName || item.customerName === 'غير محدد') if (name) item.customerName = name;
+      if (!item.customerCode) if (code) item.customerCode = code;
       if ((item.customerAddress === 'غير محدد' || !item.customerAddress) && entry.customerAddress?.trim()) {
         item.customerAddress = entry.customerAddress.trim();
       }
@@ -896,19 +1087,83 @@ export const RoutesScreen: React.FC = () => {
       const price = prod ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
       item.totalAmount += (price * (entry.quantity || 0));
 
-      // Monthly accumulated distinct invoices count
-      const invKey = entry.invoiceId || `${entry.dateString}_${entry.delegateName || ''}_${code || name}`;
-      item.uniqueInvoices.add(invKey);
-      item.invoicesCount = item.uniqueInvoices.size;
+      // Strictly count each invoice on each day from month start to month end
+      if (entry.dateString) {
+        const cleanDate = normalizeDateStr(entry.dateString);
+        if (cleanDate) {
+          const invSubKey = entry.invoiceId || (entry as any).invoiceNumber
+            ? `${cleanDate}_${entry.invoiceId || (entry as any).invoiceNumber}` 
+            : cleanDate;
+          item.invoiceDates.add(invSubKey);
+        }
+      }
+      item.invoicesCount = item.invoiceDates.size;
     });
 
-    const list = Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+    // 2. Incorporate invoice records from debts for the current month (each distinct day counts as an invoice)
+    if (Array.isArray(debts)) {
+      debts.forEach((debt) => {
+        let code = String(debt.customerCode ?? '').trim();
+        let name = (debt.customerName || '').trim();
+        const normDebtDate = normalizeDateStr(debt.invoiceDate);
+
+        if (!normDebtDate.startsWith(monthlyReportMonth)) return;
+
+        // If code is missing, correlate from routes via customerName
+        if (!code && name && nameToRoute.has(name.toLowerCase())) {
+          code = String(nameToRoute.get(name.toLowerCase())?.customerCode ?? '').trim();
+        }
+        // If name is missing, correlate from routes via customerCode
+        if (!name && code && codeToRoute.has(code.toLowerCase())) {
+          name = (codeToRoute.get(code.toLowerCase())?.customerName || '').trim();
+        }
+
+        const key = code ? `code_${code.toLowerCase()}` : (name ? `name_${name.toLowerCase()}` : '');
+        if (!key) return;
+
+        if (!map.has(key)) {
+          const routeMatch = (code ? codeToRoute.get(code.toLowerCase()) : undefined) || (name ? nameToRoute.get(name.toLowerCase()) : undefined);
+          map.set(key, {
+            customerCode: code || String(routeMatch?.customerCode ?? '').trim(),
+            customerName: name || (routeMatch?.customerName || '').trim() || 'غير محدد',
+            customerAddress: (routeMatch?.customerAddress || '').trim() || 'غير محدد',
+            delegateName: (debt.delegateName || '').trim() || (routeMatch?.delegateName || '').trim() || 'غير محدد',
+            totalWeight: 0,
+            totalAmount: 0,
+            invoicesCount: 0,
+            invoiceDates: new Set<string>()
+          });
+        }
+
+        const item = map.get(key)!;
+        if (!item.customerName || item.customerName === 'غير محدد') if (name) item.customerName = name;
+        if (!item.customerCode) if (code) item.customerCode = code;
+        if ((item.delegateName === 'غير محدد' || !item.delegateName) && debt.delegateName?.trim()) {
+          item.delegateName = debt.delegateName.trim();
+        }
+
+        // Each distinct invoice date/debt is counted as an independent invoice
+        const debtInvKey = debt.id ? `${normDebtDate}_debt_${debt.id}` : `${normDebtDate}_debt`;
+        if (!item.invoiceDates.has(debtInvKey)) {
+          item.totalAmount += (Number(debt.amountDue) || 0);
+          item.invoiceDates.add(debtInvKey);
+        }
+        item.invoicesCount = item.invoiceDates.size;
+      });
+    }
+
+    const list = Array.from(map.values()).sort((a, b) => {
+      if (b.invoicesCount !== a.invoicesCount) {
+        return b.invoicesCount - a.invoicesCount;
+      }
+      return b.totalAmount - a.totalAmount;
+    });
     const totalWeight = list.reduce((sum, item) => sum + item.totalWeight, 0);
     const totalAmount = list.reduce((sum, item) => sum + item.totalAmount, 0);
     const totalInvoices = list.reduce((sum, item) => sum + item.invoicesCount, 0);
 
     return { list, totalWeight, totalAmount, totalInvoices };
-  }, [allSalesEntries, salesEntries, monthlyReportMonth, routes, productsList, currentUser?.isAdmin]);
+  }, [allSalesEntries, salesEntries, debts, monthlyReportMonth, routes, productsList, canViewMonthlyReports, baghdadStatus, completedDelegates]);
 
   // Filtered Monthly Ordered Customers
   const filteredMonthlyOrdered = useMemo(() => {
@@ -929,7 +1184,7 @@ export const RoutesScreen: React.FC = () => {
 
   // 2. Customers with NO orders throughout the entire month (Compared strictly by customer code)
   const monthlyUnorderedCustomers = useMemo(() => {
-    if (!currentUser?.isAdmin) return [];
+    if (!canViewMonthlyReports) return [];
 
     // Set of customer codes and names that have orders in the month
     const orderedCodes = new Set<string>();
@@ -960,7 +1215,7 @@ export const RoutesScreen: React.FC = () => {
     });
 
     return Array.from(uniqueMap.values()).sort((a, b) => (a.customerName || '').localeCompare(b.customerName || '', 'ar'));
-  }, [routes, monthlyOrderedData.list, currentUser?.isAdmin]);
+  }, [routes, monthlyOrderedData.list, canViewMonthlyReports]);
 
   // Filtered Unordered Customers
   const filteredMonthlyUnordered = useMemo(() => {
@@ -980,17 +1235,22 @@ export const RoutesScreen: React.FC = () => {
   }, [monthlyUnorderedCustomers, monthlyUnorderedDelegate, monthlyUnorderedSearch]);
 
   const exportMonthlyOrderedExcel = () => {
-    const data = filteredMonthlyOrdered.map((c, idx) => ({
-      'ت': idx + 1,
-      'اسم الزبون': c.customerName,
-      'كود الزبون': c.customerCode,
-      'عنوان الزبون': c.customerAddress,
-      'اسم المندوب': c.delegateName,
-      'عدد الفواتير الشهرية': c.invoicesCount,
-      'الوزن الكلي الشهري (كجم)': Number(c.totalWeight.toFixed(2)),
-      'المبلغ الكلي الشهري (د.ع)': Math.round(c.totalAmount),
-      'الشهر المالي': monthlyReportMonth
-    }));
+    const data = filteredMonthlyOrdered.map((c, idx) => {
+      const row: Record<string, any> = {
+        'ت': idx + 1,
+        'اسم الزبون': c.customerName,
+        'كود الزبون': c.customerCode,
+        'عنوان الزبون': c.customerAddress,
+        'اسم المندوب': c.delegateName,
+      };
+      if (!isDataEntry) {
+        row['عدد الفواتير الشهرية'] = c.invoicesCount;
+        row['الوزن الكلي الشهري (كجم)'] = Number(c.totalWeight.toFixed(2));
+        row['المبلغ الكلي الشهري (د.ع)'] = Math.round(c.totalAmount);
+      }
+      row['الشهر المالي'] = monthlyReportMonth;
+      return row;
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
@@ -1005,9 +1265,6 @@ export const RoutesScreen: React.FC = () => {
       'كود الزبون': r.customerCode,
       'عنوان الزبون': r.customerAddress || 'غير محدد',
       'اسم المندوب': r.delegateName,
-      'عدد الفواتير الشهرية': 0,
-      'الوزن الكلي الشهري (كجم)': 0,
-      'المبلغ الكلي الشهري (د.ع)': 0,
       'حالة الشهر': 'لم يتم طلب أي فاتورة طوال هذا الشهر',
       'الشهر المالي': monthlyReportMonth
     }));
@@ -1019,7 +1276,7 @@ export const RoutesScreen: React.FC = () => {
   };
 
   const renderMonthlyCustomerReports = () => {
-    if (!currentUser?.isAdmin) return null;
+    if (!canViewMonthlyReports) return null;
 
     const delegateOptions = [
       'الكل',
@@ -1029,6 +1286,14 @@ export const RoutesScreen: React.FC = () => {
     const currentFilteredWeight = filteredMonthlyOrdered.reduce((sum, c) => sum + c.totalWeight, 0);
     const currentFilteredAmount = filteredMonthlyOrdered.reduce((sum, c) => sum + c.totalAmount, 0);
     const currentFilteredInvoices = filteredMonthlyOrdered.reduce((sum, c) => sum + c.invoicesCount, 0);
+
+    const displayedMonthlyOrdered = monthlyOrderedShowAll 
+      ? filteredMonthlyOrdered 
+      : filteredMonthlyOrdered.slice(0, 20);
+
+    const displayedMonthlyUnordered = monthlyUnorderedShowAll 
+      ? filteredMonthlyUnordered 
+      : filteredMonthlyUnordered.slice(0, 20);
 
     return (
       <div className="space-y-4 mt-6">
@@ -1045,7 +1310,9 @@ export const RoutesScreen: React.FC = () => {
                 </h3>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-                حسابات شهرية تراكمية بدون تكرار الزبون وبالمقارنة حسب كود الزبون (العدد + الوزن + المبلغ)
+                {isDataEntry 
+                  ? 'حسابات شهرية تراكمية بدون تكرار الزبون وبالمقارنة حسب كود الزبون'
+                  : 'حسابات شهرية تراكمية بدون تكرار الزبون وبالمقارنة حسب كود الزبون (العدد + الوزن + المبلغ)'}
               </p>
             </div>
 
@@ -1065,7 +1332,7 @@ export const RoutesScreen: React.FC = () => {
           </div>
 
           {/* Quick Stats Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mt-2.5">
+          <div className={`grid gap-1.5 sm:gap-2 mt-2.5 ${isDataEntry ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-5'}`}>
             <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">الزبائن أصحاب الفواتير</span>
               <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
@@ -1073,32 +1340,56 @@ export const RoutesScreen: React.FC = () => {
               </div>
             </div>
 
-            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">عدد الفواتير الكلي للشهر</span>
-              <div className="text-xs sm:text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
-                {monthlyOrderedData.totalInvoices.toLocaleString()} فاتورة
-              </div>
-            </div>
+            {!isDataEntry && (
+              <>
+                <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">عدد الفواتير الكلي للشهر</span>
+                  <div className="text-xs sm:text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                    {monthlyOrderedData.totalInvoices.toLocaleString()} فاتورة
+                  </div>
+                </div>
 
-            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">الوزن الشهري التراكمي</span>
-              <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                {monthlyOrderedData.totalWeight.toLocaleString(undefined, { maximumFractionDigits: 1 })} كجم
-              </div>
-            </div>
+                <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">الوزن الشهري التراكمي</span>
+                  <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                    {monthlyOrderedData.totalWeight.toLocaleString(undefined, { maximumFractionDigits: 1 })} كجم
+                  </div>
+                </div>
 
-            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">المبلغ الشهري التراكمي</span>
-              <div className="text-xs sm:text-sm font-black text-blue-600 dark:text-blue-400 mt-0.5">
-                {Math.round(monthlyOrderedData.totalAmount).toLocaleString()} د.ع
-              </div>
-            </div>
+                <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">المبلغ الشهري التراكمي</span>
+                  <div className="text-xs sm:text-sm font-black text-blue-600 dark:text-blue-400 mt-0.5">
+                    {Math.round(monthlyOrderedData.totalAmount).toLocaleString()} د.ع
+                  </div>
+                </div>
+              </>
+            )}
 
-            <div className={`p-1.5 sm:p-2 rounded-lg border text-center col-span-2 sm:col-span-1 ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`p-1.5 sm:p-2 rounded-lg border text-center ${isDataEntry ? '' : 'col-span-2 sm:col-span-1'} ${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400">زبائن بدون فواتير بالشهر</span>
               <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">
                 {monthlyUnorderedCustomers.length.toLocaleString()} زبون
               </div>
+            </div>
+          </div>
+
+          {/* Conditional Trigger Adoption Status Info */}
+          <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-bold">
+            <div className="flex items-center gap-1.5">
+              {baghdadStatus.isPastClosing ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  تم بلوغ وقت الإغلاق الرسمي ({formattedTargetTime}) — تم اعتماد كافة الفواتير والطلبات المتبقية في النظام تلقائياً
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                  شرط الاعتماد اليومي: تُعتمد فواتير اليوم فور ضغط المندوب على «لقد أكملت مبيعات اليوم» أو تلقائياً عند الإغلاق الرسمي ({formattedTargetTime})
+                </span>
+              )}
+            </div>
+            <div className="text-slate-500 dark:text-slate-400 text-[9px] font-mono">
+              توقيت تكريت: {baghdadStatus.todayBaghdad}
             </div>
           </div>
         </div>
@@ -1166,7 +1457,7 @@ export const RoutesScreen: React.FC = () => {
 
           {/* Table */}
           <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
+            <table className={`w-full ${isDataEntry ? 'min-w-[480px]' : 'min-w-[650px]'} text-[10px] sm:text-[11px] text-right whitespace-nowrap`}>
               <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
                 <tr>
                   <th className="px-2 py-1.5 text-center w-8">ت</th>
@@ -1174,35 +1465,41 @@ export const RoutesScreen: React.FC = () => {
                   <th className="px-2 py-1.5">كود الزبون</th>
                   <th className="px-2 py-1.5">عنوان الزبون</th>
                   <th className="px-2 py-1.5">اسم المندوب</th>
-                  <th className="px-2 py-1.5 text-center">عدد الفواتير</th>
-                  <th className="px-2 py-1.5 text-center">الوزن الكلي</th>
-                  <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>
+                  {!isDataEntry && <th className="px-2 py-1.5 text-center">عدد الفواتير</th>}
+                  {!isDataEntry && <th className="px-2 py-1.5 text-center">الوزن الكلي</th>}
+                  {!isDataEntry && <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>}
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                 {filteredMonthlyOrdered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-6 text-center text-slate-400 font-bold">
+                    <td colSpan={isDataEntry ? 5 : 8} className="py-6 text-center text-slate-400 font-bold">
                       لا توجد فواتير أو طلبات مسجلة للزبائن في هذا الشهر حسب معايير البحث.
                     </td>
                   </tr>
                 ) : (
-                  filteredMonthlyOrdered.map((c, idx) => (
+                  displayedMonthlyOrdered.map((c, idx) => (
                     <tr key={`ordered-${c.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
                       <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{c.customerName}</td>
                       <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{c.customerCode || '-'}</td>
                       <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={c.customerAddress}>{c.customerAddress}</td>
                       <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{c.delegateName}</td>
-                      <td className="px-2 py-1 text-center font-black text-indigo-600 dark:text-indigo-400">
-                        {c.invoicesCount}
-                      </td>
-                      <td className="px-2 py-1 text-center font-black text-emerald-600 dark:text-emerald-400">
-                        {c.totalWeight.toFixed(1)} كجم
-                      </td>
-                      <td className="px-2 py-1 text-center font-black text-blue-600 dark:text-blue-400">
-                        {Math.round(c.totalAmount).toLocaleString()} د.ع
-                      </td>
+                      {!isDataEntry && (
+                        <td className="px-2 py-1 text-center font-black text-indigo-600 dark:text-indigo-400">
+                          {c.invoicesCount}
+                        </td>
+                      )}
+                      {!isDataEntry && (
+                        <td className="px-2 py-1 text-center font-black text-emerald-600 dark:text-emerald-400">
+                          {c.totalWeight.toFixed(1)} كجم
+                        </td>
+                      )}
+                      {!isDataEntry && (
+                        <td className="px-2 py-1 text-center font-black text-blue-600 dark:text-blue-400">
+                          {Math.round(c.totalAmount).toLocaleString()} د.ع
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -1211,22 +1508,51 @@ export const RoutesScreen: React.FC = () => {
                 <tfoot className={`font-black border-t ${isDarkMode ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`}>
                   <tr>
                     <td colSpan={5} className="px-2 py-1.5 font-black text-emerald-600 dark:text-emerald-400">
-                      المجموع ({filteredMonthlyOrdered.length} زبون)
+                      {isDataEntry ? `إجمالي الزبائن أصحاب الفواتير: (${filteredMonthlyOrdered.length} زبون)` : `المجموع (${filteredMonthlyOrdered.length} زبون)`}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-indigo-600 dark:text-indigo-400">
-                      {currentFilteredInvoices.toLocaleString()}
-                    </td>
-                    <td className="px-2 py-1.5 text-center text-emerald-600 dark:text-emerald-400">
-                      {currentFilteredWeight.toFixed(1)} كجم
-                    </td>
-                    <td className="px-2 py-1.5 text-center text-blue-600 dark:text-blue-400">
-                      {Math.round(currentFilteredAmount).toLocaleString()} د.ع
-                    </td>
+                    {!isDataEntry && (
+                      <>
+                        <td className="px-2 py-1.5 text-center text-indigo-600 dark:text-indigo-400">
+                          {currentFilteredInvoices.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1.5 text-center text-emerald-600 dark:text-emerald-400">
+                          {currentFilteredWeight.toFixed(1)} كجم
+                        </td>
+                        <td className="px-2 py-1.5 text-center text-blue-600 dark:text-blue-400">
+                          {Math.round(currentFilteredAmount).toLocaleString()} د.ع
+                        </td>
+                      </>
+                    )}
                   </tr>
                 </tfoot>
               )}
             </table>
           </div>
+
+          {filteredMonthlyOrdered.length > 20 && (
+            <div className="pt-2 flex justify-center">
+              <button
+                onClick={() => setMonthlyOrderedShowAll(!monthlyOrderedShowAll)}
+                className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                  isDarkMode 
+                    ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/60' 
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                }`}
+              >
+                {monthlyOrderedShowAll ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    <span>عرض أقل (أول 20 زبون فقط)</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" />
+                    <span>المزيد (+{filteredMonthlyOrdered.length - 20} زبون)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ======================================================== */}
@@ -1311,32 +1637,26 @@ export const RoutesScreen: React.FC = () => {
                   <th className="px-2 py-1.5">كود الزبون</th>
                   <th className="px-2 py-1.5">عنوان الزبون</th>
                   <th className="px-2 py-1.5">اسم المندوب</th>
-                  <th className="px-2 py-1.5 text-center">عدد الفواتير</th>
-                  <th className="px-2 py-1.5 text-center">الوزن الكلي</th>
-                  <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>
                   <th className="px-2 py-1.5 text-center">حالة الشهر</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
                 {filteredMonthlyUnordered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-6 text-center text-slate-400 font-bold">
+                    <td colSpan={6} className="py-6 text-center text-slate-400 font-bold">
                       {monthlyUnorderedCustomers.length === 0
                         ? 'ممتاز! تم طلب فواتير لجميع الزبائن المسجلين في هذا الشهر 🎉'
                         : 'لا توجد نتائج تطابق معايير البحث الحالية.'}
                     </td>
                   </tr>
                 ) : (
-                  filteredMonthlyUnordered.map((r, idx) => (
+                  displayedMonthlyUnordered.map((r, idx) => (
                     <tr key={`unordered-${r.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
                       <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{r.customerName}</td>
                       <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{r.customerCode || '-'}</td>
                       <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={r.customerAddress}>{r.customerAddress || 'غير محدد'}</td>
                       <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{r.delegateName || 'غير محدد'}</td>
-                      <td className="px-2 py-1 text-center font-bold text-slate-400">0</td>
-                      <td className="px-2 py-1 text-center font-bold text-slate-400">0.0 كجم</td>
-                      <td className="px-2 py-1 text-center font-bold text-slate-400">0 د.ع</td>
                       <td className="px-2 py-1 text-center">
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-500/10 text-rose-600 border border-rose-500/20">
                           <XCircle className="w-2.5 h-2.5" />
@@ -1353,15 +1673,37 @@ export const RoutesScreen: React.FC = () => {
                     <td colSpan={5} className="px-2 py-1.5 font-black text-amber-600 dark:text-amber-400">
                       مجموع الزبائن غير الطالبين ({filteredMonthlyUnordered.length} زبون)
                     </td>
-                    <td className="px-2 py-1.5 text-center text-slate-400">0</td>
-                    <td className="px-2 py-1.5 text-center text-slate-400">0.0 كجم</td>
-                    <td className="px-2 py-1.5 text-center text-slate-400">0 د.ع</td>
                     <td></td>
                   </tr>
                 </tfoot>
               )}
             </table>
           </div>
+
+          {filteredMonthlyUnordered.length > 20 && (
+            <div className="pt-2 flex justify-center">
+              <button
+                onClick={() => setMonthlyUnorderedShowAll(!monthlyUnorderedShowAll)}
+                className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                  isDarkMode 
+                    ? 'bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-800/60' 
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                }`}
+              >
+                {monthlyUnorderedShowAll ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    <span>عرض أقل (أول 20 زبون فقط)</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" />
+                    <span>المزيد (+{filteredMonthlyUnordered.length - 20} زبون)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1414,7 +1756,7 @@ export const RoutesScreen: React.FC = () => {
               </button>
             )}
           </div>
-          {currentUser?.isAdmin && (
+          {(currentUser?.isAdmin || isDataEntry) && (
             <>
               <select 
                 value={routeFilterDelegate} 
@@ -1495,7 +1837,12 @@ export const RoutesScreen: React.FC = () => {
                       {day}
                     </td>
                   </tr>
-                  {dayRoutes.sort((a, b) => String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''))).map(r => { // Sort routes by delegate code
+                  {dayRoutes.sort((a, b) => {
+                    const aInvoices = getRouteItemInvoicesCount(a);
+                    const bInvoices = getRouteItemInvoicesCount(b);
+                    if (aInvoices !== bInvoices) return bInvoices - aInvoices;
+                    return String(a.delegateCode || '').localeCompare(String(b.delegateCode || ''));
+                  }).map(r => {
                     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
                     const todayStr = new Date().toISOString().split('T')[0];
                     
@@ -1809,7 +2156,7 @@ export const RoutesScreen: React.FC = () => {
         {renderDebtsTable()}
       </div>
 
-      {currentUser?.isAdmin && (
+      {canViewMonthlyReports && (
         <div className="mt-10">
           {renderMonthlyCustomerReports()}
         </div>

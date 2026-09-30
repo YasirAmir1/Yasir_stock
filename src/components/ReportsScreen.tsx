@@ -336,9 +336,8 @@ const DailyAdminReport: React.FC<{
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          if (e.customerCode) {
-            delegates[name].invoices.add(e.customerCode);
-          }
+          const invKey = `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`;
+          delegates[name].invoices.add(invKey);
           delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
@@ -370,9 +369,8 @@ const DailyAdminReport: React.FC<{
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
-          if (e.customerCode) {
-            delegates[name].invoices.add(e.customerCode);
-          }
+          const invKey = `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`;
+          delegates[name].invoices.add(invKey);
           delegates[name].weight += (e.totalWeightKg || 0);
           
           const prod = productsList.find(p => p.productName === e.productName);
@@ -898,7 +896,7 @@ export const ReportsScreen: React.FC = () => {
     const weight = relevant.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
     const uniqueInvoices = new Set<string>();
     relevant.forEach((e) => {
-      const invKey = `${e.delegateName?.trim()}_${e.customerCode || e.invoiceId || e.id}`;
+      const invKey = `${e.delegateName?.trim()}_${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`;
       uniqueInvoices.add(invKey);
     });
 
@@ -1042,7 +1040,7 @@ export const ReportsScreen: React.FC = () => {
                   {completedDelegatesList.map((item, idx) => {
                     const delName = item.delegate;
                     const delEntries = todaysEntries.filter(e => e.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase());
-                    const invoiceCount = new Set(delEntries.map(e => e.customerCode)).size;
+                    const invoiceCount = new Set(delEntries.map(e => `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`)).size;
                     const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
                     const totalAmount = delEntries.reduce((sum, e) => {
                       const prod = productsList.find(p => p.productName === e.productName);
@@ -1251,7 +1249,7 @@ export const ReportsScreen: React.FC = () => {
               {activeDelegateName === 'الكل' ? 'عدد الفواتير الكلي اليومي للمندوبين' : 'عدد الفواتير الكلي اليومي'}
             </span>
             <div className="text-3xl font-black text-indigo-600">
-              {formatWithCommas(totalDailyInvoicesCount, true)}
+              {formatWithCommas(Math.round(totalDailyInvoicesCount), false)}
             </div>
           </div>
           
@@ -1433,17 +1431,6 @@ export const ReportsScreen: React.FC = () => {
           </table>
         </div>
       </div>
-
-      {currentUser?.isAdmin && (
-        <div className="mt-4 p-4 bg-slate-900 border border-amber-500/50 rounded-xl text-center space-y-2">
-          <button
-            onClick={handleOpenActivationModal}
-            className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <span>⚙️ تفعيل المبيعات</span>
-          </button>
-        </div>
-      )}
 
       {showActivationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowActivationModal(false)}>

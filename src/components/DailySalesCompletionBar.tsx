@@ -16,11 +16,14 @@ export const DailySalesCompletionBar: React.FC = () => {
     delegatesList = [],
   } = useSales();
 
-  // Hidden for Rafat / Data Entry
+  // Rafat / Data Entry check
   const isRafat =
     currentUser?.username?.toLowerCase() === 'rafatdata' ||
     currentUser?.role === 'dataEntry' ||
-    currentUser?.name === 'رأفت جمال';
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال' ||
+    Boolean(currentUser?.name && currentUser.name.includes('رأفت')) ||
+    Boolean(currentUser?.delegateName && currentUser.delegateName.includes('رأفت'));
 
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [isCompletedLoaded, setIsCompletedLoaded] = useState(false);
@@ -246,9 +249,9 @@ export const DailySalesCompletionBar: React.FC = () => {
     }
   };
 
-  // Save configurable auto lock time (Admin Only)
+  // Save configurable auto lock time (Admin Only, disabled for data entry / Rafat)
   const handleSaveAutoLockTime = async () => {
-    if (!newTimeInput || isUpdatingTime) return;
+    if (!newTimeInput || isUpdatingTime || isRafat) return;
     setIsUpdatingTime(true);
     try {
       await setDoc(doc(db, 'settings', 'auto_lock_time'), {
@@ -272,8 +275,6 @@ export const DailySalesCompletionBar: React.FC = () => {
       setIsUpdatingTime(false);
     }
   };
-
-  if (isRafat) return null;
 
   // Number of delegates completed today for Admin overview
   const completedCount = Object.keys(completedDelegates).length;
@@ -359,8 +360,8 @@ export const DailySalesCompletionBar: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Auto Lock Time Modal (Admin Only) */}
-      {showEditTimeModal && currentUser?.isAdmin && (
+      {/* Edit Auto Lock Time Modal (Admin Only, hidden for Rafat) */}
+      {showEditTimeModal && currentUser?.isAdmin && !isRafat && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
           dir="rtl"
@@ -442,7 +443,7 @@ export const DailySalesCompletionBar: React.FC = () => {
             <div className="w-full flex">
               {activeDelegateName ? (
                 isDelegateCompleted ? (
-                  <div className="w-full h-11 sm:h-12 px-1.5 sm:px-3 bg-emerald-500/10 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 rounded-xl font-black text-[10px] sm:text-xs md:text-sm flex items-center justify-center gap-1 sm:gap-2 shadow-inner text-center">
+                  <div className="w-full min-h-[46px] sm:min-h-[52px] px-1.5 sm:px-3 bg-emerald-500/10 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 rounded-xl font-black text-[10px] sm:text-xs md:text-sm flex items-center justify-center gap-1 sm:gap-2 shadow-inner text-center">
                     <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-emerald-500" />
                     <span className="truncate">اكتملت مبيعات اليوم ✅</span>
                   </div>
@@ -450,7 +451,7 @@ export const DailySalesCompletionBar: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowConfirmModal(true)}
-                    className="w-full h-11 sm:h-12 px-1.5 sm:px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-xl font-black text-[10px] sm:text-xs md:text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-1 sm:gap-2 cursor-pointer border border-red-700 text-center"
+                    className="w-full min-h-[46px] sm:min-h-[52px] px-1.5 sm:px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-xl font-black text-[10px] sm:text-xs md:text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-1 sm:gap-2 cursor-pointer border border-red-700 text-center"
                   >
                     <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                     <span className="truncate">لقد أكملت مبيعات اليوم</span>
@@ -459,7 +460,7 @@ export const DailySalesCompletionBar: React.FC = () => {
               ) : (
                 /* Admin view when all delegates selected */
                 <div
-                  className={`w-full h-11 sm:h-12 px-1.5 sm:px-3 rounded-xl font-black text-[10px] sm:text-xs md:text-sm flex items-center justify-center gap-1 sm:gap-2 border text-center ${
+                  className={`w-full min-h-[46px] sm:min-h-[52px] px-1.5 sm:px-3 rounded-xl font-black text-[10px] sm:text-xs md:text-sm flex items-center justify-center gap-1 sm:gap-2 border text-center ${
                     isDarkMode
                       ? 'bg-slate-800/80 border-slate-700 text-amber-300'
                       : 'bg-amber-50 border-amber-200 text-amber-900'
@@ -473,58 +474,147 @@ export const DailySalesCompletionBar: React.FC = () => {
               )}
             </div>
 
-            {/* Half 2: Countdown Timer to Target Time (Exactly 50%) */}
+            {/* Half 2: Ultra-Modern Countdown Timer Box (Modern UI Theme + Clear Explanatory Closing Time Label) */}
             <div className="w-full flex">
               <div
-                className={`w-full h-11 sm:h-12 px-1.5 sm:px-3 rounded-xl border flex items-center justify-center gap-1 sm:gap-2 transition-all text-center ${
+                className={`relative overflow-hidden w-full min-h-[48px] sm:min-h-[54px] px-2.5 sm:px-3 py-1.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2 transition-all duration-300 shadow-sm backdrop-blur-xs ${
                   isPastTargetTime
-                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-400'
+                    ? isDarkMode
+                      ? 'bg-gradient-to-r from-amber-950/30 via-slate-900 to-amber-950/20 border-amber-500/40 text-amber-300 shadow-amber-950/10'
+                      : 'bg-gradient-to-r from-amber-50/95 via-white to-amber-50/70 border-amber-300 text-amber-950 shadow-amber-900/5'
                     : secondsRemaining < 1800
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-600 dark:text-rose-400 animate-pulse'
+                    ? isDarkMode
+                      ? 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/30 border-rose-500/60 text-rose-300 animate-pulse'
+                      : 'bg-gradient-to-r from-rose-50 via-white to-rose-50 border-rose-300 text-rose-900 animate-pulse'
                     : isDarkMode
-                    ? 'bg-slate-800/80 border-slate-700 text-slate-200'
-                    : 'bg-slate-100 border-slate-200 text-slate-800'
+                    ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-slate-900 border-emerald-500/40 text-emerald-300 shadow-emerald-950/20'
+                    : 'bg-gradient-to-r from-emerald-50/95 via-white to-emerald-50/60 border-emerald-300 text-emerald-950 shadow-emerald-900/5'
                 }`}
               >
-                <Clock
-                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
-                    isPastTargetTime
-                      ? 'text-amber-500'
-                      : secondsRemaining < 1800
-                      ? 'text-rose-500'
-                      : 'text-emerald-500'
-                  }`}
-                />
+                {/* Explanatory Title & Target Closing Time */}
+                <div className="flex items-center gap-1.5 shrink-0 text-center sm:text-right">
+                  <div
+                    className={`p-1 sm:p-1.5 rounded-lg flex items-center justify-center shrink-0 shadow-xs ${
+                      isPastTargetTime
+                        ? 'bg-amber-500/20 text-amber-500 dark:text-amber-400'
+                        : secondsRemaining < 1800
+                        ? 'bg-rose-500/20 text-rose-500 dark:text-rose-400'
+                        : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-center leading-tight sm:gap-1.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[9px] sm:text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
-                      {isPastTargetTime ? `إغلاق (${formattedTargetTime}):` : `إغلاق تلقائي (${formattedTargetTime}):`}
+                  <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1 sm:gap-2">
+                    <span className="text-[10px] sm:text-xs font-black text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                      توقيت إغلاق المبيعات:
                     </span>
-                    {currentUser?.isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNewTimeInput(targetAutoLockTime);
-                          setShowEditTimeModal(true);
-                        }}
-                        className="p-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 dark:text-amber-400 transition-colors cursor-pointer shrink-0"
-                        title="تعديل وقت الإغلاق التلقائي"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1" dir="ltr">
-                    <span className="font-mono font-black text-xs sm:text-sm md:text-base tracking-wider">
-                      {countdownText}
-                    </span>
-                    {isPastTargetTime && (
-                      <span className="text-[8px] sm:text-[9px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1 py-0.2 rounded" dir="rtl">
-                        انتهى
+
+                    <div className="flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] sm:text-xs font-black text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 dark:bg-emerald-500/25 px-2 py-0.5 rounded-lg border border-emerald-500/35 shadow-xs font-mono">
+                        <span className="text-slate-400 dark:text-slate-500 font-sans font-bold">[</span>
+                        <span>{formattedTargetTime}</span>
+                        <span className="text-slate-400 dark:text-slate-500 font-sans font-bold">]</span>
                       </span>
-                    )}
+                      {currentUser?.isAdmin && !isRafat && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewTimeInput(targetAutoLockTime);
+                            setShowEditTimeModal(true);
+                          }}
+                          className="p-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-600 dark:text-amber-400 transition-colors cursor-pointer shrink-0"
+                          title="تعديل وقت الإغلاق التلقائي"
+                        >
+                          <Pencil className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
+                </div>
+
+                {/* Modern UI Segmented Digital Countdown Timer */}
+                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0" dir="ltr">
+                  {/* Digital Segments */}
+                  <div className="flex items-center gap-1">
+                    {/* Hours */}
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md font-mono font-black text-xs sm:text-sm border shadow-inner min-w-[24px] sm:min-w-[27px] text-center ${
+                          isPastTargetTime
+                            ? 'bg-amber-950/40 border-amber-500/40 text-amber-400'
+                            : secondsRemaining < 1800
+                            ? 'bg-rose-950/40 border-rose-500/60 text-rose-300'
+                            : isDarkMode
+                            ? 'bg-slate-950/90 border-emerald-500/40 text-emerald-300'
+                            : 'bg-emerald-950/10 border-emerald-300 text-emerald-900'
+                        }`}
+                      >
+                        {(countdownText || '00:00:00').split(':')[0] || '00'}
+                      </div>
+                      <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">ساعة</span>
+                    </div>
+
+                    <span className="font-mono font-black text-xs sm:text-sm text-emerald-500/80 -mt-2 animate-pulse">:</span>
+
+                    {/* Minutes */}
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md font-mono font-black text-xs sm:text-sm border shadow-inner min-w-[24px] sm:min-w-[27px] text-center ${
+                          isPastTargetTime
+                            ? 'bg-amber-950/40 border-amber-500/40 text-amber-400'
+                            : secondsRemaining < 1800
+                            ? 'bg-rose-950/40 border-rose-500/60 text-rose-300'
+                            : isDarkMode
+                            ? 'bg-slate-950/90 border-emerald-500/40 text-emerald-300'
+                            : 'bg-emerald-950/10 border-emerald-300 text-emerald-900'
+                        }`}
+                      >
+                        {(countdownText || '00:00:00').split(':')[1] || '00'}
+                      </div>
+                      <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">دقيقة</span>
+                    </div>
+
+                    <span className="font-mono font-black text-xs sm:text-sm text-emerald-500/80 -mt-2 animate-pulse">:</span>
+
+                    {/* Seconds */}
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md font-mono font-black text-xs sm:text-sm border shadow-inner min-w-[24px] sm:min-w-[27px] text-center ${
+                          isPastTargetTime
+                            ? 'bg-amber-950/40 border-amber-500/40 text-amber-400'
+                            : secondsRemaining < 1800
+                            ? 'bg-rose-950/40 border-rose-500/60 text-rose-300'
+                            : isDarkMode
+                            ? 'bg-slate-950/90 border-emerald-500/40 text-emerald-300'
+                            : 'bg-emerald-950/10 border-emerald-300 text-emerald-900'
+                        }`}
+                      >
+                        {(countdownText || '00:00:00').split(':')[2] || '00'}
+                      </div>
+                      <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">ثانية</span>
+                    </div>
+                  </div>
+
+                  {/* Status Indicator */}
+                  {isPastTargetTime ? (
+                    <span
+                      className="text-[8px] sm:text-[9px] font-black bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-1 rounded-md border border-amber-500/30 shrink-0 self-start mt-0.5"
+                      dir="rtl"
+                    >
+                      انتهى
+                    </span>
+                  ) : (
+                    <div className="flex flex-col items-center self-start mt-0.5" dir="rtl">
+                      <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-md border border-emerald-500/30 shrink-0">
+                        <span className="relative flex h-1.5 w-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                        </span>
+                        متبقي
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

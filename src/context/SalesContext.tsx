@@ -3,7 +3,7 @@ import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, query, wher
 import { db } from '../lib/firebase';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
-import { parseArabicDigits } from '../utils/numberUtils';
+import { parseArabicDigits, getInvoiceKey } from '../utils/numberUtils';
 import {
   UserAccount,
   DelegateTarget,
@@ -1168,6 +1168,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const deleteSalesEntry = async (id: string) => {
     setSalesEntries(prev => prev.filter(e => e.id !== id));
+    setAllSalesEntries(prev => prev.filter(e => e.id !== id));
     try {
       await deleteDoc(doc(db, 'sales_entries', id));
       setUserMessage('تم حذف المنتج المسجل بنجاح');
@@ -1178,9 +1179,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateSalesEntry = async (id: string, updatedData: Partial<SalesEntry>) => {
     setSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...updatedData } : e));
+    setAllSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...updatedData } : e));
     try {
-      const entryRef = doc(db, 'sales_entries', id);
-      await setDoc(entryRef, updatedData, { merge: true });
+      await setDoc(doc(db, 'sales_entries', id), updatedData, { merge: true });
       setUserMessage('تم تعديل بيانات المنتج المسجل بنجاح');
     } catch (e) {
       console.error('Error updating entry:', e);
@@ -1897,7 +1898,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         (delegateName === 'الكل' || e.delegateName === delegateName) &&
         e.priceMode === priceMode
     );
-    const uniqueInvoiceIds = new Set(filtered.map((e) => e.invoiceId || e.id));
+    const uniqueInvoiceIds = new Set(filtered.map(getInvoiceKey));
     return uniqueInvoiceIds.size;
   };
 

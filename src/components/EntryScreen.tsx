@@ -5,7 +5,7 @@ import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/fire
 import { GridRow, SalesEntry } from '../types';
 import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
-import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
+import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
@@ -870,7 +870,7 @@ export const EntryScreen: React.FC = () => {
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
             <div className="text-[10px] text-slate-400 font-bold">عدد الفواتير اليوم</div>
-            <div className="text-xl font-black">{new Set(safeSavedEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]).map(e => e.customerName)).size}</div>
+            <div className="text-xl font-black">{new Set(safeSavedEntries.filter(e => e.dateString === new Date().toISOString().split('T')[0]).map(getInvoiceKey)).size}</div>
           </div>
           <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
             <div className="text-[10px] text-slate-400 font-bold">إجمالي المبيعات اليوم</div>

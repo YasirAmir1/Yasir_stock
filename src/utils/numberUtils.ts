@@ -39,3 +39,31 @@ export function formatWithCommas(num: number, hasDecimals: boolean = false): str
   }
   return num.toLocaleString('en-US');
 }
+
+/**
+ * Accurately and uniquely identifies an invoice across both new records (with invoiceId)
+ * and legacy/existing records (grouped by date, delegate, customer, and timestamp batch).
+ */
+export function getInvoiceKey(entry?: {
+  invoiceId?: string;
+  dateString?: string;
+  delegateName?: string;
+  customerCode?: string;
+  customerName?: string;
+  timestamp?: number;
+  id?: string;
+} | null): string {
+  if (!entry) return '';
+  if (entry.invoiceId && String(entry.invoiceId).trim()) {
+    return String(entry.invoiceId).trim();
+  }
+  const date = (entry.dateString || '').trim();
+  const del = (entry.delegateName || '').trim().toLowerCase();
+  const cust = (entry.customerCode || entry.customerName || '').trim().toLowerCase();
+  const tsBucket = entry.timestamp ? Math.floor(entry.timestamp / 5000) : 0;
+  if (date || del || cust || tsBucket) {
+    return `${date}_${del}_${cust}_${tsBucket}`;
+  }
+  return entry.id || '';
+}
+
