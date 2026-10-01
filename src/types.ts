@@ -1,3 +1,5 @@
+export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
+
 export interface UserAccount {
   name: string;
   roleName: string;

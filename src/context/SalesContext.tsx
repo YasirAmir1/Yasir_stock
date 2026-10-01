@@ -14,7 +14,8 @@ import {
   DelegateEvaluation,
   DailyEvaluationRecord,
   ProductItem,
-  RouteItem
+  RouteItem,
+  AppTab
 } from '../types';
 
 export const DEFAULT_CATEGORIES_LIST = [
@@ -160,8 +161,8 @@ interface SalesContextType {
   setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null) => void;
   setShowQuickAdd: (show: boolean) => void;
   routes: RouteItem[];
-  activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
-  setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   countUniqueInvoices: (date: string, delegateName: string, priceMode: 'retail' | 'wholesale') => number;
 }
 
@@ -232,7 +233,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [routes, setRoutes] = useState<RouteItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin'>('reports');
+  const [activeTab, setActiveTab] = useState<AppTab>('reports');
 
   useEffect(() => {
     const q = query(collection(db, 'routes'));

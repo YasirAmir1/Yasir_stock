@@ -411,22 +411,22 @@ export const RoutesScreen: React.FC = () => {
           className={`w-full p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
         />
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-          <table className="w-full min-w-[700px] text-[9px] sm:text-[10px] text-right whitespace-nowrap">
-            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+        <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 shadow-xs">
+          <table className="w-full min-w-[700px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
+            <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
               <tr>
-                {currentUser?.isAdmin && <th className="px-2 py-2 border-b dark:border-slate-700">المندوب</th>}
-                <th className="px-2 py-2 border-b dark:border-slate-700">الاسم</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">الكود</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">المبلغ</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">ت. الفاتورة</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">ت. السداد</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">مستحقة</th>
-                <th className="px-2 py-2 border-b dark:border-slate-700">باقي</th>
-                {currentUser?.isAdmin && <th className="px-2 py-2 border-b dark:border-slate-700">تسديد</th>}
+                {currentUser?.isAdmin && <th className="px-2.5 py-2.5">المندوب</th>}
+                <th className="px-2.5 py-2.5">الاسم</th>
+                <th className="px-2.5 py-2.5">الكود</th>
+                <th className="px-2.5 py-2.5">المبلغ</th>
+                <th className="px-2.5 py-2.5">ت. الفاتورة</th>
+                <th className="px-2.5 py-2.5">ت. السداد</th>
+                <th className="px-2.5 py-2.5 text-center">مستحقة</th>
+                <th className="px-2.5 py-2.5 text-center">باقي</th>
+                {currentUser?.isAdmin && <th className="px-2.5 py-2.5 text-center">تسديد</th>}
               </tr>
             </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
               {filteredDebts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
                 const invDate = new Date(d.invoiceDate || Date.now());
                 const payDate = new Date(d.paymentDueDate || Date.now());
@@ -443,7 +443,11 @@ export const RoutesScreen: React.FC = () => {
 
                 const isRed = diffInDays <= 1;
                 const isGreen = diffInDays > 5;
-                const rowBgClass = isRed ? 'bg-red-100 dark:bg-red-900/30' : isGreen ? 'bg-emerald-100 dark:bg-emerald-900/30' : '';
+                const rowBgClass = isRed 
+                  ? (isDarkMode ? 'bg-rose-950/40 text-rose-100 hover:bg-rose-900/50' : 'bg-rose-50 text-rose-950 hover:bg-rose-100/90') 
+                  : isGreen 
+                  ? (isDarkMode ? 'bg-emerald-950/30 text-emerald-100 hover:bg-emerald-900/40' : 'bg-emerald-50/70 text-slate-900 hover:bg-emerald-100/80') 
+                  : (isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100/70');
                 
                 const handlePay = (e: React.MouseEvent) => {
                     e.stopPropagation();
@@ -452,23 +456,45 @@ export const RoutesScreen: React.FC = () => {
                 };
 
                 return (
-                  <tr key={d.id} className={`${rowBgClass} hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} cursor-pointer`} onClick={() => setSelectedDebt(d)}>
+                  <tr key={d.id} className={`${rowBgClass} transition-colors cursor-pointer font-bold`} onClick={() => setSelectedDebt(d)}>
                     {currentUser?.isAdmin && (
-                        <td className="px-2 py-2 flex items-center gap-1">
-                            {delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}
-                            {isOldDebt && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">قديم</span>}
+                        <td className="px-2.5 py-2 flex items-center gap-1.5 font-extrabold text-slate-800 dark:text-slate-200">
+                            <span>{delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}</span>
+                            {isOldDebt && <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full shadow-xs">قديم</span>}
                         </td>
                     )}
-                    <td className="px-2 py-2">{d.customerName}</td>
-                    <td className="px-2 py-2">{d.customerCode}</td>
-                    <td className="px-2 py-2">{d.amountDue.toLocaleString()}</td>
-                    <td className="px-2 py-2">{d.invoiceDate}</td>
-                    <td className="px-2 py-2">{d.paymentDueDate}</td>
-                    <td className="px-2 py-2 text-center">{mustahaqa}</td>
-                    <td className="px-2 py-2 text-center">{baqia}</td>
+                    <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white">{d.customerName}</td>
+                    <td className="px-2.5 py-2 font-mono text-[10px] text-slate-700 dark:text-slate-300">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                        {d.customerCode}
+                      </span>
+                    </td>
+                    <td className="px-2.5 py-2 font-black text-emerald-700 dark:text-emerald-300 font-mono text-xs">
+                      {d.amountDue.toLocaleString()} <span className="text-[9px] font-sans">د.ع</span>
+                    </td>
+                    <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.invoiceDate}</td>
+                    <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.paymentDueDate}</td>
+                    <td className="px-2.5 py-2 text-center">
+                      {mustahaqa > 0 ? (
+                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                          {mustahaqa}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-[10px]">0</span>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-2 text-center">
+                      {baqia > 0 ? (
+                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                          {baqia}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-[10px]">0</span>
+                      )}
+                    </td>
                     {currentUser?.isAdmin && (
-                      <td className="px-2 py-2">
-                          <button onClick={handlePay} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold">تسديد</button>
+                      <td className="px-2.5 py-2 text-center">
+                          <button onClick={handlePay} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer">تسديد</button>
                       </td>
                     )}
                   </tr>
@@ -1456,48 +1482,58 @@ export const RoutesScreen: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs">
             <table className={`w-full ${isDataEntry ? 'min-w-[480px]' : 'min-w-[650px]'} text-[10px] sm:text-[11px] text-right whitespace-nowrap`}>
-              <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
                 <tr>
-                  <th className="px-2 py-1.5 text-center w-8">ت</th>
-                  <th className="px-2 py-1.5">اسم الزبون</th>
-                  <th className="px-2 py-1.5">كود الزبون</th>
-                  <th className="px-2 py-1.5">عنوان الزبون</th>
-                  <th className="px-2 py-1.5">اسم المندوب</th>
-                  {!isDataEntry && <th className="px-2 py-1.5 text-center">عدد الفواتير</th>}
-                  {!isDataEntry && <th className="px-2 py-1.5 text-center">الوزن الكلي</th>}
-                  {!isDataEntry && <th className="px-2 py-1.5 text-center">المبلغ الكلي</th>}
+                  <th className="px-2.5 py-2 text-center w-8">ت</th>
+                  <th className="px-2.5 py-2">اسم الزبون</th>
+                  <th className="px-2.5 py-2">كود الزبون</th>
+                  <th className="px-2.5 py-2">عنوان الزبون</th>
+                  <th className="px-2.5 py-2">اسم المندوب</th>
+                  {!isDataEntry && <th className="px-2.5 py-2 text-center">عدد الفواتير</th>}
+                  {!isDataEntry && <th className="px-2.5 py-2 text-center">الوزن الكلي</th>}
+                  {!isDataEntry && <th className="px-2.5 py-2 text-center">المبلغ الكلي</th>}
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
                 {filteredMonthlyOrdered.length === 0 ? (
                   <tr>
-                    <td colSpan={isDataEntry ? 5 : 8} className="py-6 text-center text-slate-400 font-bold">
+                    <td colSpan={isDataEntry ? 5 : 8} className="py-6 text-center text-slate-500 dark:text-slate-400 font-bold">
                       لا توجد فواتير أو طلبات مسجلة للزبائن في هذا الشهر حسب معايير البحث.
                     </td>
                   </tr>
                 ) : (
                   displayedMonthlyOrdered.map((c, idx) => (
-                    <tr key={`ordered-${c.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
-                      <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{c.customerName}</td>
-                      <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{c.customerCode || '-'}</td>
-                      <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={c.customerAddress}>{c.customerAddress}</td>
-                      <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{c.delegateName}</td>
+                    <tr key={`ordered-${c.customerCode}-${idx}`} className="hover:bg-emerald-50/50 dark:hover:bg-slate-800/60 transition-colors font-bold">
+                      <td className="px-2.5 py-2 text-center font-bold text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                      <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white text-xs">{c.customerName}</td>
+                      <td className="px-2.5 py-2 font-mono text-[9px]">
+                        <span className="px-1.5 py-0.5 rounded font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                          {c.customerCode || '-'}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-2 text-slate-700 dark:text-slate-300 font-medium max-w-[170px] truncate" title={c.customerAddress}>{c.customerAddress}</td>
+                      <td className="px-2.5 py-2 font-extrabold text-slate-800 dark:text-slate-200">{c.delegateName}</td>
                       {!isDataEntry && (
-                        <td className="px-2 py-1 text-center font-black text-indigo-600 dark:text-indigo-400">
-                          {c.invoicesCount}
+                        <td className="px-2.5 py-2 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded-md font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 shadow-2xs">
+                            {c.invoicesCount}
+                          </span>
                         </td>
                       )}
                       {!isDataEntry && (
-                        <td className="px-2 py-1 text-center font-black text-emerald-600 dark:text-emerald-400">
-                          {c.totalWeight.toFixed(1)} كجم
+                        <td className="px-2.5 py-2 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded-md font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs">
+                            {c.totalWeight.toFixed(1)} كجم
+                          </span>
                         </td>
                       )}
                       {!isDataEntry && (
-                        <td className="px-2 py-1 text-center font-black text-blue-600 dark:text-blue-400">
-                          {Math.round(c.totalAmount).toLocaleString()} د.ع
+                        <td className="px-2.5 py-2 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded-md font-black text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 shadow-2xs">
+                            {Math.round(c.totalAmount).toLocaleString()} د.ع
+                          </span>
                         </td>
                       )}
                     </tr>
@@ -1505,20 +1541,20 @@ export const RoutesScreen: React.FC = () => {
                 )}
               </tbody>
               {filteredMonthlyOrdered.length > 0 && (
-                <tfoot className={`font-black border-t ${isDarkMode ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`}>
+                <tfoot className={`font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/90 border-slate-300 text-slate-950'}`}>
                   <tr>
-                    <td colSpan={5} className="px-2 py-1.5 font-black text-emerald-600 dark:text-emerald-400">
+                    <td colSpan={5} className="px-2.5 py-2 font-black text-emerald-700 dark:text-emerald-300 text-xs">
                       {isDataEntry ? `إجمالي الزبائن أصحاب الفواتير: (${filteredMonthlyOrdered.length} زبون)` : `المجموع (${filteredMonthlyOrdered.length} زبون)`}
                     </td>
                     {!isDataEntry && (
                       <>
-                        <td className="px-2 py-1.5 text-center text-indigo-600 dark:text-indigo-400">
+                        <td className="px-2.5 py-2 text-center font-black text-indigo-700 dark:text-indigo-300 text-xs">
                           {currentFilteredInvoices.toLocaleString()}
                         </td>
-                        <td className="px-2 py-1.5 text-center text-emerald-600 dark:text-emerald-400">
+                        <td className="px-2.5 py-2 text-center font-black text-emerald-700 dark:text-emerald-300 text-xs">
                           {currentFilteredWeight.toFixed(1)} كجم
                         </td>
-                        <td className="px-2 py-1.5 text-center text-blue-600 dark:text-blue-400">
+                        <td className="px-2.5 py-2 text-center font-black text-blue-700 dark:text-blue-300 text-xs">
                           {Math.round(currentFilteredAmount).toLocaleString()} د.ع
                         </td>
                       </>
@@ -1628,22 +1664,22 @@ export const RoutesScreen: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs">
             <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
-              <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+              <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
                 <tr>
-                  <th className="px-2 py-1.5 text-center w-8">ت</th>
-                  <th className="px-2 py-1.5">اسم الزبون</th>
-                  <th className="px-2 py-1.5">كود الزبون</th>
-                  <th className="px-2 py-1.5">عنوان الزبون</th>
-                  <th className="px-2 py-1.5">اسم المندوب</th>
-                  <th className="px-2 py-1.5 text-center">حالة الشهر</th>
+                  <th className="px-2.5 py-2 text-center w-8">ت</th>
+                  <th className="px-2.5 py-2">اسم الزبون</th>
+                  <th className="px-2.5 py-2">كود الزبون</th>
+                  <th className="px-2.5 py-2">عنوان الزبون</th>
+                  <th className="px-2.5 py-2">اسم المندوب</th>
+                  <th className="px-2.5 py-2 text-center">حالة الشهر</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900/80 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
                 {filteredMonthlyUnordered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-slate-400 font-bold">
+                    <td colSpan={6} className="py-6 text-center text-slate-500 dark:text-slate-400 font-bold">
                       {monthlyUnorderedCustomers.length === 0
                         ? 'ممتاز! تم طلب فواتير لجميع الزبائن المسجلين في هذا الشهر 🎉'
                         : 'لا توجد نتائج تطابق معايير البحث الحالية.'}
@@ -1651,15 +1687,19 @@ export const RoutesScreen: React.FC = () => {
                   </tr>
                 ) : (
                   displayedMonthlyUnordered.map((r, idx) => (
-                    <tr key={`unordered-${r.customerCode}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-2 py-1 text-center font-bold text-slate-400">{idx + 1}</td>
-                      <td className="px-2 py-1 font-black text-slate-900 dark:text-white">{r.customerName}</td>
-                      <td className="px-2 py-1 font-mono text-[9px] text-slate-500 dark:text-slate-400">{r.customerCode || '-'}</td>
-                      <td className="px-2 py-1 text-slate-600 dark:text-slate-400 max-w-[170px] truncate" title={r.customerAddress}>{r.customerAddress || 'غير محدد'}</td>
-                      <td className="px-2 py-1 font-bold text-slate-700 dark:text-slate-300">{r.delegateName || 'غير محدد'}</td>
-                      <td className="px-2 py-1 text-center">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-500/10 text-rose-600 border border-rose-500/20">
-                          <XCircle className="w-2.5 h-2.5" />
+                    <tr key={`unordered-${r.customerCode}-${idx}`} className="hover:bg-amber-50/40 dark:hover:bg-slate-800/60 transition-colors font-bold">
+                      <td className="px-2.5 py-2 text-center font-bold text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                      <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white text-xs">{r.customerName}</td>
+                      <td className="px-2.5 py-2 font-mono text-[9px]">
+                        <span className="px-1.5 py-0.5 rounded font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                          {r.customerCode || '-'}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-2 text-slate-700 dark:text-slate-300 font-medium max-w-[170px] truncate" title={r.customerAddress}>{r.customerAddress || 'غير محدد'}</td>
+                      <td className="px-2.5 py-2 font-extrabold text-slate-800 dark:text-slate-200">{r.delegateName || 'غير محدد'}</td>
+                      <td className="px-2.5 py-2 text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-700 shadow-2xs">
+                          <XCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
                           لم يطلب
                         </span>
                       </td>
@@ -1668,9 +1708,9 @@ export const RoutesScreen: React.FC = () => {
                 )}
               </tbody>
               {filteredMonthlyUnordered.length > 0 && (
-                <tfoot className={`font-black border-t ${isDarkMode ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`}>
+                <tfoot className={`font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/90 border-slate-300 text-slate-950'}`}>
                   <tr>
-                    <td colSpan={5} className="px-2 py-1.5 font-black text-amber-600 dark:text-amber-400">
+                    <td colSpan={5} className="px-2.5 py-2 font-black text-amber-700 dark:text-amber-300 text-xs">
                       مجموع الزبائن غير الطالبين ({filteredMonthlyUnordered.length} زبون)
                     </td>
                     <td></td>

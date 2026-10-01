@@ -1,16 +1,19 @@
 import React from 'react';
-import { FileText, BarChart2, Package, Award, MapPin } from 'lucide-react';
+import { FileText, BarChart2, Package, Award, MapPin, History } from 'lucide-react';
+import { AppTab } from '../types';
 
 interface BottomNavProps {
-  activeTab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin';
-  setActiveTab: (tab: 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   isDarkMode: boolean;
   setShowQuickAdd?: (show: boolean) => void;
+  isAdmin?: boolean;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, isDarkMode, setShowQuickAdd }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, isDarkMode, setShowQuickAdd, isAdmin }) => {
   const tabs = [
     { id: 'entry', label: 'الفواتير', icon: FileText },
+    ...(isAdmin ? [{ id: 'old_invoices', label: 'القديمة', icon: History }] : []),
     { id: 'routes', label: 'المسارات', icon: MapPin },
     { id: 'reports', label: 'التقارير', icon: BarChart2 },
     { id: 'evaluations', label: 'التقييمات', icon: Award },
@@ -28,7 +31,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, i
               key={tab.id}
               onClick={() => {
                 if (tab.id === 'products' && setShowQuickAdd) setShowQuickAdd(false);
-                setActiveTab(tab.id as 'entry' | 'routes' | 'reports' | 'evaluations' | 'products' | 'admin');
+                setActiveTab(tab.id as AppTab);
               }}
               className={`flex flex-col items-center justify-center p-1 text-[10px] font-bold transition-colors ${isActive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-700') : (isDarkMode ? 'text-slate-500' : 'text-slate-500')}`}
             >
@@ -41,3 +44,4 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, i
     </div>
   );
 };
+

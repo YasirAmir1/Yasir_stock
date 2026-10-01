@@ -16,6 +16,7 @@ import { DelegatePanelModal } from './components/DelegatePanelModal';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
 import { RoutesScreen } from './components/RoutesScreen';
+import { OldInvoicesScreen } from './components/OldInvoicesScreen';
 import { BottomNav } from './components/BottomNav';
 import { GlobalDialogModal } from './components/GlobalDialogModal';
 import './utils/dialogService';
@@ -38,6 +39,7 @@ import {
   User,
   MapPin,
   Bell,
+  History,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -429,7 +431,7 @@ const MainAppContent: React.FC = () => {
           <div className="max-w-5xl mx-auto px-1 sm:px-4 flex flex-wrap">
             <button
             onClick={() => handleTabChange('entry')}
-            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'entry'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -443,9 +445,28 @@ const MainAppContent: React.FC = () => {
             <span>الفواتير</span>
           </button>
 
+          {/* OLD INVOICES TAB (الفواتير القديمة) - DIRECTLY ADJACENT TO ENTRY - STRICTLY ADMIN ONLY */}
+          {currentUser?.isAdmin && (
+            <button
+              onClick={() => handleTabChange('old_invoices')}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+                activeTab === 'old_invoices'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <History className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <span>الفواتير القديمة</span>
+            </button>
+          )}
+
           <button
             onClick={() => handleTabChange('routes')}
-            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'routes'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -461,7 +482,7 @@ const MainAppContent: React.FC = () => {
 
           <button
             onClick={() => handleTabChange('reports')}
-            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'reports'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -478,7 +499,7 @@ const MainAppContent: React.FC = () => {
           {/* EVALUATIONS TAB (تقييمات) */}
           <button
             onClick={() => handleTabChange('evaluations')}
-            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'evaluations'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -498,7 +519,7 @@ const MainAppContent: React.FC = () => {
               setShowQuickAdd(false);
               handleTabChange('products');
             }}
-            className={`flex-[1_1_20%] py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
               activeTab === 'products'
                 ? isDarkMode
                   ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
@@ -541,6 +562,7 @@ const MainAppContent: React.FC = () => {
       {/* Main Screen Body */}
       <main className="flex-1 pb-20 sm:pb-12 pt-2">
         {activeTab === 'entry' && <EntryScreen />}
+        {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
         {activeTab === 'routes' && <RoutesScreen />}
         {activeTab === 'reports' && <ReportsScreen />}
         {activeTab === 'evaluations' && <EvaluationsScreen />}
@@ -560,6 +582,7 @@ const MainAppContent: React.FC = () => {
         setActiveTab={setActiveTab} 
         isDarkMode={isDarkMode} 
         setShowQuickAdd={setShowQuickAdd} 
+        isAdmin={currentUser?.isAdmin}
       />
 
       {/* Footer */}
