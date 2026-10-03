@@ -645,7 +645,7 @@ export const OldInvoicesScreen: React.FC = () => {
             return (
               <div 
                 key={inv.invoiceKey} 
-                className={`border-2 rounded-xl p-0 shadow-md overflow-hidden transition-all ${
+                className={`invoice-card border-2 rounded-xl p-0 shadow-md overflow-hidden transition-all ${
                   isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400'
                 }`}
               >
@@ -653,61 +653,29 @@ export const OldInvoicesScreen: React.FC = () => {
                 <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex flex-col gap-2 rounded-t-xl ${
                   isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'
                 }`}>
-                  {/* Row 1: Green Indicator + Code + Shop Name */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-500">
-                      {inv.customerCode || '---'}
-                    </span>
-                    <span className="font-black text-sm">
-                      اسم المحل: {customerName}
-                    </span>
-                    {inv.customerAddress && (
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
-                        ({inv.customerAddress})
+                  {/* Row 1: Green Indicator + Code + Shop Name AND Print Action Button */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                      <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-black px-2 py-0.5 rounded border border-slate-300 dark:border-slate-500 shrink-0">
+                        {inv.customerCode || '---'}
                       </span>
-                    )}
-                  </div>
-
-                  {/* Row 2: Price Mode Badge */}
-                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                    <span className={`px-2 py-0.5 rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${
-                      inv.priceMode === 'wholesale' 
-                        ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
-                        : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                    }`}>
-                      {inv.priceMode === 'wholesale' ? <Package className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
-                      {inv.priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}
-                    </span>
-                  </div>
-
-                  {/* Row 3: Delegate info + Date + Weight badge + Amount badge + Print action */}
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <div className={`px-2 py-0.5 rounded-md border flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-1 ${
-                      isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'
-                    }`}>
-                      <span className="text-[10px] font-bold">المندوب: {inv.delegateName}</span>
-                      <span className={`text-[9px] font-bold whitespace-nowrap sm:border-r sm:pr-2 ${
-                        isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'
-                      }`} dir="ltr">
-                        {inv.dateString}
+                      <span className="font-black text-sm truncate">
+                        اسم المحل: {customerName}
                       </span>
+                      {inv.customerAddress && (
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal truncate">
+                          ({inv.customerAddress})
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-emerald-700 shadow-md">
-                        {formatWithCommas(parseFloat(inv.totalWeight.toFixed(2)), true)} كجم
-                      </span>
-                      <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
-                        {formatWithCommas(Math.round(inv.totalAmount), true)} د.ع
-                      </span>
-                    </div>
-
-                    <div className="flex gap-2">
+                    {/* زر الطباعة أمام اسم الزبون */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(inv)}
-                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
                           isDarkMode 
                             ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' 
                             : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'
@@ -716,6 +684,46 @@ export const OldInvoicesScreen: React.FC = () => {
                       >
                         <Printer className="w-4 h-4" />
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Grid Layout for Invoice Type & Metadata (Representative, Weight, Total) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] pt-2 border-t border-slate-200/70 dark:border-slate-600/70">
+                    {/* 1. نوع الفاتورة: مفرد / جملة */}
+                    <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold text-center ${
+                      inv.priceMode === 'wholesale' 
+                        ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
+                        : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                    }`}>
+                      {inv.priceMode === 'wholesale' ? <Package className="w-3.5 h-3.5 shrink-0" /> : <ShoppingCart className="w-3.5 h-3.5 shrink-0" />}
+                      <span className="truncate">{inv.priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}</span>
+                    </div>
+
+                    {/* 2. اسم المندوب وتاريخ الفاتورة */}
+                    <div className={`flex items-center justify-between sm:justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold ${
+                      isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'
+                    }`}>
+                      <div className="flex items-center gap-1 truncate">
+                        <span className="text-slate-500 dark:text-slate-400 font-normal">المندوب:</span>
+                        <span className="truncate">{inv.delegateName}</span>
+                      </div>
+                      <span className={`text-[9px] font-bold whitespace-nowrap border-r pr-1 shrink-0 ${
+                        isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'
+                      }`} dir="ltr">
+                        {inv.dateString}
+                      </span>
+                    </div>
+
+                    {/* 3. الوزن الكلي */}
+                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-emerald-600 text-white font-black border border-emerald-700 shadow-sm text-center">
+                      <span className="text-emerald-100 text-[9px] font-normal">الوزن:</span>
+                      <span>{formatWithCommas(parseFloat(inv.totalWeight.toFixed(2)), true)} كجم</span>
+                    </div>
+
+                    {/* 4. المبلغ الكلي */}
+                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-indigo-600 text-white font-black border border-indigo-700 shadow-sm text-center" title="إجمالي مبلغ الفاتورة">
+                      <span className="text-indigo-100 text-[9px] font-normal">المجموع:</span>
+                      <span>{formatWithCommas(Math.round(inv.totalAmount), true)} د.ع</span>
                     </div>
                   </div>
                 </h4>

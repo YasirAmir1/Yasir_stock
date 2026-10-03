@@ -3,7 +3,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, Clock, RotateCcw, UserCheck, Shield, Calendar } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
@@ -79,6 +79,53 @@ export const EntryScreen: React.FC = () => {
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [showCustomExportModal, setShowCustomExportModal] = useState(false);
   const [selectedDelegatesForExport, setSelectedDelegatesForExport] = useState<Set<string>>(new Set());
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  const [isPastClosing, setIsPastClosing] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (snap) => {
+        if (snap.exists() && snap.data()?.targetTime) {
+          setTargetAutoLockTime(snap.data().targetTime);
+        }
+      },
+      (err) => console.error('Error listening to auto_lock_time in EntryScreen:', err)
+    );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const checkClosing = () => {
+      try {
+        const now = new Date();
+        const timeFormatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Baghdad',
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+          hour12: false,
+        });
+        const parts = timeFormatter.formatToParts(now);
+        const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+        const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+        const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+        const currentSeconds = hour * 3600 + minute * 60 + second;
+
+        const [hStr, mStr] = targetAutoLockTime.split(':');
+        const targetHours = parseInt(hStr || '15', 10);
+        const targetMinutes = parseInt(mStr || '00', 10);
+        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+        setIsPastClosing(currentSeconds >= targetSeconds);
+      } catch {
+        setIsPastClosing(false);
+      }
+    };
+    checkClosing();
+    const timer = setInterval(checkClosing, 5000);
+    return () => clearInterval(timer);
+  }, [targetAutoLockTime]);
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -818,6 +865,74 @@ export const EntryScreen: React.FC = () => {
     delegateStats[delegate].total.add(customer);
   });
 
+  const isPrivilegedRole = currentUser?.isAdmin || currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata';
+
+  // 12-hour formatted auto lock time in English (e.g. 15:00 -> 3:00 PM)
+  const formattedLockTime12h = useMemo(() => {
+    if (!targetAutoLockTime) return '';
+    const [hStr, mStr] = targetAutoLockTime.split(':');
+    const h = parseInt(hStr || '0', 10);
+    const m = mStr || '00';
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${m} ${period}`;
+  }, [targetAutoLockTime]);
+
+  // First invoice of each delegate today (for Admin & Data Entry top section)
+  const delegateFirstInvoicesToday = useMemo(() => {
+    const todayDate = new Date();
+    const todayStr = todayDate.toISOString().split('T')[0];
+    const map: Record<string, {
+      firstTimestamp: number | null;
+      firstTimeFormatted: string;
+      firstDateFormatted: string;
+      isReset: boolean;
+      totalInvoicesToday: number;
+    }> = {};
+
+    delegatesList.forEach((del) => {
+      const isCompleted = !!completedDelegates[del.trim()];
+      const isReset = isCompleted || isPastClosing;
+
+      const delEntries = safeSavedEntries.filter(
+        (e) => (e.dateString === todayStr || (!e.dateString && e.timestamp)) && (e.delegateName || '').trim() === del.trim()
+      );
+
+      const validTimestamps = delEntries
+        .map((e) => e.timestamp)
+        .filter((t): t is number => typeof t === 'number' && t > 0);
+
+      const firstTimestamp = validTimestamps.length > 0 ? Math.min(...validTimestamps) : null;
+
+      let firstTimeFormatted = '---';
+      let firstDateFormatted = '---';
+      if (firstTimestamp) {
+        const d = new Date(firstTimestamp);
+        // Format Date in English YYYY-MM-DD
+        firstDateFormatted = d.toLocaleDateString('en-CA');
+        // Format Time in 12-hour format in English (e.g. 1:05:20 PM - 1 instead of 13)
+        firstTimeFormatted = d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        });
+      }
+
+      const uniqueInvoicesCount = new Set(delEntries.map(e => e.customerCode || e.customerName || e.id)).size;
+
+      map[del] = {
+        firstTimestamp,
+        firstTimeFormatted,
+        firstDateFormatted,
+        isReset,
+        totalInvoicesToday: uniqueInvoicesCount,
+      };
+    });
+
+    return map;
+  }, [delegatesList, safeSavedEntries, completedDelegates, isPastClosing]);
+
   const currentInvoiceTotalWeight = gridRows.reduce((sum, row) => {
     const qVal = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
     const gVal = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
@@ -846,6 +961,128 @@ export const EntryScreen: React.FC = () => {
           <div className="font-black text-xs truncate">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم</div>
         </div>
       </div>
+
+      {/* 1. New Top Section: Representatives First Invoice Timestamps & Status (Admin & Data Entry Only) */}
+      {isPrivilegedRole && (
+        <div className={`p-3 sm:p-4 rounded-2xl border-2 shadow-md space-y-3 ${
+          isDarkMode 
+            ? 'bg-slate-900 border-emerald-500/40 text-white' 
+            : 'bg-white border-emerald-300 text-slate-900'
+        }`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b pb-2.5 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-emerald-600 text-white shadow-xs">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5 flex-wrap">
+                  <span>مواعيد بدء مبيعات المندوبين اليوم (توقيت أول فاتورة)</span>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold border border-slate-300 dark:border-slate-600" dir="ltr">
+                    {new Date().toLocaleDateString('en-CA')}
+                  </span>
+                </h3>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                  يتم تصفير العداد وإعادة ضبطه فور إغلاق المبيعات ({formattedLockTime12h || targetAutoLockTime}) أو عند ضغط المندوب على "أكملت مبيعات اليوم".
+                </p>
+              </div>
+            </div>
+
+            {isPastClosing ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                تم تجاوز وقت الإغلاق (تم التصفير)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                متابعة حية للبدء
+              </span>
+            )}
+          </div>
+
+          {/* Grid of Delegates */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {delegatesList.map((del) => {
+              const info = delegateFirstInvoicesToday[del] || {
+                firstTimestamp: null,
+                firstTimeFormatted: '---',
+                firstDateFormatted: '---',
+                isReset: false,
+                totalInvoicesToday: 0
+              };
+
+              return (
+                <div
+                  key={`del-start-${del}`}
+                  className={`p-2.5 rounded-xl border flex flex-col justify-between transition-all ${
+                    info.isReset
+                      ? isDarkMode
+                        ? 'bg-slate-800/50 border-slate-700/60 opacity-80'
+                        : 'bg-slate-100 border-slate-200 opacity-80'
+                      : info.firstTimestamp
+                      ? isDarkMode
+                        ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-100 shadow-sm'
+                        : 'bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-sm'
+                      : isDarkMode
+                        ? 'bg-slate-800/70 border-slate-700 text-slate-300'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="font-black text-xs truncate max-w-[110px]" title={del}>
+                      {del}
+                    </span>
+                    {info.isReset ? (
+                      <span className="text-[9px] font-black px-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                        مصفّر
+                      </span>
+                    ) : info.firstTimestamp ? (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                    )}
+                  </div>
+
+                  <div className="mt-1">
+                    {info.isReset ? (
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                        <RotateCcw className="w-3 h-3" />
+                        <span>تم تصفير العداد</span>
+                      </div>
+                    ) : info.firstTimestamp ? (
+                      <div className="space-y-1">
+                        <div className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">توقيت أول فاتورة:</div>
+                        <div className="flex flex-col gap-0.5">
+                          {/* التاريخ بالانكليزي */}
+                          <div className="font-mono font-bold text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1" dir="ltr">
+                            <Calendar className="w-3 h-3 text-emerald-500 shrink-0" />
+                            <span>{info.firstDateFormatted}</span>
+                          </div>
+                          {/* التوقيت بالانكليزي بنظام 12 ساعة (الساعة 1 تكتب 1 وليس 13) */}
+                          <div className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-300 flex items-center gap-1" dir="ltr">
+                            <Clock className="w-3 h-3 text-emerald-500 shrink-0" />
+                            <span>{info.firstTimeFormatted}</span>
+                          </div>
+                        </div>
+                        <div className="text-[9px] font-extrabold text-slate-600 dark:text-slate-300 pt-0.5">
+                          {info.totalInvoicesToday} فواتير مسجلة
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] font-bold text-slate-400 py-1">
+                        بانتظار أول فاتورة ⏳
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
 
 
@@ -977,103 +1214,125 @@ export const EntryScreen: React.FC = () => {
           <div className="space-y-4">
             {Object.entries(groupedEntries)
               .sort(([, entriesA], [, entriesB]) => {
-                const weightA = entriesA.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-                const weightB = entriesB.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
-                return weightB - weightA;
+                const timeA = entriesA[0]?.timestamp || (entriesA[0]?.dateString ? new Date(entriesA[0].dateString).getTime() : 0);
+                const timeB = entriesB[0]?.timestamp || (entriesB[0]?.dateString ? new Date(entriesB[0].dateString).getTime() : 0);
+                if (timeA !== timeB) return timeA - timeB; // Sort by entry time (oldest first)
+                return (entriesA[0]?.id || '').localeCompare(entriesB[0]?.id || '');
               })
               .map(([customerName, entries]) => (
-              <div key={customerName} className={`border-2 rounded-xl p-0 shadow-md overflow-hidden ${
+              <div key={customerName} className={`invoice-card border-2 rounded-xl p-0 shadow-md overflow-hidden ${
                 (isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400')
               }`}>
                 <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex flex-col gap-2 rounded-t-xl ${isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'}`}>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-500">
-                      {entries[0]?.customerCode || '---'}
-                    </span>
-                    <span>{currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                    {entries[0]?.priceMode && (
-                      <span className={`px-2 py-0.5 rounded-md border font-bold flex items-center gap-1 whitespace-nowrap ${entries[0].priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
-                        {entries[0].priceMode === 'wholesale' ? <Package className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
-                        {entries[0].priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}
+                  {/* Row 1: Green Indicator + Code + Customer Name AND Actions (Edit, Print, Delete) */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                      <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-black px-2 py-0.5 rounded border border-slate-300 dark:border-slate-500 shrink-0">
+                        {entries[0]?.customerCode || '---'}
                       </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <div className={`px-2 py-0.5 rounded-md border flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-1 ${isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'}`}>
-                      <span className="text-[10px] font-bold">المندوب: {entries[0]?.delegateName || 'غير محدد'}</span>
-                      {entries[0]?.timestamp && (
-                        <span className={`text-[9px] font-bold whitespace-nowrap sm:border-r sm:pr-2 ${isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'}`} dir="ltr">
-                          {new Date(entries[0].timestamp).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-emerald-700 shadow-md">
-                        {formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم
-                      </span>
-                      <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded border border-indigo-700 shadow-md" title="إجمالي مبلغ الفاتورة">
-                        {formatWithCommas(entries.reduce((sum, e) => {
-                          const prod = productsList.find(p => p.productName === e.productName);
-                          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                          return sum + (price * e.quantity);
-                        }, 0), true)} د.ع
+                      <span className="font-black text-sm truncate">
+                        {currentUser?.isAdmin && selectedDelegate === 'الكل' ? `الزبون: ${customerName.split(' | الزبون: ').pop()}` : `الزبون: ${customerName}`}
                       </span>
                     </div>
-                    <div className="flex gap-2">
+
+                    {/* ازرار تعديل وطباعة ومسح امام اسم الزبون */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {!isCompleted && (
-                      <button
-                        type="button"
-                        onClick={() => { 
-                          setPrefilledEntryData({ 
-                            customerName: entries[0].customerName, 
-                            customerCode: entries[0].customerCode || '', 
-                            customerAddress: entries[0].customerAddress || '',
-                            customerInvoiceType: entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد',
-                            lastInvoiceToday: { priceMode: entries[0].priceMode },
-                            isEditing: true
-                          });
-                          setShowQuickAdd(true);
-                          setActiveTab('products');
-                        }}
-                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
-                        title="إضافة منتج للفاتورة"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => { 
+                            setPrefilledEntryData({ 
+                              customerName: entries[0].customerName, 
+                              customerCode: entries[0].customerCode || '', 
+                              customerAddress: entries[0].customerAddress || '',
+                              customerInvoiceType: entries[0].priceMode === 'wholesale' ? 'جملة' : 'مفرد',
+                              lastInvoiceToday: { priceMode: entries[0].priceMode },
+                              isEditing: true
+                            });
+                            setShowQuickAdd(true);
+                            setActiveTab('products');
+                          }}
+                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'}`}
+                          title="تعديل الفاتورة / إضافة مواد"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
                       )}
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(customerName, entries)}
-                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'}`}
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'}`}
                         title="طباعة الفاتورة"
                       >
                         <Printer className="w-4 h-4" />
                       </button>
                       {!isCompleted && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeleteConfirmation({
-                            isOpen: true,
-                            title: 'حذف الفاتورة بالكامل',
-                            message: 'هل تريد حذف هذه الفاتورة ؟',
-                            subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${entries.length} سجل).`,
-                            confirmButtonText: 'نعم، حذف الفاتورة',
-                            onConfirm: () => {
-                              entries.forEach(e => deleteSalesEntry(e.id));
-                              setDeleteConfirmation(null);
-                            }
-                          });
-                        }}
-                        className={`p-1 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
-                        title="حذف الفاتورة بالكامل"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteConfirmation({
+                              isOpen: true,
+                              title: 'حذف الفاتورة بالكامل',
+                              message: 'هل تريد حذف هذه الفاتورة ؟',
+                              subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${entries.length} سجل).`,
+                              confirmButtonText: 'نعم، حذف الفاتورة',
+                              onConfirm: () => {
+                                entries.forEach(e => deleteSalesEntry(e.id));
+                                setDeleteConfirmation(null);
+                              }
+                            });
+                          }}
+                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${isDarkMode ? 'bg-red-900/50 text-red-400 hover:bg-red-800 border-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 border-red-200'}`}
+                          title="مسح / حذف الفاتورة بالكامل"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Row 2: Grid Layout for Invoice Type & Metadata (Representative, Weight, Total) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] pt-2 border-t border-slate-200/70 dark:border-slate-600/70">
+                    {/* 1. نوع الفاتورة: مفرد / جملة */}
+                    <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold text-center ${
+                      entries[0]?.priceMode === 'wholesale'
+                        ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
+                        : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                    }`}>
+                      {entries[0]?.priceMode === 'wholesale' ? <Package className="w-3.5 h-3.5 shrink-0" /> : <ShoppingCart className="w-3.5 h-3.5 shrink-0" />}
+                      <span className="truncate">{entries[0]?.priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}</span>
+                    </div>
+
+                    {/* 2. اسم المندوب وتوقيت الفاتورة */}
+                    <div className={`flex items-center justify-between sm:justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold ${
+                      isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'
+                    }`}>
+                      <div className="flex items-center gap-1 truncate">
+                        <span className="text-slate-500 dark:text-slate-400 font-normal">المندوب:</span>
+                        <span className="truncate">{entries[0]?.delegateName || 'غير محدد'}</span>
+                      </div>
+                      {entries[0]?.timestamp && (
+                        <span className={`text-[9px] font-bold whitespace-nowrap border-r pr-1 shrink-0 ${isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'}`} dir="ltr">
+                          {new Date(entries[0].timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 3. الوزن الكلي */}
+                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-emerald-600 text-white font-black border border-emerald-700 shadow-sm text-center">
+                      <span className="text-emerald-100 text-[9px] font-normal">الوزن:</span>
+                      <span>{formatWithCommas(parseFloat(entries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0).toFixed(2)), true)} كجم</span>
+                    </div>
+
+                    {/* 4. المبلغ الكلي */}
+                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-indigo-600 text-white font-black border border-indigo-700 shadow-sm text-center" title="إجمالي مبلغ الفاتورة">
+                      <span className="text-indigo-100 text-[9px] font-normal">المجموع:</span>
+                      <span>{formatWithCommas(entries.reduce((sum, e) => {
+                        const prod = productsList.find(p => p.productName === e.productName);
+                        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                        return sum + (price * e.quantity);
+                      }, 0), true)} د.ع</span>
                     </div>
                   </div>
                 </h4>
