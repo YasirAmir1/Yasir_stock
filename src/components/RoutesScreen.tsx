@@ -518,12 +518,20 @@ export const RoutesScreen: React.FC = () => {
                 return (
                   <tr key={d.id} className={`${rowBgClass} transition-colors cursor-pointer font-bold`} onClick={() => setSelectedDebt(d)}>
                     {currentUser?.isAdmin && (
-                        <td className="px-2.5 py-2 flex items-center gap-1.5 font-extrabold text-slate-800 dark:text-slate-200">
+                        <td className="px-2.5 py-2 font-extrabold text-slate-800 dark:text-slate-200">
                             <span>{delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}</span>
-                            {isOldDebt && <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full shadow-xs">قديم</span>}
                         </td>
                     )}
-                    <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white">{d.customerName}</td>
+                    <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{d.customerName}</span>
+                        {typeof mustahaqaDisplay === 'number' && mustahaqaDisplay > 1 && (
+                          <span className="text-[9px] font-black bg-rose-500 text-white px-1.5 py-0.5 rounded-full shadow-xs shrink-0">
+                            مستحق
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-2.5 py-2 font-mono text-[10px] text-slate-700 dark:text-slate-300">
                       <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                         {d.customerCode}
