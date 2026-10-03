@@ -172,5 +172,31 @@ export interface DebtItem {
   notified?: boolean;
 }
 
+export type DamagedProductStatus = 
+  | 'تم ارسال ايميل به'
+  | 'تم تعويضه'
+  | 'لم يتم تعويضه لحد الان'
+  | 'تم رفض التعويض';
+
+export interface DamagedProductItem {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  customerType: 'مفرد' | 'جملة';
+  productName: string;
+  productCode: string;
+  delegateName: string;
+  batchNumber: string;
+  purchaseDate: string; // YYYY-MM-DD
+  purchaseQuantity: number;
+  defectReason: string;
+  images: string[]; // Base64 data URLs, minimum 3
+  status: DamagedProductStatus;
+  createdAt: number;
+  createdBy?: string;
+  updatedAt?: number;
+}
+
 
 

@@ -134,12 +134,12 @@ const DailyAdminReport: React.FC<{
               (btn as HTMLElement).style.display = 'none';
             });
 
-            // Expand container to fixed width (980px) so mobile screens don't clip the tables and large text fits comfortably
+            // Expand container to fixed width (1060px) so mobile screens don't clip the tables and large text fits comfortably
             const clonedContainer = clonedDoc.getElementById('daily-three-reports-container');
             if (clonedContainer) {
-              clonedContainer.style.width = '980px';
+              clonedContainer.style.width = '1060px';
               clonedContainer.style.maxWidth = 'none';
-              clonedContainer.style.padding = '28px';
+              clonedContainer.style.padding = '32px';
               clonedContainer.style.boxSizing = 'border-box';
               clonedContainer.style.backgroundColor = '#0f172a';
               clonedContainer.style.borderRadius = '16px';
@@ -154,42 +154,52 @@ const DailyAdminReport: React.FC<{
               tables.forEach(t => {
                 const tableEl = t as HTMLTableElement;
                 tableEl.style.width = '100%';
-                tableEl.style.minWidth = '920px';
+                tableEl.style.minWidth = '980px';
                 tableEl.style.borderCollapse = 'collapse';
                 tableEl.style.border = '1px solid #ffffff';
                 tableEl.style.textAlign = 'center';
               });
 
-              // Apply thin solid white grid lines, white font, bold font weight, and 3 increments larger font size for all table cells
+              const rows = clonedContainer.querySelectorAll('tr');
+              rows.forEach(r => {
+                const rowEl = r as HTMLElement;
+                rowEl.style.verticalAlign = 'middle';
+              });
+
+              // Vertically center all text content and data within every table cell and apply enlarged typography
               const cells = clonedContainer.querySelectorAll('th, td');
               cells.forEach(c => {
                 const cell = c as HTMLElement;
                 cell.style.border = '1px solid #ffffff';
                 cell.style.textAlign = 'center';
                 cell.style.verticalAlign = 'middle';
-                cell.style.padding = '12px 10px';
+                cell.style.lineHeight = '1.25';
+                cell.style.padding = '14px 10px';
                 cell.style.boxSizing = 'border-box';
                 cell.style.fontWeight = 'bold';
-                // Increase font size by 3 increments (3 steps larger: th 18.5px, td 17.5px)
+                // Further increased font size: th: 21px, td: 20px
                 if (cell.tagName.toLowerCase() === 'th') {
-                  cell.style.fontSize = '18.5px';
+                  cell.style.fontSize = '21px';
                 } else {
-                  cell.style.fontSize = '17.5px';
+                  cell.style.fontSize = '20px';
                 }
                 if (!cell.classList.contains('text-red-500') && !cell.classList.contains('text-red-400')) {
                   cell.style.color = '#ffffff';
                 }
               });
 
-              // Ensure all cell contents, data items, and numbers inherit the 3-steps-larger font size and bold weight
+              // Ensure all cell contents, data items, and numbers are vertically centered, bold, and inherit the large font size
               const cellContents = clonedContainer.querySelectorAll('th *, td *');
               cellContents.forEach(child => {
                 const htmlChild = child as HTMLElement;
+                htmlChild.style.verticalAlign = 'middle';
                 htmlChild.style.fontSize = 'inherit';
                 htmlChild.style.fontWeight = 'bold';
+                htmlChild.style.lineHeight = 'inherit';
+                htmlChild.style.margin = '0';
               });
 
-              // Ensure all headings and text in the container are bold and increased by 3 increments
+              // Ensure all headings and text in the container are bold and enlarged
               const textEls = clonedContainer.querySelectorAll('h3, p, span, div');
               textEls.forEach(el => {
                 const htmlEl = el as HTMLElement;
@@ -203,14 +213,14 @@ const DailyAdminReport: React.FC<{
               headings.forEach(h => {
                 const htmlH = h as HTMLElement;
                 htmlH.style.fontWeight = 'bold';
-                htmlH.style.fontSize = '22px';
+                htmlH.style.fontSize = '25px';
               });
 
               const paragraphs = clonedContainer.querySelectorAll('p');
               paragraphs.forEach(p => {
                 const htmlP = p as HTMLElement;
                 htmlP.style.fontWeight = 'bold';
-                htmlP.style.fontSize = '17px';
+                htmlP.style.fontSize = '19px';
               });
 
               const spans = clonedContainer.querySelectorAll('span');
@@ -218,7 +228,7 @@ const DailyAdminReport: React.FC<{
                 const htmlS = s as HTMLElement;
                 htmlS.style.fontWeight = 'bold';
                 if (htmlS.classList.contains('bg-amber-500/10') || htmlS.innerText?.includes('مفرد + جملة + الكل')) {
-                  htmlS.style.fontSize = '16px';
+                  htmlS.style.fontSize = '18px';
                 }
               });
 
@@ -296,26 +306,34 @@ const DailyAdminReport: React.FC<{
               tableEl.style.border = '1px solid #ffffff';
               tableEl.style.textAlign = 'center';
             });
+            const rows = clonedDoc.querySelectorAll('tr');
+            rows.forEach(r => {
+              (r as HTMLElement).style.verticalAlign = 'middle';
+            });
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
               cell.style.border = '1px solid #ffffff';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
+              cell.style.lineHeight = '1.25';
               cell.style.color = '#ffffff';
-              cell.style.padding = '12px 10px';
+              cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
-                cell.style.fontSize = '18.5px';
+                cell.style.fontSize = '21px';
               } else {
-                cell.style.fontSize = '17.5px';
+                cell.style.fontSize = '20px';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
             cellContents.forEach(child => {
               const htmlChild = child as HTMLElement;
+              htmlChild.style.verticalAlign = 'middle';
               htmlChild.style.fontSize = 'inherit';
               htmlChild.style.fontWeight = 'bold';
+              htmlChild.style.lineHeight = 'inherit';
+              htmlChild.style.margin = '0';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
@@ -326,13 +344,13 @@ const DailyAdminReport: React.FC<{
             const headings = clonedDoc.querySelectorAll('h3');
             headings.forEach(h => {
               const htmlH = h as HTMLElement;
-              htmlH.style.fontSize = '22px';
+              htmlH.style.fontSize = '25px';
               htmlH.style.fontWeight = 'bold';
             });
             const paragraphs = clonedDoc.querySelectorAll('p');
             paragraphs.forEach(p => {
               const htmlP = p as HTMLElement;
-              htmlP.style.fontSize = '17px';
+              htmlP.style.fontSize = '19px';
               htmlP.style.fontWeight = 'bold';
             });
             const allElements = clonedDoc.querySelectorAll('*');
@@ -374,26 +392,34 @@ const DailyAdminReport: React.FC<{
               tableEl.style.border = '1px solid #ffffff';
               tableEl.style.textAlign = 'center';
             });
+            const rows = clonedDoc.querySelectorAll('tr');
+            rows.forEach(r => {
+              (r as HTMLElement).style.verticalAlign = 'middle';
+            });
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
               cell.style.border = '1px solid #ffffff';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
+              cell.style.lineHeight = '1.25';
               cell.style.color = '#ffffff';
-              cell.style.padding = '12px 10px';
+              cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
-                cell.style.fontSize = '18.5px';
+                cell.style.fontSize = '21px';
               } else {
-                cell.style.fontSize = '17.5px';
+                cell.style.fontSize = '20px';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
             cellContents.forEach(child => {
               const htmlChild = child as HTMLElement;
+              htmlChild.style.verticalAlign = 'middle';
               htmlChild.style.fontSize = 'inherit';
               htmlChild.style.fontWeight = 'bold';
+              htmlChild.style.lineHeight = 'inherit';
+              htmlChild.style.margin = '0';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
@@ -404,13 +430,13 @@ const DailyAdminReport: React.FC<{
             const headings = clonedDoc.querySelectorAll('h3');
             headings.forEach(h => {
               const htmlH = h as HTMLElement;
-              htmlH.style.fontSize = '22px';
+              htmlH.style.fontSize = '25px';
               htmlH.style.fontWeight = 'bold';
             });
             const paragraphs = clonedDoc.querySelectorAll('p');
             paragraphs.forEach(p => {
               const htmlP = p as HTMLElement;
-              htmlP.style.fontSize = '17px';
+              htmlP.style.fontSize = '19px';
               htmlP.style.fontWeight = 'bold';
             });
             const allElements = clonedDoc.querySelectorAll('*');
@@ -837,26 +863,34 @@ export const ReportsScreen: React.FC = () => {
               tableEl.style.border = '1px solid #ffffff';
               tableEl.style.textAlign = 'center';
             });
+            const rows = clonedDoc.querySelectorAll('tr');
+            rows.forEach(r => {
+              (r as HTMLElement).style.verticalAlign = 'middle';
+            });
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
               cell.style.border = '1px solid #ffffff';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
+              cell.style.lineHeight = '1.25';
               cell.style.color = '#ffffff';
-              cell.style.padding = '12px 10px';
+              cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
-                cell.style.fontSize = '18.5px';
+                cell.style.fontSize = '21px';
               } else {
-                cell.style.fontSize = '17.5px';
+                cell.style.fontSize = '20px';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
             cellContents.forEach(child => {
               const htmlChild = child as HTMLElement;
+              htmlChild.style.verticalAlign = 'middle';
               htmlChild.style.fontSize = 'inherit';
               htmlChild.style.fontWeight = 'bold';
+              htmlChild.style.lineHeight = 'inherit';
+              htmlChild.style.margin = '0';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
@@ -867,13 +901,13 @@ export const ReportsScreen: React.FC = () => {
             const headings = clonedDoc.querySelectorAll('h3');
             headings.forEach(h => {
               const htmlH = h as HTMLElement;
-              htmlH.style.fontSize = '22px';
+              htmlH.style.fontSize = '25px';
               htmlH.style.fontWeight = 'bold';
             });
             const paragraphs = clonedDoc.querySelectorAll('p');
             paragraphs.forEach(p => {
               const htmlP = p as HTMLElement;
-              htmlP.style.fontSize = '17px';
+              htmlP.style.fontSize = '19px';
               htmlP.style.fontWeight = 'bold';
             });
             const allElements = clonedDoc.querySelectorAll('*');

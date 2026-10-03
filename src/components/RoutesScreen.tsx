@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
-import { RouteItem, DebtItem, SalesEntry } from '../types';
-import { CheckCircle2, Circle, AlertCircle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus } from '../types';
+import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getFormattedWeekday } from '../utils/dateUtils';
+import { DamagedProductsModal } from './DamagedProductsModal';
+import { DamagedProductsQCSection } from './DamagedProductsQCSection';
 
 // Helper for comprehensive Arabic text normalization and digit conversion
 const normalizeArabic = (text: any): string => {
@@ -93,6 +95,58 @@ export const RoutesScreen: React.FC = () => {
   const [monthlyUnorderedSearch, setMonthlyUnorderedSearch] = useState<string>('');
   const [monthlyUnorderedDelegate, setMonthlyUnorderedDelegate] = useState<string>('الكل');
   const [monthlyUnorderedShowAll, setMonthlyUnorderedShowAll] = useState<boolean>(false);
+
+  // Damaged Products QC State & Real-time sync
+  const [damagedProducts, setDamagedProducts] = useState<DamagedProductItem[]>([]);
+  const [isDamagedProductModalOpen, setIsDamagedProductModalOpen] = useState(false);
+  const [editingDamagedProduct, setEditingDamagedProduct] = useState<DamagedProductItem | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'damaged_products'));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: DamagedProductItem[] = [];
+        snap.forEach((d) => {
+          list.push({ id: d.id, ...d.data() } as DamagedProductItem);
+        });
+        list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setDamagedProducts(list);
+      },
+      (err) => {
+        console.error('Damaged products listener error in RoutesScreen:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const handleSaveDamagedProduct = async (
+    data: Omit<DamagedProductItem, 'id' | 'createdAt'>,
+    existingId?: string
+  ) => {
+    const id = existingId || `dp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const docRef = doc(db, 'damaged_products', id);
+    const payload: DamagedProductItem = {
+      id,
+      ...data,
+      createdAt: existingId ? (editingDamagedProduct?.createdAt || Date.now()) : Date.now(),
+      createdBy: currentUser?.name || currentUser?.delegateName || 'مستخدم',
+      updatedAt: Date.now(),
+    };
+    await setDoc(docRef, payload);
+    addToast?.({ message: 'تم حفظ تقرير المنتج التالف بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'منتجات تالفة', percentage: 0 });
+  };
+
+  const handleDeleteDamagedProduct = async (id: string) => {
+    await deleteDoc(doc(db, 'damaged_products', id));
+    addToast?.({ message: 'تم حذف تقرير المنتج التالف', type: 'info', delegateName: currentUser?.name || '', title: 'منتجات تالفة', percentage: 0 });
+  };
+
+  const handleStatusChangeDamagedProduct = async (id: string, newStatus: DamagedProductStatus) => {
+    const docRef = doc(db, 'damaged_products', id);
+    await updateDoc(docRef, { status: newStatus, updatedAt: Date.now() });
+    addToast?.({ message: `تم تحديث حالة المنتج التالف إلى: ${newStatus}`, type: 'success', delegateName: currentUser?.name || '', title: 'منتجات تالفة', percentage: 0 });
+  };
 
   // Configurable auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
   const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
@@ -1821,7 +1875,23 @@ export const RoutesScreen: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
-      <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">المسارات</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+        <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-xl">المسارات</h2>
+        
+        {/* Damaged Products (منتجات تالفة) Button */}
+        <button
+          type="button"
+          onClick={() => {
+            setEditingDamagedProduct(null);
+            setIsDamagedProductModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm shadow-md shadow-rose-600/20 active:scale-95 transition-all cursor-pointer"
+          title="تسجيل أو الإبلاغ عن منتج تالف للزبون"
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span>منتجات تالفة</span>
+        </button>
+      </div>
       
       {/* Dashboard Widget */}
       {(() => {
@@ -2286,6 +2356,41 @@ export const RoutesScreen: React.FC = () => {
           {renderMonthlyCustomerReports()}
         </div>
       )}
+
+      {/* 2. Damaged Products (QC) Section at the Bottom of Routes Page */}
+      <div className="mt-10">
+        <DamagedProductsQCSection
+          damagedProducts={damagedProducts}
+          onEdit={(item) => {
+            setEditingDamagedProduct(item);
+            setIsDamagedProductModalOpen(true);
+          }}
+          onDelete={handleDeleteDamagedProduct}
+          onStatusChange={handleStatusChangeDamagedProduct}
+          onAddNew={() => {
+            setEditingDamagedProduct(null);
+            setIsDamagedProductModalOpen(true);
+          }}
+          isDarkMode={isDarkMode}
+          currentUser={currentUser}
+        />
+      </div>
+
+      {/* Damaged Products Modal */}
+      <DamagedProductsModal
+        isOpen={isDamagedProductModalOpen}
+        onClose={() => {
+          setIsDamagedProductModalOpen(false);
+          setEditingDamagedProduct(null);
+        }}
+        editingItem={editingDamagedProduct}
+        onSave={handleSaveDamagedProduct}
+        routes={routes}
+        productsList={productsList}
+        delegatesList={delegatesList}
+        currentDelegateName={currentUser?.delegateName || currentUser?.name || ''}
+        isDarkMode={isDarkMode}
+      />
 
     </div>
   );

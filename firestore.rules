@@ -22,6 +22,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+    match /damaged_products/{prodId} {
+      allow read: if true;
+      allow write: if true;
+    }
     match /{document=**} {
       allow read: if true;
       allow write: if true;

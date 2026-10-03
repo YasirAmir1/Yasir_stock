@@ -59,9 +59,40 @@
         "timestamp": { "type": "number" }
       },
       "required": ["id", "dateString", "delegateName", "totalScore"]
+    },
+    "damaged_product": {
+      "title": "Damaged Product (QC)",
+      "description": "Reports of damaged or defected products submitted by representatives for QC review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerType": { "type": "string", "enum": ["مفرد", "جملة"] },
+        "productName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "purchaseDate": { "type": "string" },
+        "purchaseQuantity": { "type": "number" },
+        "defectReason": { "type": "string" },
+        "images": { "type": "array" },
+        "status": { "type": "string", "enum": ["تم ارسال ايميل به", "تم تعويضه", "لم يتم تعويضه لحد الان", "تم رفض التعويض"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "customerCode", "customerName", "productName", "delegateName", "defectReason", "status"]
     }
   },
   "firestore": {
+    "/damaged_products/{productId}": {
+      "schema": "damaged_product",
+      "description": "Damaged products reported by representatives and QC status",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
     "/delegate_targets/{targetId}": {
       "schema": "delegate_target",
       "description": "Sync target data for delegates and admin",
