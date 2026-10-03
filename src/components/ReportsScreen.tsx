@@ -156,31 +156,60 @@ const DailyAdminReport: React.FC<{
                 tableEl.style.width = '100%';
                 tableEl.style.minWidth = '800px';
                 tableEl.style.borderCollapse = 'collapse';
-                tableEl.style.border = '2px solid #2563eb';
+                tableEl.style.border = '1px solid #ffffff';
                 tableEl.style.textAlign = 'center';
               });
 
-              // Apply blue grid lines, white font, and centered text for all table cells
+              // Apply thin solid white grid lines, white font, bold font weight, and incremented font size for all table cells
               const cells = clonedContainer.querySelectorAll('th, td');
               cells.forEach(c => {
                 const cell = c as HTMLElement;
-                cell.style.border = '1.5px solid #2563eb';
+                cell.style.border = '1px solid #ffffff';
                 cell.style.textAlign = 'center';
                 cell.style.verticalAlign = 'middle';
-                cell.style.padding = '8px 6px';
+                cell.style.padding = '9px 7px';
                 cell.style.boxSizing = 'border-box';
+                cell.style.fontWeight = 'bold';
+                // Increase font size by one increment from current
+                if (cell.tagName.toLowerCase() === 'th') {
+                  cell.style.fontSize = '14px';
+                } else {
+                  cell.style.fontSize = '13.5px';
+                }
                 if (!cell.classList.contains('text-red-500') && !cell.classList.contains('text-red-400')) {
                   cell.style.color = '#ffffff';
                 }
               });
 
-              // Ensure all headings and text in the container are white
+              // Ensure all headings and text in the container are bold and increased by one increment
               const textEls = clonedContainer.querySelectorAll('h3, p, span, div');
               textEls.forEach(el => {
                 const htmlEl = el as HTMLElement;
+                htmlEl.style.fontWeight = 'bold';
                 if (!htmlEl.classList.contains('text-red-500') && !htmlEl.classList.contains('text-red-400') && !htmlEl.classList.contains('text-yellow-400')) {
                   htmlEl.style.color = '#ffffff';
                 }
+              });
+
+              const headings = clonedContainer.querySelectorAll('h3');
+              headings.forEach(h => {
+                const htmlH = h as HTMLElement;
+                htmlH.style.fontWeight = 'bold';
+                htmlH.style.fontSize = '17px';
+              });
+
+              const paragraphs = clonedContainer.querySelectorAll('p');
+              paragraphs.forEach(p => {
+                const htmlP = p as HTMLElement;
+                htmlP.style.fontWeight = 'bold';
+                htmlP.style.fontSize = '13px';
+              });
+
+              // Apply BOLD to ALL elements (numbers and text) within the generated report image
+              const allEls = clonedContainer.querySelectorAll('*');
+              allEls.forEach(el => {
+                const htmlEl = el as HTMLElement;
+                htmlEl.style.fontWeight = 'bold';
               });
             }
           }
@@ -247,21 +276,39 @@ const DailyAdminReport: React.FC<{
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
               tableEl.style.borderCollapse = 'collapse';
-              tableEl.style.border = '2px solid #2563eb';
+              tableEl.style.border = '1px solid #ffffff';
               tableEl.style.textAlign = 'center';
             });
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
-              cell.style.border = '1.5px solid #2563eb';
+              cell.style.border = '1px solid #ffffff';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
               cell.style.color = '#ffffff';
               cell.style.padding = '8px 6px';
+              cell.style.fontWeight = 'bold';
+              if (cell.tagName.toLowerCase() === 'th') {
+                cell.style.fontSize = '14px';
+              } else {
+                cell.style.fontSize = '13.5px';
+              }
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
-              (el as HTMLElement).style.color = '#ffffff';
+              const htmlEl = el as HTMLElement;
+              htmlEl.style.color = '#ffffff';
+              htmlEl.style.fontWeight = 'bold';
+            });
+            const headings = clonedDoc.querySelectorAll('h3');
+            headings.forEach(h => {
+              const htmlH = h as HTMLElement;
+              htmlH.style.fontSize = '17px';
+              htmlH.style.fontWeight = 'bold';
+            });
+            const allElements = clonedDoc.querySelectorAll('*');
+            allElements.forEach(el => {
+              (el as HTMLElement).style.fontWeight = 'bold';
             });
           }
         });
@@ -289,7 +336,35 @@ const DailyAdminReport: React.FC<{
           backgroundColor: '#064e3b', // bg-emerald-900
           scale: 2,
           useCORS: true,
-          onclone: (clonedDoc) => sanitizeModernColors(clonedDoc, '#064e3b')
+          onclone: (clonedDoc) => {
+            sanitizeModernColors(clonedDoc, '#064e3b');
+            const tables = clonedDoc.querySelectorAll('table');
+            tables.forEach(t => {
+              const tableEl = t as HTMLTableElement;
+              tableEl.style.borderCollapse = 'collapse';
+              tableEl.style.border = '1px solid #ffffff';
+              tableEl.style.textAlign = 'center';
+            });
+            const cells = clonedDoc.querySelectorAll('th, td');
+            cells.forEach(c => {
+              const cell = c as HTMLElement;
+              cell.style.border = '1px solid #ffffff';
+              cell.style.textAlign = 'center';
+              cell.style.verticalAlign = 'middle';
+              cell.style.color = '#ffffff';
+              cell.style.padding = '8px 6px';
+              cell.style.fontWeight = 'bold';
+              if (cell.tagName.toLowerCase() === 'th') {
+                cell.style.fontSize = '14px';
+              } else {
+                cell.style.fontSize = '13.5px';
+              }
+            });
+            const allElements = clonedDoc.querySelectorAll('*');
+            allElements.forEach(el => {
+              (el as HTMLElement).style.fontWeight = 'bold';
+            });
+          }
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const link = document.createElement('a');
@@ -399,15 +474,15 @@ const DailyAdminReport: React.FC<{
           id="daily-three-reports-container"
           className="space-y-3 sm:space-y-4 p-1 sm:p-5 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800 shadow-xl w-full"
         >
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 bg-slate-800/90 p-1.5 sm:p-4 rounded-xl border border-slate-700 shadow-md">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 bg-slate-800/90 p-2 sm:p-4 rounded-xl border border-slate-700 shadow-md">
                 <div>
-                    <h3 className="font-extrabold text-white text-xs sm:text-base flex items-center gap-1.5 sm:gap-2">
+                    <h3 className="font-black text-white text-sm sm:text-lg flex items-center gap-1.5 sm:gap-2">
                         <span>📊 تقرير مبيعات اليوم الشامل</span>
-                        <span className="text-[10px] sm:text-[11px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-lg border border-amber-500/30">
+                        <span className="text-xs sm:text-sm font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30">
                             مفرد + جملة + الكل
                         </span>
                     </h3>
-                    <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold mt-0.5 sm:mt-1">
+                    <p className="text-xs sm:text-sm text-slate-300 font-bold mt-0.5 sm:mt-1">
                         التاريخ: {today}
                     </p>
                 </div>
@@ -429,35 +504,35 @@ const DailyAdminReport: React.FC<{
             </div>
 
             {/* 1. Retail Sales Table */}
-            <div className="bg-slate-800 rounded-xl p-1 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
-            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-emerald-400 flex items-center gap-1.5">
+            <div className="bg-slate-800 rounded-xl p-1.5 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-sm sm:text-base text-emerald-400 flex items-center gap-1.5">
                 <span>🛒</span>
                 <span>جدول مبيعات المفرد (لليوم)</span>
             </h3>
             <div className="overflow-x-auto w-full">
-            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
+            <table className="w-full min-w-full text-xs sm:text-sm font-bold text-center border-collapse border border-white/30">
                 <thead>
-                    <tr className="border-b border-slate-600 text-slate-300 bg-slate-900/60 font-bold">
-                        <th className="py-1 px-1 sm:p-2">المندوب</th>
-                        <th className="py-1 px-1 sm:p-2">عدد الفواتير</th>
-                        <th className="py-1 px-1 sm:p-2">الوزن (كجم)</th>
-                        <th className="py-1 px-1 sm:p-2">المبلغ</th>
+                    <tr className="border-b border-white/30 text-white bg-slate-900/80 font-black">
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">المندوب</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">عدد الفواتير</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">الوزن (كجم)</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {retailSales.map(s => (
-                        <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
-                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
-                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
+                        <tr key={s.name} className="border-b border-white/20 hover:bg-slate-700/50 font-bold">
+                            <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{s.name}</td>
+                            <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
-                    <tr className="border-t-2 border-emerald-600 bg-slate-900 font-black">
-                        <td className="py-1.5 px-1 sm:p-2 text-emerald-400">إجمالي المفرد</td>
-                        <td className={`py-1.5 px-1 sm:p-2 ${retailSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{retailSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{totalRetail.weight.toFixed(1)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totalRetail.amount, true)}</td>
+                    <tr className="border-t-2 border-white/40 bg-slate-900 font-black text-xs sm:text-sm">
+                        <td className="py-2 px-1.5 sm:p-2.5 text-emerald-300 border border-white/30">إجمالي المفرد</td>
+                        <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${retailSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{retailSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{totalRetail.weight.toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(totalRetail.amount, true)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -465,35 +540,35 @@ const DailyAdminReport: React.FC<{
         </div>
 
         {/* 2. Wholesale Sales Table */}
-        <div className="bg-slate-800 rounded-xl p-1 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
-            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-indigo-400 flex items-center gap-1.5">
+        <div className="bg-slate-800 rounded-xl p-1.5 sm:p-4 text-white shadow-lg border border-slate-700/60 w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-sm sm:text-base text-indigo-400 flex items-center gap-1.5">
                 <span>📦</span>
                 <span>جدول مبيعات الجملة (لليوم)</span>
             </h3>
             <div className="overflow-x-auto w-full">
-            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
+            <table className="w-full min-w-full text-xs sm:text-sm font-bold text-center border-collapse border border-white/30">
                 <thead>
-                    <tr className="border-b border-slate-600 text-slate-300 bg-slate-900/60 font-bold">
-                        <th className="py-1 px-1 sm:p-2">المندوب</th>
-                        <th className="py-1 px-1 sm:p-2">عدد الفواتير</th>
-                        <th className="py-1 px-1 sm:p-2">الوزن (كجم)</th>
-                        <th className="py-1 px-1 sm:p-2">المبلغ</th>
+                    <tr className="border-b border-white/30 text-white bg-slate-900/80 font-black">
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">المندوب</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">عدد الفواتير</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">الوزن (كجم)</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {wholesaleSales.map(s => (
-                        <tr key={s.name} className="border-b border-slate-700 hover:bg-slate-700/50">
-                            <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
-                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
+                        <tr key={s.name} className="border-b border-white/20 hover:bg-slate-700/50 font-bold">
+                            <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{s.name}</td>
+                            <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
-                    <tr className="border-t-2 border-indigo-600 bg-slate-900 font-black">
-                        <td className="py-1.5 px-1 sm:p-2 text-indigo-400">إجمالي الجملة</td>
-                        <td className={`py-1.5 px-1 sm:p-2 ${wholesaleSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{wholesaleSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{totalWholesale.weight.toFixed(1)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totalWholesale.amount, true)}</td>
+                    <tr className="border-t-2 border-white/40 bg-slate-900 font-black text-xs sm:text-sm">
+                        <td className="py-2 px-1.5 sm:p-2.5 text-indigo-300 border border-white/30">إجمالي الجملة</td>
+                        <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${wholesaleSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{wholesaleSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{totalWholesale.weight.toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(totalWholesale.amount, true)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -501,35 +576,35 @@ const DailyAdminReport: React.FC<{
         </div>
 
         {/* 3. All Sales Summary Table */}
-        <div className="bg-amber-950/70 border border-amber-600/60 rounded-xl p-1 sm:p-4 text-white shadow-lg w-full">
-            <h3 className="font-black mb-1.5 sm:mb-3 text-xs sm:text-sm text-amber-400 flex items-center gap-1.5">
+        <div className="bg-amber-950/70 border border-amber-600/60 rounded-xl p-1.5 sm:p-4 text-white shadow-lg w-full">
+            <h3 className="font-black mb-1.5 sm:mb-3 text-sm sm:text-base text-amber-400 flex items-center gap-1.5">
                 <span>🏆</span>
                 <span>جدول مبيعات الكل (مفرد + جملة)</span>
             </h3>
             <div className="overflow-x-auto w-full">
-            <table className="w-full min-w-full text-[11px] sm:text-xs text-center border-collapse">
+            <table className="w-full min-w-full text-xs sm:text-sm font-bold text-center border-collapse border border-white/30">
                 <thead>
-                    <tr className="border-b border-amber-700 text-amber-300 bg-amber-900/40 font-bold">
-                        <th className="py-1 px-1 sm:p-2">المندوب</th>
-                        <th className="py-1 px-1 sm:p-2">إجمالي الفواتير</th>
-                        <th className="py-1 px-1 sm:p-2">إجمالي الوزن (كجم)</th>
-                        <th className="py-1 px-1 sm:p-2">إجمالي المبلغ</th>
+                    <tr className="border-b border-white/30 text-amber-200 bg-amber-900/60 font-black">
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">المندوب</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">إجمالي الفواتير</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">إجمالي الوزن (كجم)</th>
+                        <th className="py-1.5 px-1.5 sm:p-2.5 border border-white/30">إجمالي المبلغ</th>
                     </tr>
                 </thead>
                 <tbody>
                     {allSales.map(s => (
-                        <tr key={s.name} className="border-b border-amber-800/80 hover:bg-amber-800/40">
-                            <td className={`py-1.5 px-1 sm:p-2 font-bold ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
-                            <td className={`py-1.5 px-1 sm:p-2 ${s.count < 1 ? 'text-red-500 font-black' : ''}`}>{s.count}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{s.weight.toFixed(1)}</td>
-                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.amount, true)}</td>
+                        <tr key={s.name} className="border-b border-white/20 hover:bg-amber-800/40 font-bold">
+                            <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
+                            <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
-                    <tr className="border-t-2 border-amber-500 bg-amber-950 font-black text-amber-300">
-                        <td className="py-1.5 px-1 sm:p-2">الإجمالي الكلي</td>
-                        <td className={`py-1.5 px-1 sm:p-2 ${allSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-500' : ''}`}>{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
-                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
+                    <tr className="border-t-2 border-white/40 bg-amber-950 font-black text-amber-300 text-xs sm:text-sm">
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">الإجمالي الكلي</td>
+                        <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${allSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -699,7 +774,36 @@ export const ReportsScreen: React.FC = () => {
         const canvas = await html2canvas(reportRef.current, {
           backgroundColor: '#0f172a',
           scale: 2,
-          useCORS: true
+          useCORS: true,
+          onclone: (clonedDoc) => {
+            sanitizeModernColors(clonedDoc, '#0f172a');
+            const tables = clonedDoc.querySelectorAll('table');
+            tables.forEach(t => {
+              const tableEl = t as HTMLTableElement;
+              tableEl.style.borderCollapse = 'collapse';
+              tableEl.style.border = '1px solid #ffffff';
+              tableEl.style.textAlign = 'center';
+            });
+            const cells = clonedDoc.querySelectorAll('th, td');
+            cells.forEach(c => {
+              const cell = c as HTMLElement;
+              cell.style.border = '1px solid #ffffff';
+              cell.style.textAlign = 'center';
+              cell.style.verticalAlign = 'middle';
+              cell.style.color = '#ffffff';
+              cell.style.padding = '8px 6px';
+              cell.style.fontWeight = 'bold';
+              if (cell.tagName.toLowerCase() === 'th') {
+                cell.style.fontSize = '14px';
+              } else {
+                cell.style.fontSize = '13.5px';
+              }
+            });
+            const allElements = clonedDoc.querySelectorAll('*');
+            allElements.forEach(el => {
+              (el as HTMLElement).style.fontWeight = 'bold';
+            });
+          }
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const link = document.createElement('a');
