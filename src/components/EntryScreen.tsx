@@ -166,7 +166,12 @@ export const EntryScreen: React.FC = () => {
 
   // Edit Saved Entry State
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-  const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{ total: number; count: number } | null>(null);
+  const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{
+    total: number;
+    count: number;
+    customerName?: string;
+    context?: 'new' | 'edit' | 'deleteItem';
+  } | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     isOpen: boolean;
     title: string;
@@ -240,6 +245,49 @@ export const EntryScreen: React.FC = () => {
     if (totalW <= 0 || isNaN(totalW)) {
       setErrorMessage('خطأ في حساب الوزن الإجمالي، يرجى التأكد من القيم المدخلة.');
       return;
+    }
+
+    // التحقق الصارم من شروط حفظ الفاتورة بعد التعديل (ألا يقل عن 3 أصناف ولا يقل عن 25,000 د.ع)
+    if (oldEntry) {
+      const targetCustomerCode = oldEntry.customerCode ? String(oldEntry.customerCode).trim() : '';
+      const targetCustomerName = oldEntry.customerName ? oldEntry.customerName.trim().toLowerCase() : '';
+
+      const invoiceEntries = safeSavedEntries.filter(e => {
+        const isSameDate = (e.dateString === oldEntry.dateString) || (!e.dateString && !oldEntry.dateString);
+        const matchCode = targetCustomerCode && e.customerCode && String(e.customerCode).trim() === targetCustomerCode;
+        const matchName = e.customerName && e.customerName.trim().toLowerCase() === targetCustomerName;
+        return isSameDate && (matchCode || matchName);
+      });
+
+      // محاكاة الفاتورة بعد التعديل
+      const simulatedEntries = invoiceEntries.map(e => {
+        if (e.id === id) {
+          return {
+            ...e,
+            productName: name,
+            quantity: q,
+            priceMode: e.priceMode || invoicePriceMode
+          };
+        }
+        return e;
+      });
+
+      const simulatedUniqueProducts = new Set(simulatedEntries.map(e => e.productName)).size;
+      const simulatedTotalPrice = simulatedEntries.reduce((sum, e) => {
+        const p = productsList.find(prodItem => prodItem.productName === e.productName);
+        const price = p ? (e.priceMode === 'wholesale' ? (p.wholesalePrice || 0) : (p.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+      }, 0);
+
+      if (simulatedUniqueProducts < 3 || simulatedTotalPrice < 25000) {
+        setMinInvoiceAlertData({
+          total: simulatedTotalPrice,
+          count: simulatedUniqueProducts,
+          customerName: oldEntry.customerName,
+          context: 'edit'
+        });
+        return;
+      }
     }
 
     updateSalesEntry(id, {
@@ -684,26 +732,46 @@ export const EntryScreen: React.FC = () => {
 
     if (invalidFound) return;
 
-    // Check for minimum amount (applied only for new invoices, bypassed when editing or adding to existing invoices)
-    const isEditingInvoice = Boolean(
-      prefilledEntryData?.isEditing ||
-      (trimmedCustomerName && safeSavedEntries.some(e => e.customerName.trim() === trimmedCustomerName)) ||
-      (customerCode && safeSavedEntries.some(e => e.customerCode && String(e.customerCode).trim() === String(customerCode).trim()))
-    );
+    // التحقق الصارم من شروط حفظ الفاتورة (للفواتير الجديدة وحتى بعد التعديل أو الإضافة):
+    // 1. لا تحفظ فاتورة فيها عدد المنتجات أقل من 3
+    // 2. لا تحفظ فاتورة يقل مجموعها عن 25,000 د.ع
+    const existingEntriesForCustomer = safeSavedEntries.filter(e => {
+      const isToday = e.dateString === new Date().toISOString().split('T')[0] || !e.dateString;
+      const matchCustomer = (customerCode && e.customerCode && String(e.customerCode).trim() === String(customerCode).trim()) ||
+                            (e.customerName && e.customerName.trim().toLowerCase() === trimmedCustomerName.toLowerCase());
+      return isToday && matchCustomer;
+    });
 
-    if (!isEditingInvoice) {
-      const totalPrice = itemsToSave.reduce((sum, e) => {
-          const prod = productsList.find(p => p.productName === e.productName);
-          const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-          return sum + (price * e.quantity);
-      }, 0);
+    const isAddingToExisting = existingEntriesForCustomer.length > 0;
 
-      const uniqueProductCount = new Set(itemsToSave.map(e => e.productName)).size;
+    const allProductNames = [
+      ...existingEntriesForCustomer.map(e => e.productName),
+      ...itemsToSave.map(e => e.productName)
+    ];
+    const totalUniqueProducts = new Set(allProductNames).size;
 
-      if (totalPrice < 25000 || uniqueProductCount < 3) {
-          setMinInvoiceAlertData({ total: totalPrice, count: uniqueProductCount });
-          return;
-      }
+    const existingTotal = existingEntriesForCustomer.reduce((sum, e) => {
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      return sum + (price * e.quantity);
+    }, 0);
+
+    const newItemsTotal = itemsToSave.reduce((sum, e) => {
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      return sum + (price * e.quantity);
+    }, 0);
+
+    const combinedTotalPrice = existingTotal + newItemsTotal;
+
+    if (totalUniqueProducts < 3 || combinedTotalPrice < 25000) {
+      setMinInvoiceAlertData({
+        total: combinedTotalPrice,
+        count: totalUniqueProducts,
+        customerName: trimmedCustomerName,
+        context: isAddingToExisting ? 'edit' : 'new'
+      });
+      return;
     }
 
     saveSalesEntries(itemsToSave);
@@ -933,6 +1001,30 @@ export const EntryScreen: React.FC = () => {
     return map;
   }, [delegatesList, safeSavedEntries, completedDelegates, isPastClosing]);
 
+  // Sorted list of delegates from earliest first invoice time to latest (furthest) time today
+  const sortedDelegatesByFirstInvoice = useMemo(() => {
+    return [...delegatesList].sort((a, b) => {
+      const infoA = delegateFirstInvoicesToday[a];
+      const infoB = delegateFirstInvoicesToday[b];
+
+      const timeA = infoA?.firstTimestamp;
+      const timeB = infoB?.firstTimestamp;
+
+      // Both have a recorded first invoice: sort earliest to latest (ascending)
+      if (timeA && timeB) {
+        if (timeA !== timeB) return timeA - timeB;
+        return a.localeCompare(b, 'ar');
+      }
+
+      // Delegate with an invoice comes before one without
+      if (timeA && !timeB) return -1;
+      if (!timeA && timeB) return 1;
+
+      // Neither has an invoice yet: sort alphabetically
+      return a.localeCompare(b, 'ar');
+    });
+  }, [delegatesList, delegateFirstInvoicesToday]);
+
   const currentInvoiceTotalWeight = gridRows.reduce((sum, row) => {
     const qVal = getEffectivePieces(row.quantity, row.productName, row.entryUnit || 'piece');
     const gVal = parseFloat(parseArabicDigits(row.pieceWeight.trim())) || 0;
@@ -982,7 +1074,7 @@ export const EntryScreen: React.FC = () => {
                   </span>
                 </h3>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
-                  يتم تصفير العداد وإعادة ضبطه فور إغلاق المبيعات ({formattedLockTime12h || targetAutoLockTime}) أو عند ضغط المندوب على "أكملت مبيعات اليوم".
+                  مرتبة من أول توقيت فاتورة بدأ بها المندوب إلى أبعد توقيت • يتم تصفير العداد فور إغلاق المبيعات ({formattedLockTime12h || targetAutoLockTime}) أو عند ضغط المندوب على "أكملت مبيعات اليوم".
                 </p>
               </div>
             </div>
@@ -1003,9 +1095,9 @@ export const EntryScreen: React.FC = () => {
             )}
           </div>
 
-          {/* Grid of Delegates */}
+          {/* Grid of Delegates (Sorted from earliest first invoice to furthest) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-            {delegatesList.map((del) => {
+            {sortedDelegatesByFirstInvoice.map((del, index) => {
               const info = delegateFirstInvoicesToday[del] || {
                 firstTimestamp: null,
                 firstTimeFormatted: '---',
@@ -1013,6 +1105,8 @@ export const EntryScreen: React.FC = () => {
                 isReset: false,
                 totalInvoicesToday: 0
               };
+
+              const rank = info.firstTimestamp ? index + 1 : null;
 
               return (
                 <div
@@ -1032,17 +1126,27 @@ export const EntryScreen: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="font-black text-xs truncate max-w-[110px]" title={del}>
-                      {del}
-                    </span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      {rank && (
+                        <span 
+                          className="text-[9px] font-black w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs" 
+                          title={`المرتبة ${rank} في بدء المبيعات`}
+                        >
+                          {rank}
+                        </span>
+                      )}
+                      <span className="font-black text-xs truncate max-w-[90px]" title={del}>
+                        {del}
+                      </span>
+                    </div>
                     {info.isReset ? (
                       <span className="text-[9px] font-black px-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">
                         مصفّر
                       </span>
                     ) : info.firstTimestamp ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
                     ) : (
-                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                      <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
                     )}
                   </div>
 
@@ -1490,6 +1594,25 @@ export const EntryScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
+                            // التحقق الصارم مما إذا كان حذف هذا الصنف سيجعل الفاتورة أقل من 3 أصناف أو أقل من 25,000 د.ع
+                            const remainingEntries = entries.filter(e => e.id !== entry.id);
+                            const remainingCount = new Set(remainingEntries.map(e => e.productName)).size;
+                            const remainingTotal = remainingEntries.reduce((sum, e) => {
+                              const p = productsList.find(prodItem => prodItem.productName === e.productName);
+                              const price = p ? (e.priceMode === 'wholesale' ? (p.wholesalePrice || 0) : (p.retailPrice || 0)) : 0;
+                              return sum + (price * e.quantity);
+                            }, 0);
+
+                            if (remainingCount < 3 || remainingTotal < 25000) {
+                              setMinInvoiceAlertData({
+                                total: remainingTotal,
+                                count: remainingCount,
+                                customerName: entry.customerName,
+                                context: 'deleteItem'
+                              });
+                              return;
+                            }
+
                             setDeleteConfirmation({
                               isOpen: true,
                               title: 'حذف السجل',
@@ -1528,7 +1651,7 @@ export const EntryScreen: React.FC = () => {
         >
           <div 
             onClick={e => e.stopPropagation()}
-            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+            className={`w-full max-w-lg rounded-2xl p-5 sm:p-6 shadow-2xl border text-center space-y-4 ${
               isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
             }`}
           >
@@ -1536,27 +1659,80 @@ export const EntryScreen: React.FC = () => {
               <AlertTriangle className="w-8 h-8" />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
-                تنبيه شروط حفظ الفاتورة
+                تنبيه: حالة الفاتورة وشروط الحفظ
               </h3>
-              <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-relaxed px-2">
-                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.
+              {minInvoiceAlertData.customerName && (
+                <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                  الزبون: <span className="font-extrabold text-slate-800 dark:text-slate-200">{minInvoiceAlertData.customerName}</span>
+                </div>
+              )}
+              <p className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 leading-relaxed px-1">
+                {minInvoiceAlertData.context === 'edit'
+                  ? 'لا يمكن حفظ هذا التعديل لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 3 أصناف أو أقل من 25,000 د.ع).'
+                  : minInvoiceAlertData.context === 'deleteItem'
+                  ? 'لا يمكن حذف هذا الصنف لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 3 أصناف أو أقل من 25,000 د.ع). لحذف كامل الفاتورة يرجى استخدام زر مسح/حذف الفاتورة بالكامل بالأعلى.'
+                  : 'لا يمكن حفظ الفاتورة لأنها غير مستوفية لشروط الحفظ الإلزامية. يجب أن تحتوي الفاتورة على 3 أصناف مختلفة على الأقل وبقيمة لا تقل عن 25,000 د.ع.'}
               </p>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 space-y-2 text-right text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 dark:text-slate-400 font-bold">المبلغ الحالي للفاتورة:</span>
-                <span className={`font-black ${minInvoiceAlertData.total < 25000 ? 'text-red-500' : 'text-emerald-500'}`}>
-                  {minInvoiceAlertData.total.toLocaleString()} د.ع (المطلوب: 25,000 د.ع على الأقل)
-                </span>
+            {/* شروط الحفظ الإلزامية */}
+            <div className={`p-3 rounded-xl border text-right text-xs space-y-1.5 ${
+              isDarkMode ? 'bg-amber-950/20 border-amber-500/30 text-amber-200' : 'bg-amber-50/80 border-amber-200 text-amber-900'
+            }`}>
+              <div className="font-black text-xs flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                <Shield className="w-3.5 h-3.5" />
+                <span>شروط حفظ الفاتورة الإلزامية:</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 dark:text-slate-400 font-bold">عدد الأصناف المختارة:</span>
-                <span className={`font-black ${minInvoiceAlertData.count < 3 ? 'text-red-500' : 'text-emerald-500'}`}>
-                  {minInvoiceAlertData.count} أصناف (المطلوب: 3 أصناف على الأقل)
-                </span>
+              <ul className="space-y-1 font-bold text-[11px] pr-2 list-disc list-inside">
+                <li>عدد المنتجات: <span className="font-black">3 أصناف مختلفة على الأقل</span> في الفاتورة الواحدة.</li>
+                <li>المبلغ الإجمالي: <span className="font-black">25,000 د.ع على الأقل</span>.</li>
+              </ul>
+            </div>
+
+            {/* حالة الفاتورة الحالية */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 space-y-2.5 text-right text-xs">
+              <div className="font-black text-xs text-slate-700 dark:text-slate-300 pb-1 border-b border-slate-200 dark:border-slate-700">
+                تقرير التحقق من حالة الفاتورة:
+              </div>
+
+              {/* الشرط 1: عدد الأصناف */}
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-600 dark:text-slate-400 font-bold">عدد الأصناف في الفاتورة:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-black text-xs">
+                    {minInvoiceAlertData.count} / 3 أصناف
+                  </span>
+                  {minInvoiceAlertData.count >= 3 ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                      مستوفي ✅
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-300">
+                      ينقص {3 - minInvoiceAlertData.count} صنف ❌
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* الشرط 2: المبلغ الإجمالي */}
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-600 dark:text-slate-400 font-bold">المبلغ الإجمالي للفاتورة:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-black text-xs" dir="ltr">
+                    {formatWithCommas(minInvoiceAlertData.total, true)} د.ع
+                  </span>
+                  {minInvoiceAlertData.total >= 25000 ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                      مستوفي ✅
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-300">
+                      ينقص {formatWithCommas(25000 - minInvoiceAlertData.total, true)} د.ع ❌
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1564,9 +1740,9 @@ export const EntryScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setMinInvoiceAlertData(null)}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95 cursor-pointer"
               >
-                حسناً، فهمت ذلك
+                حسناً، فهمت ذلك (سأقوم باستيفاء شروط الحفظ)
               </button>
             </div>
           </div>
