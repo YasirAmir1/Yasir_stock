@@ -298,16 +298,53 @@ export const RoutesScreen: React.FC = () => {
       });
   }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
 
+  const parseDateToMidnight = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const parts = String(dateStr).trim().split(/[-/]/);
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m, d, 0, 0, 0, 0);
+      }
+    }
+    const dt = new Date(dateStr);
+    if (isNaN(dt.getTime())) return null;
+    dt.setHours(0, 0, 0, 0);
+    return dt;
+  };
+
   const exportDebtsToExcel = () => {
-      const worksheet = XLSX.utils.json_to_sheet(debts.map(d => ({
-          'اسم الزبون': d.customerName,
-          'كود الزبون': d.customerCode,
-          'المبلغ': d.amountDue,
-          'كود المندوب': d.delegateCode,
-          'اسم المندوب': delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || '',
-          'تاريخ الفاتورة': d.invoiceDate,
-          'تاريخ السداد': d.paymentDueDate
-      })));
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const msPerDay = 1000 * 3600 * 24;
+
+      const worksheet = XLSX.utils.json_to_sheet(debts.map(d => {
+          const payDateObj = parseDateToMidnight(d.paymentDueDate);
+          let mustahaqaVal: string | number = 'NT';
+          let baqiaVal = 0;
+          if (payDateObj) {
+            if (today.getTime() >= payDateObj.getTime()) {
+              mustahaqaVal = Math.round((today.getTime() - payDateObj.getTime()) / msPerDay);
+              baqiaVal = 0;
+            } else {
+              mustahaqaVal = 'NT';
+              baqiaVal = Math.round((payDateObj.getTime() - today.getTime()) / msPerDay);
+            }
+          }
+          return {
+              'اسم الزبون': d.customerName,
+              'كود الزبون': d.customerCode,
+              'المبلغ': d.amountDue,
+              'كود المندوب': d.delegateCode,
+              'اسم المندوب': delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || '',
+              'تاريخ الفاتورة': d.invoiceDate,
+              'تاريخ السداد': d.paymentDueDate,
+              'مستحقة': mustahaqaVal,
+              'باقي': baqiaVal
+          };
+      }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'الديون');
       XLSX.writeFile(workbook, 'الديون.xlsx');
@@ -427,22 +464,45 @@ export const RoutesScreen: React.FC = () => {
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
-              {filteredDebts.sort((a,b) => new Date(a.paymentDueDate).getTime() - new Date(b.paymentDueDate).getTime()).map(d => {
-                const invDate = new Date(d.invoiceDate || Date.now());
-                const payDate = new Date(d.paymentDueDate || Date.now());
-                const now = new Date();
+              {filteredDebts.sort((a,b) => {
+                const payA = parseDateToMidnight(a.paymentDueDate)?.getTime() || 0;
+                const payB = parseDateToMidnight(b.paymentDueDate)?.getTime() || 0;
+                return payA - payB;
+              }).map(d => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const todayTime = today.getTime();
                 const msPerDay = 1000 * 3600 * 24;
                 
-                const diffInDays = Math.round((payDate.getTime() - now.getTime()) / msPerDay);
+                const payDateObj = parseDateToMidnight(d.paymentDueDate);
+                const invDateObj = parseDateToMidnight(d.invoiceDate);
                 
-                const mustahaqa = payDate.getTime() > now.getTime() ? 0 : diffInDays;
-                const baqia = now.getTime() > payDate.getTime() ? 0 : diffInDays;
+                let mustahaqaDisplay: string | number = 'NT';
+                let isDue = false;
+                let baqia = 0;
                 
-                const daysOld = Math.round((now.getTime() - invDate.getTime()) / msPerDay);
+                if (payDateObj) {
+                  const payDateTime = payDateObj.getTime();
+                  if (todayTime >= payDateTime) {
+                    // تاريخ السداد واصل / مستحق -> تجمع عدد الأيام بين تاريخ السداد وتاريخ اليوم
+                    isDue = true;
+                    mustahaqaDisplay = Math.round((todayTime - payDateTime) / msPerDay);
+                    baqia = 0;
+                  } else {
+                    // تاريخ السداد غير واصل (غير مستحق) -> NT
+                    mustahaqaDisplay = 'NT';
+                    baqia = Math.round((payDateTime - todayTime) / msPerDay);
+                  }
+                } else {
+                  mustahaqaDisplay = 'NT';
+                  baqia = 0;
+                }
+                
+                const daysOld = invDateObj ? Math.round((todayTime - invDateObj.getTime()) / msPerDay) : 0;
                 const isOldDebt = daysOld > 11;
 
-                const isRed = diffInDays <= 1;
-                const isGreen = diffInDays > 5;
+                const isRed = isDue || (mustahaqaDisplay === 'NT' && baqia <= 1);
+                const isGreen = !isDue && baqia > 5;
                 const rowBgClass = isRed 
                   ? (isDarkMode ? 'bg-rose-950/40 text-rose-100 hover:bg-rose-900/50' : 'bg-rose-50 text-rose-950 hover:bg-rose-100/90') 
                   : isGreen 
@@ -474,18 +534,20 @@ export const RoutesScreen: React.FC = () => {
                     </td>
                     <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.invoiceDate}</td>
                     <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.paymentDueDate}</td>
-                    <td className="px-2.5 py-2 text-center">
-                      {mustahaqa > 0 ? (
-                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                          {mustahaqa}
+                    <td className="px-2.5 py-2 text-center font-mono">
+                      {mustahaqaDisplay === 'NT' ? (
+                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700">
+                          NT
                         </span>
                       ) : (
-                        <span className="text-slate-400 font-mono text-[10px]">0</span>
+                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                          {mustahaqaDisplay}
+                        </span>
                       )}
                     </td>
                     <td className="px-2.5 py-2 text-center">
                       {baqia > 0 ? (
-                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-mono">
                           {baqia}
                         </span>
                       ) : (
@@ -2053,6 +2115,21 @@ export const RoutesScreen: React.FC = () => {
                 <p><span className="font-bold text-slate-500">تاريخ الفاتورة:</span> {selectedDebt.invoiceDate}</p>
                 <p><span className="font-bold text-slate-500">تاريخ السداد:</span> {selectedDebt.paymentDueDate}</p>
                 <p><span className="font-bold text-slate-500">المبلغ المستحق:</span> {selectedDebt.amountDue.toLocaleString()} د.ع</p>
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs border border-slate-200 dark:border-slate-700">
+                  <span className="font-bold text-slate-600 dark:text-slate-400">حالة الاستحقاق (مستحقة):</span>
+                  {(() => {
+                    const payDateObj = parseDateToMidnight(selectedDebt.paymentDueDate);
+                    if (!payDateObj) return <span className="font-mono font-bold text-slate-500">NT</span>;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const diff = Math.round((today.getTime() - payDateObj.getTime()) / (1000 * 3600 * 24));
+                    if (today.getTime() >= payDateObj.getTime()) {
+                      return <span className="font-black text-rose-600 dark:text-rose-400 font-mono">مستحقة ({diff} يوم)</span>;
+                    }
+                    const remaining = Math.round((payDateObj.getTime() - today.getTime()) / (1000 * 3600 * 24));
+                    return <span className="font-bold text-slate-500 font-mono">غير مستحقة (NT) • باقي {remaining} يوم</span>;
+                  })()}
+                </div>
             </div>
             <div className="flex gap-2 pt-2">
                 <button 
