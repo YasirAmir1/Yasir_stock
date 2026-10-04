@@ -513,55 +513,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUserMessage('تم حذف جميع المنتجات بنجاح 🗑️✅');
   };
 
-  const deleteAllSalesEntries = async () => {
-    try {
-      const snap = await getDocs(collection(db, 'sales_entries'));
-      if (!snap.empty) {
-        let deleteBatch = writeBatch(db);
-        let deleteCount = 0;
-        for (const docSnapshot of snap.docs) {
-          deleteBatch.delete(docSnapshot.ref);
-          deleteCount++;
-          if (deleteCount === 450) {
-            await deleteBatch.commit();
-            deleteBatch = writeBatch(db);
-            deleteCount = 0;
-          }
-        }
-        if (deleteCount > 0) {
-          await deleteBatch.commit();
-        }
-      }
-      setSalesEntries([]);
-    } catch (e) {
-      console.error('Error clearing all sales entries:', e);
-    }
-  };
-
-  useEffect(() => {
-    const checkTimeAndClear = () => {
-      try {
-        const baghdadTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Baghdad" });
-        const d = new Date(baghdadTime);
-        const hours = d.getHours();
-        const minutes = d.getMinutes();
-        
-        const lastClearDateStr = localStorage.getItem('lastAutoClearDate');
-        const currentDateStr = d.toISOString().split('T')[0];
-
-        if (hours === 0 && minutes === 0 && lastClearDateStr !== currentDateStr) {
-          deleteAllSalesEntries();
-          localStorage.setItem('lastAutoClearDate', currentDateStr);
-        }
-      } catch (err) {
-        console.error('Error auto-clearing invoices:', err);
-      }
-    };
-
-    checkTimeAndClear();
-    const intervalId = setInterval(checkTimeAndClear, 30000);
-    return () => clearInterval(intervalId);
-  }, []);
+  // Strict Data Retention Policy:
+  // Invoices and sales entries are NEVER deleted automatically.
+  // Records in current month tables remain intact throughout the month,
+  // and old/historical invoices are permanently retained (only manual deletion by Admin is permitted).
 
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => {
@@ -720,8 +675,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [isPowerSavingMode]);
 
   useEffect(() => {
+    let archiveMap = new globalThis.Map<string, SalesEntry>();
+    // Pre-load any existing archive entries once to guarantee complete historical records
+    getDocs(collection(db, 'sales_entries_archive')).then((snap) => {
+      snap.forEach((doc) => {
+        const data = doc.data() as SalesEntry;
+        if (data && data.id) {
+          archiveMap.set(data.id, data);
+        }
+      });
+    }).catch(() => {
+      // Archive collection is optional
+    });
+
     const unsubAll = onSnapshot(collection(db, 'sales_entries'), (snapshot) => {
       const entriesMap = new globalThis.Map<string, SalesEntry>();
+      // First populate archived records
+      archiveMap.forEach((entry, id) => {
+        entriesMap.set(id, entry);
+      });
+      // Merge live sales entries (overrides archive if present)
       snapshot.forEach((doc) => {
         const data = doc.data() as SalesEntry;
         if (data && data.id) {

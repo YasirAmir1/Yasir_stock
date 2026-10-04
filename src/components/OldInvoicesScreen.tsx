@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, getDocs, query } from 'firebase/firestore';
+import { collection, getDocs, query, doc, writeBatch } from 'firebase/firestore';
 import { SalesEntry } from '../types';
 import { 
   FileText, 
@@ -17,7 +17,8 @@ import {
   ChevronDown, 
   ChevronUp, 
   RotateCcw,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 import { formatWithCommas } from '../utils/numberUtils';
 import logoImg from '../assets/images/logo.png';
@@ -67,6 +68,7 @@ export const OldInvoicesScreen: React.FC = () => {
   const [visibleCount, setVisibleCount] = useState<number>(30);
   const [archivedEntries, setArchivedEntries] = useState<SalesEntry[]>([]);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const [deletingInvoiceKey, setDeletingInvoiceKey] = useState<string | null>(null);
 
   // Fetch from `sales_entries_archive` if available to ensure full coverage of archived invoices
   useEffect(() => {
@@ -383,6 +385,35 @@ export const OldInvoicesScreen: React.FC = () => {
     }
   };
 
+  // Manual deletion of an old/historical invoice (Admin only, never automatic)
+  const handleDeleteOldInvoice = async (inv: typeof groupedOldInvoices[0]) => {
+    if (!currentUser?.isAdmin) return;
+    const ok = window.confirm(
+      `هل أنت متأكد من حذف هذه الفاتورة القديمة للزبون (${inv.customerName} - ${inv.dateString}) نهائياً؟\nسيتم حذف جميع الأصناف المسجلة بها (${inv.entries.length} صنف) من السجلات.`
+    );
+    if (!ok) return;
+
+    try {
+      setDeletingInvoiceKey(inv.invoiceKey);
+      const batch = writeBatch(db);
+      for (const entry of inv.entries) {
+        if (entry.id) {
+          batch.delete(doc(db, 'sales_entries', entry.id));
+          batch.delete(doc(db, 'sales_entries_archive', entry.id));
+        }
+      }
+      await batch.commit();
+
+      setArchivedEntries(prev => prev.filter(e => !inv.entries.some(ie => ie.id === e.id)));
+      alert(`تم حذف الفاتورة القديمة للزبون (${inv.customerName}) بنجاح.`);
+    } catch (err) {
+      console.error('Error deleting old invoice:', err);
+      alert('حدث خطأ أثناء حذف الفاتورة القديمة.');
+    } finally {
+      setDeletingInvoiceKey(null);
+    }
+  };
+
   // Export Filtered Old Invoices to Excel
   const exportToExcel = () => {
     if (groupedOldInvoices.length === 0) return;
@@ -670,7 +701,7 @@ export const OldInvoicesScreen: React.FC = () => {
                       )}
                     </div>
 
-                    {/* زر الطباعة أمام اسم الزبون */}
+                    {/* زر الطباعة والحذف اليدوي أمام اسم الزبون */}
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
@@ -684,6 +715,26 @@ export const OldInvoicesScreen: React.FC = () => {
                       >
                         <Printer className="w-4 h-4" />
                       </button>
+
+                      {currentUser?.isAdmin && (
+                        <button
+                          type="button"
+                          disabled={deletingInvoiceKey === inv.invoiceKey}
+                          onClick={() => handleDeleteOldInvoice(inv)}
+                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
+                            isDarkMode 
+                              ? 'bg-rose-950/40 text-rose-400 hover:bg-rose-900 border-rose-800' 
+                              : 'bg-rose-100 text-rose-600 hover:bg-rose-200 hover:text-rose-800 border-rose-200'
+                          }`}
+                          title="حذف هذه الفاتورة القديمة يدوياً (خاص بالمدير)"
+                        >
+                          {deletingInvoiceKey === inv.invoiceKey ? (
+                            <span className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
 

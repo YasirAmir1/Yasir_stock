@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { DamagedProductItem, DamagedProductStatus } from '../types';
+import { db } from '../lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import { 
   AlertTriangle, 
   ExternalLink, 
@@ -13,13 +15,17 @@ import {
   XCircle, 
   Send,
   Download,
-  Filter
+  Filter,
+  FileDown,
+  FileText
 } from 'lucide-react';
+import { generateDamagedProductPdf } from '../utils/damagedProductPdf';
 
 interface DamagedProductsQCSectionProps {
   damagedProducts: DamagedProductItem[];
   onEdit: (item: DamagedProductItem) => void;
   onDelete: (id: string) => Promise<void>;
+  onDeleteImage?: (itemId: string, imageIndex: number) => Promise<void>;
   onStatusChange: (id: string, newStatus: DamagedProductStatus) => Promise<void>;
   onAddNew: () => void;
   isDarkMode: boolean;
@@ -30,6 +36,7 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
   damagedProducts,
   onEdit,
   onDelete,
+  onDeleteImage,
   onStatusChange,
   onAddNew,
   isDarkMode,
@@ -37,8 +44,24 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('الكل');
-  const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
+  const [previewImage, setPreviewImage] = useState<{
+    url: string;
+    title: string;
+    itemId?: string;
+    imageIndex?: number;
+    isInvoice?: boolean;
+  } | null>(null);
   const [isUpdatingStatusId, setIsUpdatingStatusId] = useState<string | null>(null);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+  const [isDeletingImageKey, setIsDeletingImageKey] = useState<string | null>(null);
+  const [imageToDelete, setImageToDelete] = useState<{
+    itemId: string;
+    imageIndex?: number;
+    isInvoice?: boolean;
+    imageUrl?: string;
+    productName?: string;
+    customerName?: string;
+  } | null>(null);
 
   // Filter items
   const filteredItems = damagedProducts.filter((item) => {
@@ -89,6 +112,87 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
     } catch (err) {
       console.error('Error deleting damaged product:', err);
       alert('حدث خطأ أثناء الحذف.');
+    }
+  };
+
+  const openDeleteImageModal = (
+    itemId: string,
+    imageIndex: number,
+    imageUrl?: string,
+    productName?: string,
+    customerName?: string,
+    e?: React.MouseEvent
+  ) => {
+    if (e) e.stopPropagation();
+    if (!currentUser?.isAdmin) return;
+    setImageToDelete({
+      itemId,
+      imageIndex,
+      imageUrl,
+      productName,
+      customerName,
+    });
+  };
+
+  const openDeleteInvoiceImageModal = (
+    itemId: string,
+    imageUrl?: string,
+    productName?: string,
+    customerName?: string,
+    e?: React.MouseEvent
+  ) => {
+    if (e) e.stopPropagation();
+    if (!currentUser?.isAdmin) return;
+    setImageToDelete({
+      itemId,
+      isInvoice: true,
+      imageUrl,
+      productName,
+      customerName,
+    });
+  };
+
+  const confirmDeleteImage = async () => {
+    if (!imageToDelete || !currentUser?.isAdmin) return;
+    const { itemId, imageIndex, isInvoice } = imageToDelete;
+    const key = isInvoice ? `${itemId}-invoice` : `${itemId}-${imageIndex}`;
+    try {
+      setIsDeletingImageKey(key);
+      if (isInvoice) {
+        const docRef = doc(db, 'damaged_products', itemId);
+        await updateDoc(docRef, { invoiceImage: '', updatedAt: Date.now() });
+      } else if (onDeleteImage && imageIndex !== undefined) {
+        await onDeleteImage(itemId, imageIndex);
+      } else {
+        const item = damagedProducts.find((p) => p.id === itemId);
+        if (item && item.images && imageIndex !== undefined) {
+          const newImages = item.images.filter((_, idx) => idx !== imageIndex);
+          const docRef = doc(db, 'damaged_products', itemId);
+          await updateDoc(docRef, { images: newImages, updatedAt: Date.now() });
+        }
+      }
+      if (previewImage && previewImage.itemId === itemId && (isInvoice ? previewImage.isInvoice : previewImage.imageIndex === imageIndex)) {
+        setPreviewImage(null);
+      }
+      setImageToDelete(null);
+    } catch (err) {
+      console.error('Error deleting image:', err);
+      alert('حدث خطأ أثناء حذف الصورة.');
+    } finally {
+      setIsDeletingImageKey(null);
+    }
+  };
+
+  const handleDownloadPdfInternal = async (item: DamagedProductItem) => {
+    if (!currentUser?.isAdmin) return;
+    try {
+      setGeneratingPdfId(item.id);
+      await generateDamagedProductPdf(item);
+    } catch (err) {
+      console.error('Error generating damaged product PDF:', err);
+      alert('حدث خطأ أثناء إنشاء وتحميل استمارة الـ PDF.');
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
@@ -310,27 +414,95 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                     </div>
                   </td>
 
-                  {/* Images - Clickable links stacked vertically one below another */}
+                  {/* Images - Clickable links stacked vertically one below another with Delete button for Admin */}
                   <td className="px-3 py-3">
-                    {item.images && item.images.length > 0 ? (
-                      <div className="flex flex-col gap-1 items-start">
-                        {item.images.map((imgUrl, imgIdx) => (
-                          <button
-                            key={imgIdx}
-                            type="button"
-                            onClick={() =>
-                              setPreviewImage({
-                                url: imgUrl,
-                                title: `${item.productName} - ${item.customerName} (صورة ${imgIdx + 1})`,
-                              })
-                            }
-                            className="text-[11px] text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300 hover:underline flex items-center gap-1 font-bold active:scale-95 transition-all cursor-pointer"
-                            title="انقر لفتح الصورة بالحجم الكامل"
-                          >
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                            <span>رابط صورة {imgIdx + 1}</span>
-                          </button>
-                        ))}
+                    {(item.images && item.images.length > 0) || item.invoiceImage ? (
+                      <div className="flex flex-col gap-1.5 items-start">
+                        {item.images && item.images.map((imgUrl, imgIdx) => {
+                          const isDeletingThis = isDeletingImageKey === `${item.id}-${imgIdx}`;
+                          return (
+                            <div key={imgIdx} className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewImage({
+                                    url: imgUrl,
+                                    title: `${item.productName} - ${item.customerName} (صورة ${imgIdx + 1})`,
+                                    itemId: item.id,
+                                    imageIndex: imgIdx,
+                                  })
+                                }
+                                className="text-[11px] text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300 hover:underline flex items-center gap-1 font-bold active:scale-95 transition-all cursor-pointer"
+                                title="انقر لفتح الصورة بالحجم الكامل"
+                              >
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                                <span>رابط صورة {imgIdx + 1}</span>
+                              </button>
+
+                              {/* Delete Image Button: Visible and functional ONLY for Admin */}
+                              {currentUser?.isAdmin && (
+                                <button
+                                  type="button"
+                                  disabled={isDeletingThis}
+                                  onClick={(e) => openDeleteImageModal(item.id, imgIdx, imgUrl, item.productName, item.customerName, e)}
+                                  className="px-1.5 py-0.5 rounded text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 transition-colors flex items-center gap-0.5 text-[10px] font-bold disabled:opacity-50"
+                                  title="حذف هذه الصورة (خاص بالإدارة)"
+                                >
+                                  {isDeletingThis ? (
+                                    <span className="w-3 h-3 border-2 border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
+                                  ) : (
+                                    <>
+                                      <Trash2 className="w-3 h-3 text-rose-500" />
+                                      <span className="text-[9px]">حذف</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Customer Invoice Image Link if attached */}
+                        {item.invoiceImage && (
+                          <div className="flex items-center gap-1.5 mt-0.5 pt-1 border-t border-slate-200 dark:border-slate-800 w-full">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewImage({
+                                  url: item.invoiceImage!,
+                                  title: `فاتورة الزبون: ${item.customerName} - ${item.productName}`,
+                                  itemId: item.id,
+                                  isInvoice: true,
+                                })
+                              }
+                              className="text-[11px] text-teal-600 hover:text-teal-500 dark:text-teal-400 dark:hover:text-teal-300 hover:underline flex items-center gap-1 font-bold active:scale-95 transition-all cursor-pointer"
+                              title="انقر لفتح صورة فاتورة الزبون بالحجم الكامل"
+                            >
+                              <FileText className="w-3 h-3 shrink-0" />
+                              <span>صورة الفاتورة 🧾</span>
+                            </button>
+
+                            {/* Delete Invoice Image for Admin */}
+                            {currentUser?.isAdmin && (
+                              <button
+                                type="button"
+                                disabled={isDeletingImageKey === `${item.id}-invoice`}
+                                onClick={(e) => openDeleteInvoiceImageModal(item.id, item.invoiceImage!, item.productName, item.customerName, e)}
+                                className="px-1.5 py-0.5 rounded text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 transition-colors flex items-center gap-0.5 text-[10px] font-bold disabled:opacity-50"
+                                title="حذف صورة الفاتورة (خاص بالإدارة)"
+                              >
+                                {isDeletingImageKey === `${item.id}-invoice` ? (
+                                  <span className="w-3 h-3 border-2 border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
+                                ) : (
+                                  <>
+                                    <Trash2 className="w-3 h-3 text-rose-500" />
+                                    <span className="text-[9px]">حذف</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-slate-400 text-[10px]">لا توجد صور</span>
@@ -390,6 +562,20 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                        {/* PDF Download Button per Customer - Positioned right next to Delete button, Admin only */}
+                        <button
+                          type="button"
+                          disabled={generatingPdfId === item.id}
+                          onClick={() => handleDownloadPdfInternal(item)}
+                          className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-600 dark:text-amber-400 transition-colors disabled:opacity-50"
+                          title="تحميل استمارة تقرير الفحص (PDF)"
+                        >
+                          {generatingPdfId === item.id ? (
+                            <span className="w-3.5 h-3.5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin block" />
+                          ) : (
+                            <FileDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       </div>
                     </td>
                   )}
@@ -419,6 +605,25 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                 {previewImage.title}
               </h4>
               <div className="flex items-center gap-2">
+                {/* Delete button in preview modal for Admin */}
+                {currentUser?.isAdmin && previewImage.itemId !== undefined && (previewImage.imageIndex !== undefined || previewImage.isInvoice) && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      if (previewImage.isInvoice) {
+                        openDeleteInvoiceImageModal(previewImage.itemId!, previewImage.url, previewImage.title, undefined, e);
+                      } else {
+                        openDeleteImageModal(previewImage.itemId!, previewImage.imageIndex!, previewImage.url, previewImage.title, undefined, e);
+                      }
+                    }}
+                    disabled={isDeletingImageKey === (previewImage.isInvoice ? `${previewImage.itemId}-invoice` : `${previewImage.itemId}-${previewImage.imageIndex}`)}
+                    className="p-1.5 px-2 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+                    title={previewImage.isInvoice ? "حذف صورة الفاتورة (خاص بالإدارة)" : "حذف هذه الصورة (خاص بالإدارة)"}
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-500" />
+                    <span>{previewImage.isInvoice ? 'حذف صورة الفاتورة' : 'حذف الصورة'}</span>
+                  </button>
+                )}
                 <a
                   href={previewImage.url}
                   download="damaged-product-image.jpg"
@@ -444,6 +649,111 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                 alt="معاينة المنتج التالف"
                 className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Image Confirmation Modal */}
+      {imageToDelete && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => {
+            if (!isDeletingImageKey) setImageToDelete(null);
+          }}
+          dir="rtl"
+        >
+          <div
+            className={`relative max-w-md w-full rounded-2xl p-5 shadow-2xl border ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            } animate-in zoom-in-95 duration-150`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Icon + Close */}
+            <div className="flex items-start justify-between mb-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/50 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <button
+                type="button"
+                disabled={!!isDeletingImageKey}
+                onClick={() => setImageToDelete(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="mb-5">
+              <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">
+                {imageToDelete.isInvoice ? 'تأكيد حذف صورة الفاتورة' : 'تأكيد حذف الصورة'}
+              </h3>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
+                {imageToDelete.isInvoice
+                  ? 'هل أنت متأكد من حذف صورة فاتورة الزبون من هذا التقرير؟'
+                  : 'هل أنت متأكد من حذف هذه الصورة من التقرير؟'}
+              </p>
+
+              {/* Preview Thumbnail if available */}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                {imageToDelete.imageUrl && (
+                  <img
+                    src={imageToDelete.imageUrl}
+                    alt="صورة للحذف"
+                    className="w-14 h-14 object-cover rounded-lg border border-slate-300 dark:border-slate-600 shadow-sm shrink-0"
+                  />
+                )}
+                <div className="flex flex-col text-xs font-bold gap-0.5 min-w-0">
+                  {imageToDelete.productName && (
+                    <span className="text-slate-800 dark:text-slate-200 truncate">
+                      {imageToDelete.productName}
+                    </span>
+                  )}
+                  {imageToDelete.customerName && (
+                    <span className="text-slate-500 dark:text-slate-400 text-[11px] truncate">
+                      الزبون: {imageToDelete.customerName}
+                    </span>
+                  )}
+                  <span className="text-rose-600 dark:text-rose-400 text-[10px] font-mono">
+                    {imageToDelete.isInvoice ? 'صورة فاتورة الزبون 🧾' : `صورة رقم ${(imageToDelete.imageIndex ?? 0) + 1}`}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 font-medium">
+                * ملاحظة: سيتم حذف هذه الصورة نهائياً وفورياً من تقرير المنتج التالف.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={!!isDeletingImageKey}
+                onClick={() => setImageToDelete(null)}
+                className="px-4 py-2 text-xs font-black rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={!!isDeletingImageKey}
+                onClick={confirmDeleteImage}
+                className="px-4 py-2 text-xs font-black rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                {isDeletingImageKey ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>جاري الحذف...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>تأكيد الحذف</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

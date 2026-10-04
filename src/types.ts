@@ -192,6 +192,7 @@ export interface DamagedProductItem {
   purchaseQuantity: number;
   defectReason: string;
   images: string[]; // Base64 data URLs, minimum 3
+  invoiceImage?: string; // Optional Base64 data URL for customer invoice photo
   status: DamagedProductStatus;
   createdAt: number;
   createdBy?: string;

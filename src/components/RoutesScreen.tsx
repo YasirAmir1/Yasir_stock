@@ -142,6 +142,16 @@ export const RoutesScreen: React.FC = () => {
     addToast?.({ message: 'تم حذف تقرير المنتج التالف', type: 'info', delegateName: currentUser?.name || '', title: 'منتجات تالفة', percentage: 0 });
   };
 
+  const handleDeleteDamagedProductImage = async (itemId: string, imageIndex: number) => {
+    if (!currentUser?.isAdmin) return;
+    const item = damagedProducts.find((p) => p.id === itemId);
+    if (!item || !item.images || !item.images[imageIndex]) return;
+    const newImages = item.images.filter((_, idx) => idx !== imageIndex);
+    const docRef = doc(db, 'damaged_products', itemId);
+    await updateDoc(docRef, { images: newImages, updatedAt: Date.now() });
+    addToast?.({ message: 'تم حذف الصورة من تقرير المنتج التالف بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'منتجات تالفة', percentage: 0 });
+  };
+
   const handleStatusChangeDamagedProduct = async (id: string, newStatus: DamagedProductStatus) => {
     const docRef = doc(db, 'damaged_products', id);
     await updateDoc(docRef, { status: newStatus, updatedAt: Date.now() });
@@ -2366,6 +2376,7 @@ export const RoutesScreen: React.FC = () => {
             setIsDamagedProductModalOpen(true);
           }}
           onDelete={handleDeleteDamagedProduct}
+          onDeleteImage={handleDeleteDamagedProductImage}
           onStatusChange={handleStatusChangeDamagedProduct}
           onAddNew={() => {
             setEditingDamagedProduct(null);

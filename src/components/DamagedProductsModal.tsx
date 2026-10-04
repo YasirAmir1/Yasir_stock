@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DamagedProductItem, ProductItem, RouteItem } from '../types';
-import { X, Camera, ImagePlus, Trash2, Save, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Camera, ImagePlus, Trash2, Save, AlertTriangle, CheckCircle2, AlertCircle, FileText, Upload } from 'lucide-react';
 
 interface DamagedProductsModalProps {
   isOpen: boolean;
@@ -80,12 +80,15 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
   const [purchaseQuantity, setPurchaseQuantity] = useState<number | ''>(1);
   const [defectReason, setDefectReason] = useState('');
   const [images, setImages] = useState<string[]>([]);
+  const [invoiceImage, setInvoiceImage] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const invoiceFileInputRef = useRef<HTMLInputElement>(null);
+  const invoiceCameraInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize form when opening or editing
   useEffect(() => {
@@ -104,6 +107,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
       setPurchaseQuantity(editingItem.purchaseQuantity || 1);
       setDefectReason(editingItem.defectReason || '');
       setImages(editingItem.images || []);
+      setInvoiceImage(editingItem.invoiceImage || null);
     } else {
       // New form
       setCustomerCode('');
@@ -118,6 +122,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
       setPurchaseQuantity(1);
       setDefectReason('');
       setImages([]);
+      setInvoiceImage(null);
     }
     setErrorMessage(null);
   }, [isOpen, editingItem, currentDelegateName, delegatesList]);
@@ -189,6 +194,26 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
     setImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
+  // Handle invoice image file selection or camera capture
+  const handleInvoiceFile = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const file = fileList[0];
+    if (!file.type.startsWith('image/')) return;
+    setIsCompressing(true);
+    setErrorMessage(null);
+    try {
+      const compressed = await compressImage(file);
+      setInvoiceImage(compressed);
+    } catch (err) {
+      console.error('Error compressing invoice image:', err);
+      setErrorMessage('حدث خطأ أثناء معالجة صورة الفاتورة.');
+    } finally {
+      setIsCompressing(false);
+      if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = '';
+      if (invoiceCameraInputRef.current) invoiceCameraInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -237,6 +262,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
           purchaseQuantity: Number(purchaseQuantity) || 1,
           defectReason: defectReason.trim(),
           images,
+          invoiceImage: invoiceImage || undefined,
           status: editingItem?.status || 'لم يتم تعويضه لحد الان',
         },
         editingItem?.id
@@ -257,22 +283,22 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
       dir="rtl"
     >
       <div
-        className={`w-full max-w-2xl h-[92dvh] sm:h-auto sm:max-h-[88vh] flex flex-col rounded-2xl shadow-2xl border transition-all overflow-hidden ${
+        className={`w-full max-w-2xl h-[82dvh] max-h-[82dvh] sm:h-auto sm:max-h-[88vh] flex flex-col rounded-2xl shadow-2xl border transition-all overflow-hidden ${
           isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Fixed Header */}
-        <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center border border-rose-500/30 shrink-0">
-              <AlertTriangle className="w-5 h-5" />
+        {/* Fixed Header with reduced mobile padding */}
+        <div className="flex items-center justify-between py-2.5 px-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center border border-rose-500/30 shrink-0">
+              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400">
-                {editingItem ? 'تعديل تقرير منتج تالف' : 'تسجيل منتج تالف (Damaged Products)'}
+              <h3 className="text-sm sm:text-lg font-black text-rose-600 dark:text-rose-400">
+                {editingItem ? 'تعديل تقرير منتج تالف' : 'تسجيل منتج تالف'}
               </h3>
-              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400">
                 توثيق مشاكل المنتجات والعيوب لمتابعة ومراجعة الجودة (QC)
               </p>
             </div>
@@ -280,7 +306,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -288,22 +314,22 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
 
         {/* Form Container with Docked Footer */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {/* Scrollable Form Body */}
-          <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3.5 text-xs sm:text-sm overscroll-contain">
+          {/* Scrollable Form Body with optimized mobile padding */}
+          <div className="flex-1 overflow-y-auto p-2.5 sm:p-5 space-y-2.5 sm:space-y-3.5 text-xs sm:text-sm overscroll-contain">
             {errorMessage && (
-              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-bold flex items-center gap-2">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-bold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
             {/* Section 1: Customer Info */}
-            <div className="p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-3">
+            <div className="p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2 sm:space-y-3">
               <h4 className="font-black text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <span>👤</span>
                 <span>بيانات الزبون</span>
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                 {/* Customer Code */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -315,7 +341,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={customerCode}
                     onChange={(e) => handleCustomerCodeChange(e.target.value)}
                     placeholder="مثال: 1042 أو ابحث بالمسار"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -332,7 +358,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder="اسم المحل أو الزبون"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -348,7 +374,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={customerAddress}
                     onChange={(e) => setCustomerAddress(e.target.value)}
                     placeholder="المدينة / المنطقة / الشارع"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -362,7 +388,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                   <select
                     value={customerType}
                     onChange={(e) => setCustomerType(e.target.value as 'مفرد' | 'جملة')}
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   >
@@ -374,12 +400,12 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
             </div>
 
             {/* Section 2: Product & Representative Info */}
-            <div className="p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-3">
+            <div className="p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2 sm:space-y-3">
               <h4 className="font-black text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <span>📦</span>
                 <span>بيانات المنتج والمندوب</span>
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                 {/* Product Name */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -392,7 +418,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={productName}
                     onChange={(e) => handleProductNameChange(e.target.value)}
                     placeholder="اختر أو اكتب اسم المنتج"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -415,7 +441,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={productCode}
                     onChange={(e) => handleProductCodeChange(e.target.value)}
                     placeholder="كود الصنف"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -430,7 +456,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     required
                     value={delegateName}
                     onChange={(e) => setDelegateName(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   >
@@ -453,7 +479,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={batchNumber}
                     onChange={(e) => setBatchNumber(e.target.value)}
                     placeholder="مثال: L-240801 / BATCH-09"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -468,7 +494,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     type="date"
                     value={purchaseDate}
                     onChange={(e) => setPurchaseDate(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -486,7 +512,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     value={purchaseQuantity}
                     onChange={(e) => setPurchaseQuantity(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="عدد القطع التالفة"
-                    className={`w-full p-2.5 rounded-xl border font-bold ${
+                    className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold text-xs sm:text-sm ${
                       isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                     }`}
                   />
@@ -495,24 +521,24 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
             </div>
 
             {/* Section 3: Defect Reason */}
-            <div className="p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+            <div className="p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-1.5 sm:space-y-2">
               <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
                 سبب العيب (ما هي مشكلة المنتج؟) <span className="text-rose-500">*</span>
               </label>
               <textarea
-                rows={3}
+                rows={2}
                 required
                 value={defectReason}
                 onChange={(e) => setDefectReason(e.target.value)}
                 placeholder="صف المشكلة بدقة: مثل تلف التغليف، انتفاخ العبوة، تغير الرائحة أو الطعم، كسر، تسريب، اكسباير..."
-                className={`w-full p-2.5 rounded-xl border font-bold resize-none ${
+                className={`w-full p-2 sm:p-2.5 rounded-xl border font-bold resize-none text-xs sm:text-sm ${
                   isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                 }`}
               />
             </div>
 
             {/* Section 4: Image Upload / Camera Capture (Minimum 3 images) */}
-            <div className="p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-3">
+            <div className="p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2 sm:space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h4 className="font-black text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
@@ -539,7 +565,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
                     disabled={isCompressing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     <span>كاميرا 📷</span>
@@ -558,7 +584,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isCompressing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                   >
                     <ImagePlus className="w-3.5 h-3.5" />
                     <span>إرفاق صور 🖼️</span>
@@ -568,7 +594,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
 
               {/* Validation Badge */}
               <div
-                className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${
+                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${
                   images.length >= 3
                     ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
                     : 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
@@ -591,7 +617,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
 
               {/* Images Thumbnails Grid */}
               {images.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5 pt-1">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 sm:gap-2.5 pt-0.5">
                   {images.map((imgUrl, idx) => (
                     <div
                       key={idx}
@@ -618,15 +644,103 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Section 5: Customer Invoice Photo Upload / Camera Capture */}
+            <div className="p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2 sm:space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-black text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <span>🧾</span>
+                    <span>صورة فاتورة الزبون (تحميل أو التقاط صورة الفاتورة)</span>
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                    إرفاق صورة فاتورة الشراء للزبون لتوثيق الفحص والاستبدال
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Camera Capture Input for Invoice */}
+                  <input
+                    type="file"
+                    ref={invoiceCameraInputRef}
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => handleInvoiceFile(e.target.files)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => invoiceCameraInputRef.current?.click()}
+                    disabled={isCompressing}
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>التقاط صورة الفاتورة 📷</span>
+                  </button>
+
+                  {/* File Upload for Invoice */}
+                  <input
+                    type="file"
+                    ref={invoiceFileInputRef}
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => handleInvoiceFile(e.target.files)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => invoiceFileInputRef.current?.click()}
+                    disabled={isCompressing}
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>تحميل صورة الفاتورة 📄</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Invoice Image Preview Card */}
+              {invoiceImage ? (
+                <div className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl border border-teal-200 dark:border-teal-900/60 bg-teal-50/70 dark:bg-teal-950/20">
+                  <div className="relative rounded-lg overflow-hidden border border-teal-300 dark:border-teal-700 w-14 h-14 sm:w-16 sm:h-16 shrink-0 bg-slate-900 shadow-sm">
+                    <img
+                      src={invoiceImage}
+                      alt="فاتورة الزبون"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 text-teal-800 dark:text-teal-300 font-black text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-teal-600" />
+                      <span>تم إرفاق صورة فاتورة الزبون بنجاح</span>
+                    </div>
+                    <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-medium">
+                      جاهزة للحفظ والتوثيق مع تقرير المنتج التالف
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInvoiceImage(null)}
+                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                    title="حذف صورة الفاتورة"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2 sm:p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-slate-400 dark:text-slate-500 text-[10px] sm:text-[11px] font-bold">
+                  لم يتم إرفاق صورة فاتورة للزبون بعد (اختياري - اضغط الأزرار أعلاه لالتقاط أو رفع صورة الفاتورة)
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 4. Docked Modal Actions Footer: Always fully visible on mobile & desktop */}
-          <div className="shrink-0 p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex items-center gap-2.5 shadow-lg">
+          <div className="shrink-0 p-2.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex items-center gap-2 sm:gap-2.5 shadow-lg">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className={`flex-1 py-2.5 px-4 rounded-xl font-bold border transition-colors cursor-pointer text-xs sm:text-sm ${
+              className={`flex-1 py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl font-bold border transition-colors cursor-pointer text-xs sm:text-sm ${
                 isDarkMode
                   ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
                   : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
@@ -638,7 +752,7 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting || isCompressing || images.length < 3}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 disabled:opacity-50 text-white font-black shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs sm:text-sm"
+              className="flex-1 py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 disabled:opacity-50 text-white font-black shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs sm:text-sm"
             >
               {isSubmitting ? (
                 <span>جاري الحفظ... ⏳</span>
