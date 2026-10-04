@@ -966,6 +966,78 @@ export const ReportsScreen: React.FC = () => {
   const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string }[]>([]);
   const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
 
+  // Auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  const [timeTick, setTimeTick] = useState<number>(Date.now());
+
+  // Real-time listener for configurable auto_lock_time setting
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (docSnap) => {
+        if (docSnap.exists() && docSnap.data()?.time) {
+          setTargetAutoLockTime(docSnap.data().time);
+        }
+      },
+      (err) => {
+        console.error('Error listening to auto_lock_time in ReportsScreen:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Timer tick every 10 seconds to update closing time trigger in real-time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(Date.now());
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  const formattedTargetTime = useMemo(() => {
+    try {
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      let h = parseInt(hStr || '15', 10);
+      const m = mStr || '00';
+      const ampm = h >= 12 ? 'م' : 'ص';
+      h = h % 12;
+      h = h ? h : 12;
+      return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+    } catch {
+      return '03:00 م';
+    }
+  }, [targetAutoLockTime]);
+
+  // Current Baghdad date info & whether official closing time has been reached
+  const isPastClosing = useMemo(() => {
+    try {
+      const now = new Date();
+      const timeFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+      const parts = timeFormatter.formatToParts(now);
+      const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+
+      const currentSeconds = hour * 3600 + minute * 60 + second;
+
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      const targetHours = parseInt(hStr || '15', 10);
+      const targetMinutes = parseInt(mStr || '00', 10);
+      const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+      return currentSeconds >= targetSeconds;
+    } catch {
+      return false;
+    }
+  }, [targetAutoLockTime, timeTick]);
+
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
 
@@ -1243,6 +1315,119 @@ export const ReportsScreen: React.FC = () => {
 
 
 
+  // Helper to format ISO completion timestamp into friendly 12-hour Arabic time
+  const formatCompletionTime = (isoStr?: string) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch {
+      return '';
+    }
+  };
+
+  // Resilient delegate matching
+  const isDelMatch = (nameA?: string, nameB?: string) => {
+    if (!nameA || !nameB) return false;
+    const a = nameA.trim().toLowerCase();
+    const b = nameB.trim().toLowerCase();
+    if (a === b) return true;
+    const norm = (s: string) => s.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim().toLowerCase();
+    return norm(a) === norm(b);
+  };
+
+  // Compute delegates to display in the priority table:
+  // - Before closing time: Only representatives who manually completed today's sales (chronological order)
+  // - After official closing time: ALL representatives across the entire system with complete details!
+  //   (Earliest manual completers maintain priority 1, 2, 3..., followed by all remaining delegates)
+  const priorityTableDelegates = useMemo(() => {
+    // 1. Before official closing time: Only delegates who completed
+    if (!isPastClosing) {
+      return completedDelegatesList.map((item, idx) => ({
+        delegate: item.delegate,
+        completedAt: item.completedAt,
+        hasManuallyCompleted: true,
+        displayRank: idx + 1,
+      }));
+    }
+
+    // 2. Once official closing time is reached: Display ALL representatives in the system!
+    const completedMap = new Map<string, { completedAt: string; priorityOrder: number }>();
+    completedDelegatesList.forEach((item, idx) => {
+      completedMap.set(item.delegate.trim().toLowerCase(), {
+        completedAt: item.completedAt,
+        priorityOrder: idx + 1,
+      });
+    });
+
+    // Gather all distinct delegate names in system
+    const allNamesSet = new Set<string>();
+    delegatesList.forEach((d) => { if (d && d.trim()) allNamesSet.add(d.trim()); });
+    todaysEntries.forEach((e) => { if (e.delegateName && e.delegateName.trim()) allNamesSet.add(e.delegateName.trim()); });
+    completedDelegatesList.forEach((c) => { if (c.delegate && c.delegate.trim()) allNamesSet.add(c.delegate.trim()); });
+
+    const allDelegates = Array.from(allNamesSet);
+
+    const completedItems: Array<{
+      delegate: string;
+      completedAt: string;
+      hasManuallyCompleted: boolean;
+      totalWeight: number;
+    }> = [];
+
+    const remainingItems: Array<{
+      delegate: string;
+      completedAt?: string;
+      hasManuallyCompleted: boolean;
+      totalWeight: number;
+    }> = [];
+
+    allDelegates.forEach((delName) => {
+      const lower = delName.toLowerCase();
+      // Calculate today's sales weight for sorting remaining items
+      const delEntries = todaysEntries.filter((e) => isDelMatch(e.delegateName, delName));
+      const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+
+      // Check if found in completedMap
+      let foundCompleted: { completedAt: string; priorityOrder: number } | undefined;
+      for (const [key, val] of completedMap.entries()) {
+        if (isDelMatch(key, lower)) {
+          foundCompleted = val;
+          break;
+        }
+      }
+
+      if (foundCompleted) {
+        completedItems.push({
+          delegate: delName,
+          completedAt: foundCompleted.completedAt,
+          hasManuallyCompleted: true,
+          totalWeight,
+        });
+      } else {
+        remainingItems.push({
+          delegate: delName,
+          hasManuallyCompleted: false,
+          totalWeight,
+        });
+      }
+    });
+
+    // Chronological order for delegates who completed manually
+    completedItems.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+
+    // Sort remaining delegates by total weight descending
+    remainingItems.sort((a, b) => b.totalWeight - a.totalWeight);
+
+    // Combine completed delegates first, then remaining delegates
+    const combined = [...completedItems, ...remainingItems];
+
+    return combined.map((item, idx) => ({
+      ...item,
+      displayRank: idx + 1,
+    }));
+  }, [isPastClosing, completedDelegatesList, delegatesList, todaysEntries]);
+
   return (
     <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="px-0 sm:px-3 py-2 sm:p-4 max-w-5xl mx-auto space-y-3 sm:space-y-4 dir-rtl text-slate-900 bg-white dark:bg-slate-900 w-full">
@@ -1250,13 +1435,20 @@ export const ReportsScreen: React.FC = () => {
         {/* Daily Sales Completion Bar (Split into two halves: Button + 3:00 PM Countdown) */}
         <DailySalesCompletionBar />
 
-        {/* Admin Completed Delegates Table */}
-        {currentUser.isAdmin && completedDelegatesList.length > 0 && (
+        {/* Admin Completed Delegates Priority Table */}
+        {currentUser.isAdmin && (isPastClosing ? priorityTableDelegates.length > 0 : completedDelegatesList.length > 0) && (
           <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-1.5 sm:p-4 text-white shadow-xl space-y-3 w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h3 className="text-sm font-black text-amber-400">
-                📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
-              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-black text-amber-400">
+                  📊 جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):
+                </h3>
+                {isPastClosing && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black">
+                    ✓ بعد الإغلاق الرسمي ({formattedTargetTime}) — عرض كافة المندوبين ({priorityTableDelegates.length})
+                  </span>
+                )}
+              </div>
               <button
                 onClick={handleOpenActivationModal}
                 className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
@@ -1278,9 +1470,9 @@ export const ReportsScreen: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {completedDelegatesList.map((item, idx) => {
+                  {priorityTableDelegates.map((item, idx) => {
                     const delName = item.delegate;
-                    const delEntries = todaysEntries.filter(e => e.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase());
+                    const delEntries = todaysEntries.filter(e => isDelMatch(e.delegateName, delName));
                     const invoiceCount = new Set(delEntries.map(e => `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`)).size;
                     const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
                     const totalAmount = delEntries.reduce((sum, e) => {
@@ -1290,7 +1482,7 @@ export const ReportsScreen: React.FC = () => {
                     }, 0);
                     const targetWeight = DEFAULT_CATEGORIES_LIST.reduce((sum, cat) => {
                       const found = delegateTargets.find(t => 
-                        t.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase() &&
+                        isDelMatch(t.delegateName, delName) &&
                         t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
                       );
                       return sum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
@@ -1299,8 +1491,21 @@ export const ReportsScreen: React.FC = () => {
 
                     return (
                       <tr key={delName} className="hover:bg-slate-800/50">
-                        <td className="p-2 font-bold text-amber-400">{idx + 1}</td>
-                        <td className="p-2 font-bold text-white">{delName}</td>
+                        <td className="p-2 font-bold text-amber-400">{item.displayRank || (idx + 1)}</td>
+                        <td className="p-2 font-bold text-white">
+                          <div className="flex flex-col items-center justify-center">
+                            <span>{delName}</span>
+                            {item.hasManuallyCompleted && item.completedAt ? (
+                              <span className="text-[9px] text-emerald-400 font-bold mt-0.5">
+                                أتم المبيعات: {formatCompletionTime(item.completedAt)}
+                              </span>
+                            ) : isPastClosing ? (
+                              <span className="text-[9px] text-slate-400 font-normal mt-0.5">
+                                إغلاق رسمي ({formattedTargetTime})
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
                         <td className="p-2 font-bold">{formatWithCommas(parseFloat(targetWeight.toFixed(1)), true)} كجم</td>
                         <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
