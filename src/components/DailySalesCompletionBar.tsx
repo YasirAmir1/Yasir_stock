@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil } from 'lucide-react';
 
 export const DailySalesCompletionBar: React.FC = () => {
@@ -204,6 +204,32 @@ export const DailySalesCompletionBar: React.FC = () => {
         completedAt: new Date().toISOString(),
         autoCompleted: true,
       });
+
+      // Archive delegate's today invoices into sales_entries_archive
+      try {
+        const delegateEntries = salesEntries.filter(
+          (e) =>
+            (e.delegateName === delegateName || (e as any).delegateCode === delegateName) &&
+            e.dateString === today
+        );
+        if (delegateEntries.length > 0) {
+          const batch = writeBatch(db);
+          delegateEntries.forEach((entry) => {
+            if (entry.id) {
+              const archiveRef = doc(db, 'sales_entries_archive', entry.id);
+              batch.set(
+                archiveRef,
+                { ...entry, archivedAt: new Date().toISOString(), archiveReason: 'closing_time_expired' },
+                { merge: true }
+              );
+            }
+          });
+          await batch.commit();
+        }
+      } catch (archiveErr) {
+        console.error('Error auto-archiving entries on auto completion:', archiveErr);
+      }
+
       addToast({
         message: `تم إغلاق وإكمال مبيعات اليوم للمندوب (${delegateName}) تلقائياً بحلول الساعة 3:00 م ✅`,
         type: 'info',
@@ -232,6 +258,32 @@ export const DailySalesCompletionBar: React.FC = () => {
         completedAt: new Date().toISOString(),
         autoCompleted: false,
       });
+
+      // Archive delegate's today invoices into sales_entries_archive
+      try {
+        const delegateEntries = salesEntries.filter(
+          (e) =>
+            (e.delegateName === activeDelegateName || (e as any).delegateCode === activeDelegateName) &&
+            e.dateString === today
+        );
+        if (delegateEntries.length > 0) {
+          const batch = writeBatch(db);
+          delegateEntries.forEach((entry) => {
+            if (entry.id) {
+              const archiveRef = doc(db, 'sales_entries_archive', entry.id);
+              batch.set(
+                archiveRef,
+                { ...entry, archivedAt: new Date().toISOString(), archiveReason: 'delegate_completed_sales' },
+                { merge: true }
+              );
+            }
+          });
+          await batch.commit();
+        }
+      } catch (archiveErr) {
+        console.error('Error auto-archiving entries on manual completion:', archiveErr);
+      }
+
       addToast({
         message: `تم إكمال مبيعات اليوم بنجاح للمندوب (${activeDelegateName}) ✅`,
         type: 'success',

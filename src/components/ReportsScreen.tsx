@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas-pro';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
 import {
@@ -1084,6 +1084,32 @@ export const ReportsScreen: React.FC = () => {
       date: today,
       completedAt: new Date().toISOString(),
     });
+
+    // Archive delegate's today invoices into sales_entries_archive
+    try {
+      const delegateEntries = salesEntries.filter(
+        (e) =>
+          (e.delegateName === activeDelegateName || (e as any).delegateCode === activeDelegateName) &&
+          e.dateString === today
+      );
+      if (delegateEntries.length > 0) {
+        const batch = writeBatch(db);
+        delegateEntries.forEach((entry) => {
+          if (entry.id) {
+            const archiveRef = doc(db, 'sales_entries_archive', entry.id);
+            batch.set(
+              archiveRef,
+              { ...entry, archivedAt: new Date().toISOString(), archiveReason: 'delegate_completed_sales' },
+              { merge: true }
+            );
+          }
+        });
+        await batch.commit();
+      }
+    } catch (archiveErr) {
+      console.error('Error auto-archiving entries in ReportsScreen completion:', archiveErr);
+    }
+
     setUserMessage('تم إكمال مبيعات اليوم بنجاح! ✅');
     setShowCompletionConfirmModal(false);
   };

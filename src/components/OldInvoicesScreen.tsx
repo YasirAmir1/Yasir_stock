@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, getDocs, query, doc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, query, doc, writeBatch, onSnapshot, where, setDoc } from 'firebase/firestore';
 import { SalesEntry } from '../types';
 import { 
   FileText, 
@@ -18,11 +18,39 @@ import {
   ChevronUp, 
   RotateCcw,
   Sparkles,
-  Trash2
+  Trash2,
+  Clock,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { formatWithCommas } from '../utils/numberUtils';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
+
+// Helper to normalize Arabic text for resilient matching
+const normalizeArabic = (text: string) => {
+  if (!text) return '';
+  return text
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .toLowerCase();
+};
+
+// Helper to normalize date strings to YYYY-MM-DD
+const normalizeDateStr = (raw: string): string => {
+  if (!raw) return '';
+  const cleaned = raw.trim().replace(/\//g, '-');
+  const parts = cleaned.split('-');
+  if (parts.length === 3) {
+    const y = parts[0];
+    const m = parts[1].padStart(2, '0');
+    const d = parts[2].padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return cleaned;
+};
 
 export const OldInvoicesScreen: React.FC = () => {
   const { 
@@ -70,41 +98,240 @@ export const OldInvoicesScreen: React.FC = () => {
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [deletingInvoiceKey, setDeletingInvoiceKey] = useState<string | null>(null);
 
-  // Fetch from `sales_entries_archive` if available to ensure full coverage of archived invoices
+  // Auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  const [timeTick, setTimeTick] = useState<number>(Date.now());
+  const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+
+  // Real-time listener for configurable auto_lock_time setting
   useEffect(() => {
-    let isMounted = true;
-    const loadArchive = async () => {
-      try {
-        setIsLoadingArchive(true);
-        const snap = await getDocs(collection(db, 'sales_entries_archive'));
-        if (snap.size > 0 && isMounted) {
-          const list: SalesEntry[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as SalesEntry);
-          });
-          setArchivedEntries(list);
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (docSnap) => {
+        if (docSnap.exists() && docSnap.data()?.time) {
+          setTargetAutoLockTime(docSnap.data().time);
         }
-      } catch (e) {
-        console.error('Error reading archive:', e);
-      } finally {
-        if (isMounted) setIsLoadingArchive(false);
+      },
+      (err) => {
+        console.error('Error listening to auto_lock_time in OldInvoicesScreen:', err);
       }
-    };
-    loadArchive();
-    return () => { isMounted = false; };
+    );
+    return () => unsub();
   }, []);
 
-  // Merge all entries (allSalesEntries + archivedEntries) without duplicates
+  // Timer tick every 10 seconds to update closing time trigger in real-time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(Date.now());
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  const formattedTargetTime = useMemo(() => {
+    try {
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      let h = parseInt(hStr || '15', 10);
+      const m = mStr || '00';
+      const ampm = h >= 12 ? 'م' : 'ص';
+      h = h % 12;
+      h = h ? h : 12;
+      return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+    } catch {
+      return '03:00 م';
+    }
+  }, [targetAutoLockTime]);
+
+  // Current Baghdad date info & whether official closing time has been reached
+  const baghdadStatus = useMemo(() => {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Baghdad',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const todayBaghdad = formatter.format(now); // "YYYY-MM-DD"
+
+      const timeFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+      const parts = timeFormatter.formatToParts(now);
+      const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+
+      const currentSeconds = hour * 3600 + minute * 60 + second;
+
+      const [hStr, mStr] = targetAutoLockTime.split(':');
+      const targetHours = parseInt(hStr || '15', 10);
+      const targetMinutes = parseInt(mStr || '00', 10);
+      const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+      const isPastClosing = currentSeconds >= targetSeconds;
+
+      return { todayBaghdad, isPastClosing };
+    } catch {
+      const todayBaghdad = new Date().toISOString().split('T')[0];
+      return { todayBaghdad, isPastClosing: false };
+    }
+  }, [targetAutoLockTime, timeTick]);
+
+  // Real-time listener for today's daily_sales_completion
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = baghdadStatus.todayBaghdad;
+    const queryDates = Array.from(new Set([today, baghdadToday]));
+    const q = query(collection(db, 'daily_sales_completion'), where('date', 'in', queryDates));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const completed: Record<string, boolean> = {};
+        snap.forEach((d) => {
+          completed[d.id] = true;
+          const data = d.data();
+          if (data.delegate) completed[data.delegate] = true;
+          if (data.delegateName) completed[data.delegateName] = true;
+          if (data.delegateCode) completed[data.delegateCode] = true;
+        });
+        setCompletedDelegates(completed);
+      },
+      (err) => {
+        console.error('Error listening to daily_sales_completion in OldInvoicesScreen:', err);
+      }
+    );
+    return () => unsub();
+  }, [baghdadStatus.todayBaghdad]);
+
+  // Real-time listener for `sales_entries_archive` to ensure full live coverage of archived invoices
+  useEffect(() => {
+    setIsLoadingArchive(true);
+    const unsub = onSnapshot(
+      collection(db, 'sales_entries_archive'),
+      (snap) => {
+        const list: SalesEntry[] = [];
+        snap.forEach((d) => {
+          list.push({ id: d.id, ...d.data() } as SalesEntry);
+        });
+        setArchivedEntries(list);
+        setIsLoadingArchive(false);
+      },
+      (err) => {
+        console.error('Error reading sales_entries_archive in OldInvoicesScreen:', err);
+        setIsLoadingArchive(false);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Helper to check if a representative has marked today's sales as completed
+  const isDelegateCompletedToday = (delName?: string, delCode?: string) => {
+    if (!delName && !delCode) return false;
+    const nName = delName ? normalizeArabic(delName) : '';
+    const nCode = delCode ? normalizeArabic(delCode) : '';
+
+    for (const [key, val] of Object.entries(completedDelegates)) {
+      if (!val) continue;
+      const nKey = normalizeArabic(key);
+      if (nName && (nKey === nName || nKey.includes(nName) || nName.includes(nKey))) return true;
+      if (nCode && nKey === nCode) return true;
+    }
+    return false;
+  };
+
+  // Helper to verify if an invoice entry is eligible into "Old Invoices" (Historical Record)
+  // according to the conditional saving & calculation rule:
+  // - Invoices must NOT be saved or displayed immediately upon creation during the day.
+  // - Invoices must only be saved, processed, and calculated into "Old Invoices" after either:
+  //   * The representative clicks "I have completed today's sales", OR
+  //   * The official sales closing time for the day has expired/ended.
+  const isEntryEligibleForOldInvoices = (entry: SalesEntry): boolean => {
+    if (!entry.dateString) return true;
+    const cleanDate = normalizeDateStr(entry.dateString);
+    const { todayBaghdad, isPastClosing } = baghdadStatus;
+
+    // 1. Past dates in history: closing time has already passed
+    if (cleanDate < todayBaghdad) {
+      return true;
+    }
+
+    // 2. Future dates: not reached yet
+    if (cleanDate > todayBaghdad) {
+      return false;
+    }
+
+    // 3. Current day (today):
+    // Condition A: If official closing time has expired, automatically adopt all active remaining invoices
+    if (isPastClosing) {
+      return true;
+    }
+
+    // Condition B: Otherwise, ONLY adopt if the representative has clicked "I have completed today's sales"
+    return isDelegateCompletedToday(entry.delegateName, (entry as any).delegateCode);
+  };
+
+  // Background archiving synchronization:
+  // Automatically archive eligible invoices into `sales_entries_archive` in Firestore
+  // when either the representative clicks completion or the official sales closing time expires
+  useEffect(() => {
+    if (!allSalesEntries || allSalesEntries.length === 0) return;
+    const archivedIds = new Set(archivedEntries.map((e) => e.id));
+    const entriesToArchive = allSalesEntries.filter(
+      (e) => e.id && !archivedIds.has(e.id) && isEntryEligibleForOldInvoices(e)
+    );
+
+    if (entriesToArchive.length > 0) {
+      // Chunk batches up to 400 to respect Firestore limits
+      const chunks: SalesEntry[][] = [];
+      for (let i = 0; i < entriesToArchive.length; i += 400) {
+        chunks.push(entriesToArchive.slice(i, i + 400));
+      }
+      chunks.forEach(async (chunk) => {
+        try {
+          const batch = writeBatch(db);
+          chunk.forEach((entry) => {
+            if (entry.id) {
+              const archiveRef = doc(db, 'sales_entries_archive', entry.id);
+              batch.set(
+                archiveRef,
+                {
+                  ...entry,
+                  archivedAt: new Date().toISOString(),
+                  archiveReason: baghdadStatus.isPastClosing ? 'closing_time_expired' : 'delegate_completed_sales',
+                },
+                { merge: true }
+              );
+            }
+          });
+          await batch.commit();
+        } catch (err) {
+          console.error('Error auto-syncing eligible invoices to archive:', err);
+        }
+      });
+    }
+  }, [allSalesEntries, archivedEntries, baghdadStatus, completedDelegates]);
+
+  // Merge all entries (allSalesEntries + archivedEntries) without duplicates,
+  // STRICTLY filtered so that only eligible invoices (completed sales OR past closing time) are included:
   const allEntriesCombined = useMemo(() => {
     const map = new Map<string, SalesEntry>();
-    allSalesEntries.forEach(e => {
-      if (e && e.id) map.set(e.id, e);
+    allSalesEntries.forEach((e) => {
+      if (e && e.id && isEntryEligibleForOldInvoices(e)) {
+        map.set(e.id, e);
+      }
     });
-    archivedEntries.forEach(e => {
-      if (e && e.id) map.set(e.id, e);
+    archivedEntries.forEach((e) => {
+      if (e && e.id && isEntryEligibleForOldInvoices(e)) {
+        map.set(e.id, e);
+      }
     });
     return Array.from(map.values());
-  }, [allSalesEntries, archivedEntries]);
+  }, [allSalesEntries, archivedEntries, baghdadStatus, completedDelegates]);
 
   // Extract available months for filtering (sorted descending)
   const availableMonths = useMemo(() => {
@@ -119,6 +346,11 @@ export const OldInvoicesScreen: React.FC = () => {
     });
     return Array.from(months).sort().reverse();
   }, [allEntriesCombined]);
+
+  // Count of completed delegates for UI badge
+  const completedDelegatesCount = useMemo(() => {
+    return delegatesList.filter((name) => isDelegateCompletedToday(name)).length;
+  }, [delegatesList, completedDelegates]);
 
   // Product Code lookup helper
   const getProductCode = (productName: string) => {
@@ -414,12 +646,80 @@ export const OldInvoicesScreen: React.FC = () => {
     }
   };
 
-  // Export Filtered Old Invoices to Excel
+  // Comprehensive Excel Export Functionality:
+  // Exports all old/historical invoices for all representatives across the entire system,
+  // without filtering or limiting to a single representative, search term, or screen view.
   const exportToExcel = () => {
-    if (groupedOldInvoices.length === 0) return;
+    if (allEntriesCombined.length === 0) {
+      alert('لا توجد فواتير قديمة أو تاريخية لتصديرها.');
+      return;
+    }
+
+    // Group all entries into distinct invoices across the entire system
+    const allGroups: Record<string, {
+      invoiceKey: string;
+      customerName: string;
+      customerCode: string;
+      customerAddress: string;
+      delegateName: string;
+      dateString: string;
+      timestamp: number;
+      priceMode: 'retail' | 'wholesale';
+      entries: SalesEntry[];
+      totalWeight: number;
+      totalAmount: number;
+    }> = {};
+
+    allEntriesCombined.forEach(entry => {
+      const cName = entry.customerName || 'بدون اسم محل';
+      const cCode = String(entry.customerCode || '').trim();
+      const dDate = entry.dateString || 'تاريخ غير محدد';
+      const del = entry.delegateName || 'غير محدد';
+      const mode = entry.priceMode || 'retail';
+      const invId = entry.invoiceId || '';
+
+      const groupKey = `${dDate}_${cCode || cName}_${del}_${mode}${invId ? `_${invId}` : ''}`;
+
+      if (!allGroups[groupKey]) {
+        allGroups[groupKey] = {
+          invoiceKey: groupKey,
+          customerName: cName,
+          customerCode: cCode,
+          customerAddress: entry.customerAddress || '',
+          delegateName: del,
+          dateString: dDate,
+          timestamp: entry.timestamp || (entry.dateString ? new Date(entry.dateString).getTime() : 0),
+          priceMode: mode,
+          entries: [],
+          totalWeight: 0,
+          totalAmount: 0,
+        };
+      }
+
+      const grp = allGroups[groupKey];
+      grp.entries.push(entry);
+      grp.totalWeight += (entry.totalWeightKg || 0);
+
+      const prod = productsList.find(p => p.productName === entry.productName);
+      const unitPrice = prod 
+        ? (mode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
+        : 0;
+      grp.totalAmount += (unitPrice * (entry.quantity || 0));
+    });
+
+    // Sort invoices by date descending, then delegate name, then customer name
+    const sortedInvoices = Object.values(allGroups).sort((a, b) => {
+      if (b.dateString !== a.dateString) {
+        return b.dateString.localeCompare(a.dateString);
+      }
+      if (a.delegateName !== b.delegateName) {
+        return a.delegateName.localeCompare(b.delegateName);
+      }
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
 
     const data: any[] = [];
-    groupedOldInvoices.forEach(inv => {
+    sortedInvoices.forEach(inv => {
       inv.entries.forEach(e => {
         const prod = productsList.find(p => p.productName === e.productName);
         const unitPrice = prod 
@@ -427,25 +727,27 @@ export const OldInvoicesScreen: React.FC = () => {
           : 0;
         data.push({
           'تاريخ الفاتورة': inv.dateString,
+          'اسم المندوب': inv.delegateName,
           'اسم المحل / الزبون': inv.customerName,
           'كود الزبون': inv.customerCode || '---',
           'عنوان الزبون': inv.customerAddress || '---',
-          'المندوب': inv.delegateName,
           'نوع الفاتورة': inv.priceMode === 'wholesale' ? 'جملة' : 'مفرد',
           'اسم المنتج': e.productName,
-          'الصنف': e.categoryName,
+          'الصنف': e.categoryName || '---',
           'كود المنتج': getProductCode(e.productName),
           'الكمية (قطع)': e.quantity,
           'الوزن الكلي (كجم)': e.totalWeightKg,
-          'المبلغ (د.ع)': unitPrice * e.quantity,
+          'سعر البيع (د.ع)': unitPrice,
+          'المبلغ الإجمالي (د.ع)': unitPrice * e.quantity,
         });
       });
     });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'OldInvoices');
-    XLSX.writeFile(workbook, `الفواتير_القديمة_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'كافة الفواتير التاريخية');
+    const todayStr = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `سجل_الفواتير_القديمة_الشامل_لكل_المندوبين_${todayStr}.xlsx`);
   };
 
   const displayedInvoices = groupedOldInvoices.slice(0, visibleCount);
@@ -481,14 +783,69 @@ export const OldInvoicesScreen: React.FC = () => {
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={exportToExcel}
-            disabled={groupedOldInvoices.length === 0}
+            disabled={allEntriesCombined.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer"
-            title="تصدير النتائج إلى ملف إكسل"
+            title="تصدير كافة الفواتير القديمة والتاريخية لجميع المندوبين عبر كامل النظام في ملف إكسل واحد"
           >
             <Download className="w-4 h-4" />
-            <span>تصدير Excel</span>
+            <span>تصدير Excel الشامل</span>
           </button>
         </div>
+      </div>
+
+      {/* Conditional Saving & Calculation Rule Status Indicator */}
+      <div
+        className={`p-3 rounded-2xl border text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-sm transition-all ${
+          baghdadStatus.isPastClosing
+            ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+            : 'bg-sky-50/90 dark:bg-sky-950/40 border-sky-300 dark:border-sky-800 text-sky-800 dark:text-sky-200'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+              baghdadStatus.isPastClosing
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                : 'bg-sky-500/20 border-sky-500/40 text-sky-600 dark:text-sky-400'
+            }`}
+          >
+            {baghdadStatus.isPastClosing ? (
+              <CheckCircle2 className="w-4 h-4" />
+            ) : (
+              <Clock className="w-4 h-4 animate-pulse" />
+            )}
+          </div>
+          <div>
+            <div className="font-black text-xs sm:text-sm flex items-center gap-2">
+              <span>
+                {baghdadStatus.isPastClosing
+                  ? `تم انتهاء وقت الإغلاق الرسمي (${formattedTargetTime}) — اعتماد كافة الفواتير:`
+                  : `قاعدة الحفظ والاحتساب المشروط (موعد الإغلاق: ${formattedTargetTime}):`}
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                baghdadStatus.isPastClosing
+                  ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-sky-500/20 text-sky-700 dark:text-sky-300'
+              }`}>
+                {baghdadStatus.isPastClosing ? 'معتمد بالكامل' : 'قيد التدقيق اليومي'}
+              </span>
+            </div>
+            <p className="text-[11px] font-medium opacity-90 mt-0.5">
+              {baghdadStatus.isPastClosing
+                ? 'انتهى توقيت المبيعات اليومي المعتمد، فتمت أرشفة وإدراج كافة فواتير اليوم تلقائياً واحتسابها بالسجل التاريخي.'
+                : 'فواتير اليوم لا تُحفظ ولا تُعرض أو تُحتسب في الفواتير القديمة فور إنشائها، وإنما تُدرج فقط فور ضغط المندوب على «أكملت مبيعات اليوم» أو عند انتهاء وقت الإغلاق الرسمي.'}
+            </p>
+          </div>
+        </div>
+
+        {!baghdadStatus.isPastClosing && (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800/80 border border-sky-200 dark:border-sky-800/60 shadow-xs text-[11px]">
+            <span className="text-slate-600 dark:text-slate-400 font-bold">المندوبين المعتمدين اليوم:</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-sky-600 text-white font-black">
+              {completedDelegatesCount} من {delegatesList.length}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Stats Summary Cards */}
