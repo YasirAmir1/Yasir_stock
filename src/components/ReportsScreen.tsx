@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas-pro';
+import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -16,6 +17,62 @@ import {
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
 import { DailySalesCompletionBar } from './DailySalesCompletionBar';
+
+export interface MonthlyItemTarget {
+  id?: string;
+  categoryName: string;
+  delegateName: string;
+  monthlyTarget: number;
+  monthlySales: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface DelegateIncentive {
+  id?: string;
+  delegateName: string;
+  incentivesAmount: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface DelegateMonthlyExtraTargets {
+  id?: string;
+  delegateName: string;
+  // Card 1: Monetary
+  monthlyIqdTarget: number;
+  monthlyIqdSalesOverride?: number;
+  // Card 2: Shops
+  targetShopsCount: number;
+  actualShopsCountOverride?: number;
+  // Card 3: Extra Product
+  extraProductName: string;
+  extraProductCustomersTarget: number;
+  extraProductCustomersActualOverride?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+const normalizeText = (str: string) => {
+  if (!str) return '';
+  return str
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/١/g, '1')
+    .replace(/٢/g, '2')
+    .replace(/٣/g, '3')
+    .replace(/٤/g, '4')
+    .replace(/٥/g, '5')
+    .replace(/٦/g, '6')
+    .replace(/٧/g, '7')
+    .replace(/٨/g, '8')
+    .replace(/٩/g, '9')
+    .replace(/٠/g, '0')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .toLowerCase();
+};
 
 const sanitizeModernColors = (clonedDoc: Document, fallback: string = '#0f172a') => {
   // Remove external stylesheets that might contain unparseable oklab/oklch
@@ -1041,6 +1098,573 @@ export const ReportsScreen: React.FC = () => {
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
 
+  // Monthly Item Targets & Sales State from Admin Excel Upload
+  const [monthlyItemTargets, setMonthlyItemTargets] = useState<MonthlyItemTarget[]>([]);
+  const [delegateIncentives, setDelegateIncentives] = useState<DelegateIncentive[]>([]);
+  const [extraTargetsList, setExtraTargetsList] = useState<DelegateMonthlyExtraTargets[]>([]);
+  const [showEditExtraTargetsModal, setShowEditExtraTargetsModal] = useState(false);
+  const [editExtraTargetDelegate, setEditExtraTargetDelegate] = useState('');
+  const [editMonthlyIqdTarget, setEditMonthlyIqdTarget] = useState('');
+  const [editTargetShopsCount, setEditTargetShopsCount] = useState('');
+  const [editExtraProductName, setEditExtraProductName] = useState('');
+  const [editExtraProductCustomersTarget, setEditExtraProductCustomersTarget] = useState('');
+  const [isSavingExtraTargets, setIsSavingExtraTargets] = useState(false);
+  const [isUploadingMonthlyExcel, setIsUploadingMonthlyExcel] = useState(false);
+  const [monthlyUploadMessage, setMonthlyUploadMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const monthlyExcelInputRef = useRef<HTMLInputElement>(null);
+
+  // Subscribe to monthly_item_targets collection in Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'monthly_item_targets'),
+      (snapshot) => {
+        const list: MonthlyItemTarget[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as MonthlyItemTarget;
+          if (data) {
+            list.push({ ...data, id: docSnap.id });
+          }
+        });
+        setMonthlyItemTargets(list);
+      },
+      (err) => {
+        console.error('Error fetching monthly_item_targets:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Subscribe to delegate_incentives collection in Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'delegate_incentives'),
+      (snapshot) => {
+        const list: DelegateIncentive[] = [];
+        const myNorm = normalizeText(currentUser.name || '');
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as DelegateIncentive;
+          if (data) {
+            // For admin, load all delegates. For delegate, strictly load ONLY their own incentives!
+            if (currentUser.isAdmin) {
+              list.push({ ...data, id: docSnap.id });
+            } else {
+              const dNorm = normalizeText(data.delegateName || '');
+              if (
+                dNorm === myNorm ||
+                data.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()
+              ) {
+                list.push({ ...data, id: docSnap.id });
+              }
+            }
+          }
+        });
+        setDelegateIncentives(list);
+      },
+      (err) => {
+        console.error('Error fetching delegate_incentives:', err);
+      }
+    );
+    return () => unsub();
+  }, [currentUser.isAdmin, currentUser.name]);
+
+  // Subscribe to delegate_monthly_extra_targets collection in Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'delegate_monthly_extra_targets'),
+      (snapshot) => {
+        const list: DelegateMonthlyExtraTargets[] = [];
+        const myNorm = normalizeText(currentUser.name || '');
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as DelegateMonthlyExtraTargets;
+          if (data) {
+            if (currentUser.isAdmin) {
+              list.push({ ...data, id: docSnap.id });
+            } else {
+              const dNorm = normalizeText(data.delegateName || '');
+              if (
+                dNorm === myNorm ||
+                data.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()
+              ) {
+                list.push({ ...data, id: docSnap.id });
+              }
+            }
+          }
+        });
+        setExtraTargetsList(list);
+      },
+      (err) => {
+        console.error('Error fetching delegate_monthly_extra_targets:', err);
+      }
+    );
+    return () => unsub();
+  }, [currentUser.isAdmin, currentUser.name]);
+
+  // Helper function to resolve category monthly targets and sales
+  // Takes into account Representative View vs Admin View
+  const getMonthlyCategoryStats = (categoryName: string) => {
+    const trimmedCat = (categoryName || '').trim();
+    const normCat = normalizeText(trimmedCat);
+
+    // Filter relevant targets based on category
+    const catMatches = monthlyItemTargets.filter((t) => {
+      const tNorm = normalizeText(t.categoryName || '');
+      return tNorm === normCat || (t.categoryName || '').trim().toLowerCase() === trimmedCat.toLowerCase();
+    });
+
+    // 1. Representative View:
+    // When a representative logs into their account, display their specific targets & sales
+    if (!currentUser.isAdmin) {
+      const repNorm = normalizeText(currentUser.name || '');
+      const match = catMatches.find((t) => {
+        const dNorm = normalizeText(t.delegateName || '');
+        return dNorm === repNorm || (t.delegateName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
+      });
+      const monthlyTarget = match ? Number(match.monthlyTarget) || 0 : 0;
+      const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
+      const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
+      const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
+      return { monthlyTarget, monthlySales, percentage, remaining, hasData: !!match };
+    }
+
+    // 2. Admin View with specific representative selected in the filter:
+    if (selectedDelegate && selectedDelegate !== 'الكل' && selectedDelegate !== 'الأدمن') {
+      const selNorm = normalizeText(selectedDelegate);
+      const match = catMatches.find((t) => {
+        const dNorm = normalizeText(t.delegateName || '');
+        return dNorm === selNorm || (t.delegateName || '').trim().toLowerCase() === selectedDelegate.trim().toLowerCase();
+      });
+      const monthlyTarget = match ? Number(match.monthlyTarget) || 0 : 0;
+      const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
+      const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
+      const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
+      return { monthlyTarget, monthlySales, percentage, remaining, hasData: !!match };
+    }
+
+    // 3. Admin View (default):
+    // Aggregate and sum up both the total monthly targets and total monthly sales across ALL representatives for each item
+    const monthlyTarget = catMatches.reduce((sum, item) => sum + (Number(item.monthlyTarget) || 0), 0);
+    const monthlySales = catMatches.reduce((sum, item) => sum + (Number(item.monthlySales) || 0), 0);
+    const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
+    const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
+    return { monthlyTarget, monthlySales, percentage, remaining, hasData: catMatches.length > 0 };
+  };
+
+  // Admin Excel Upload Functionality for Monthly Item Targets
+  const handleMonthlyExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploadingMonthlyExcel(true);
+      setMonthlyUploadMessage(null);
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
+
+      if (!jsonData || jsonData.length === 0) {
+        setMonthlyUploadMessage({ text: 'ملف الإكسل فارغ أو غير صالح!', type: 'error' });
+        return;
+      }
+
+      const batch = writeBatch(db);
+      let count = 0;
+      const delegateIncentiveMap: Record<string, number> = {};
+      const delegateExtraTargetsMap: Record<string, Partial<DelegateMonthlyExtraTargets>> = {};
+
+      jsonData.forEach((row: any) => {
+        const rawCategory = (
+          row['الصنف'] ||
+          row['اسم الصنف'] ||
+          row['المادة'] ||
+          row['المنتج'] ||
+          row['Category'] ||
+          row['category'] ||
+          row['categoryName'] ||
+          row['Item'] ||
+          row['itemName'] ||
+          row['Item Name'] ||
+          ''
+        ).toString().trim();
+
+        const rawDelegate = (
+          row['اسم المندوب'] ||
+          row['المندوب'] ||
+          row['مندوب'] ||
+          row['Representative'] ||
+          row['delegate'] ||
+          row['delegateName'] ||
+          row['Rep'] ||
+          ''
+        ).toString().trim();
+
+        const rawTarget =
+          row['التاركت الشهري'] ??
+          row['الهدف الشهري'] ??
+          row['تاركت شهري'] ??
+          row['التارجت الشهري'] ??
+          row['التاركت'] ??
+          row['Monthly Target'] ??
+          row['MonthlyTarget'] ??
+          row['monthlyTarget'] ??
+          row['target'] ??
+          0;
+
+        const rawSales =
+          row['المبيعات لحد الآن'] ??
+          row['المبيعات الشهرية'] ??
+          row['مبيعات الشهر'] ??
+          row['المبيعات'] ??
+          row['Monthly Sales'] ??
+          row['MonthlySales'] ??
+          row['monthlySales'] ??
+          row['sales'] ??
+          0;
+
+        // Check for incentives in the row
+        const rawIncentive =
+          row['الحوافز لحد الان'] ??
+          row['الحوافز لحد الآن'] ??
+          row['الحوافز الكلية لحد الان'] ??
+          row['الحوافز الكلية لحد الآن'] ??
+          row['الحوافز الكلية'] ??
+          row['الحوافز'] ??
+          row['حوافز'] ??
+          row['حوافز المندوب'] ??
+          row['Incentives'] ??
+          row['Incentive'] ??
+          row['incentives'] ??
+          null;
+
+        // Extra monthly targets
+        const rawIqdTarget =
+          row['تاركت ديناري شهري'] ??
+          row['تاركت ديناري'] ??
+          row['الهدف الديناري'] ??
+          null;
+        const rawIqdSales =
+          row['مبيعات ديناري شهري'] ??
+          row['مبيعات ديناري'] ??
+          row['المبيعات النقدية'] ??
+          row['المبيعات الدينارية'] ??
+          null;
+        const rawShopsTarget =
+          row['مطلوب تبيع لعدد محلات'] ??
+          row['تاركت المحلات'] ??
+          row['تاركت محلات'] ??
+          null;
+        const rawShopsActual =
+          row['تم بيع لعدد محلات'] ??
+          row['محلات تم البيع لها'] ??
+          row['عدد المحلات الفعلي'] ??
+          null;
+        const rawExtraProdName =
+          row['اسم المنتج الاضافي'] ??
+          row['المنتج الاضافي'] ??
+          row['اسم المنتج الإضافي'] ??
+          null;
+        const rawExtraCustTarget =
+          row['تاركت زبائن شهري'] ??
+          row['تاركت زبائن المنتج الاضافي'] ??
+          row['تاركت زبائن المنتج الإضافي'] ??
+          null;
+        const rawExtraCustActual =
+          row['تم بيع لهم'] ??
+          row['زبائن تم البيع لهم'] ??
+          row['تم بيع لهم (زبائن)'] ??
+          null;
+
+        if (!rawDelegate) return;
+
+        // Normalize delegate against delegatesList if possible
+        const normDel = normalizeText(rawDelegate);
+        const matchedDel = delegatesList.find(
+          (d) => normalizeText(d) === normDel || d.trim().toLowerCase() === rawDelegate.toLowerCase()
+        ) || rawDelegate;
+
+        if (rawIncentive !== null && rawIncentive !== undefined && String(rawIncentive).trim() !== '') {
+          const incVal = parseFloat(String(rawIncentive).replace(/,/g, '').trim());
+          if (!isNaN(incVal)) {
+            delegateIncentiveMap[matchedDel] = incVal;
+          }
+        }
+
+        if (
+          rawIqdTarget !== null ||
+          rawIqdSales !== null ||
+          rawShopsTarget !== null ||
+          rawShopsActual !== null ||
+          rawExtraProdName !== null ||
+          rawExtraCustTarget !== null ||
+          rawExtraCustActual !== null
+        ) {
+          if (!delegateExtraTargetsMap[matchedDel]) {
+            delegateExtraTargetsMap[matchedDel] = {};
+          }
+          const existingExtra = extraTargetsList.find(
+            (t) => normalizeText(t.delegateName || '') === normDel || (t.delegateName || '').trim().toLowerCase() === matchedDel.toLowerCase()
+          );
+
+          if (rawIqdTarget !== null && String(rawIqdTarget).trim() !== '') {
+            const v = parseFloat(String(rawIqdTarget).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].monthlyIqdTarget = v;
+          } else if (existingExtra?.monthlyIqdTarget !== undefined) {
+            delegateExtraTargetsMap[matchedDel].monthlyIqdTarget = existingExtra.monthlyIqdTarget;
+          }
+
+          if (rawIqdSales !== null && String(rawIqdSales).trim() !== '') {
+            const v = parseFloat(String(rawIqdSales).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].monthlyIqdSalesOverride = v;
+          } else if (existingExtra?.monthlyIqdSalesOverride !== undefined) {
+            delegateExtraTargetsMap[matchedDel].monthlyIqdSalesOverride = existingExtra.monthlyIqdSalesOverride;
+          }
+
+          if (rawShopsTarget !== null && String(rawShopsTarget).trim() !== '') {
+            const v = parseFloat(String(rawShopsTarget).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].targetShopsCount = v;
+          } else if (existingExtra?.targetShopsCount !== undefined) {
+            delegateExtraTargetsMap[matchedDel].targetShopsCount = existingExtra.targetShopsCount;
+          }
+
+          if (rawShopsActual !== null && String(rawShopsActual).trim() !== '') {
+            const v = parseFloat(String(rawShopsActual).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].actualShopsCountOverride = v;
+          } else if (existingExtra?.actualShopsCountOverride !== undefined) {
+            delegateExtraTargetsMap[matchedDel].actualShopsCountOverride = existingExtra.actualShopsCountOverride;
+          }
+
+          if (rawExtraProdName !== null && String(rawExtraProdName).trim() !== '') {
+            delegateExtraTargetsMap[matchedDel].extraProductName = String(rawExtraProdName).trim();
+          } else if (existingExtra?.extraProductName !== undefined) {
+            delegateExtraTargetsMap[matchedDel].extraProductName = existingExtra.extraProductName;
+          }
+
+          if (rawExtraCustTarget !== null && String(rawExtraCustTarget).trim() !== '') {
+            const v = parseFloat(String(rawExtraCustTarget).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].extraProductCustomersTarget = v;
+          } else if (existingExtra?.extraProductCustomersTarget !== undefined) {
+            delegateExtraTargetsMap[matchedDel].extraProductCustomersTarget = existingExtra.extraProductCustomersTarget;
+          }
+
+          if (rawExtraCustActual !== null && String(rawExtraCustActual).trim() !== '') {
+            const v = parseFloat(String(rawExtraCustActual).replace(/,/g, '').trim());
+            if (!isNaN(v)) delegateExtraTargetsMap[matchedDel].extraProductCustomersActualOverride = v;
+          } else if (existingExtra?.extraProductCustomersActualOverride !== undefined) {
+            delegateExtraTargetsMap[matchedDel].extraProductCustomersActualOverride = existingExtra.extraProductCustomersActualOverride;
+          }
+        }
+
+        if (!rawCategory) return;
+
+        // Normalize category against DEFAULT_CATEGORIES_LIST if possible
+        const normCat = normalizeText(rawCategory);
+        const matchedCat = DEFAULT_CATEGORIES_LIST.find(
+          (c) => normalizeText(c) === normCat || c.trim().toLowerCase() === rawCategory.toLowerCase()
+        ) || rawCategory;
+
+        // Look up existing saved target for this delegate and category to preserve values if missing in new file
+        const existingTargetObj = monthlyItemTargets.find(
+          (t) =>
+            (normalizeText(t.delegateName || '') === normDel || (t.delegateName || '').trim().toLowerCase() === matchedDel.toLowerCase()) &&
+            (normalizeText(t.categoryName || '') === normCat || (t.categoryName || '').trim().toLowerCase() === matchedCat.toLowerCase())
+        );
+
+        let monthlyTarget: number;
+        if (rawTarget !== null && rawTarget !== undefined && String(rawTarget).trim() !== '') {
+          const parsed = parseFloat(String(rawTarget).replace(/,/g, '').trim());
+          monthlyTarget = !isNaN(parsed) ? parsed : (existingTargetObj ? existingTargetObj.monthlyTarget : 0);
+        } else {
+          monthlyTarget = existingTargetObj ? existingTargetObj.monthlyTarget : 0;
+        }
+
+        let monthlySales: number;
+        if (rawSales !== null && rawSales !== undefined && String(rawSales).trim() !== '') {
+          const parsed = parseFloat(String(rawSales).replace(/,/g, '').trim());
+          monthlySales = !isNaN(parsed) ? parsed : (existingTargetObj ? existingTargetObj.monthlySales : 0);
+        } else {
+          monthlySales = existingTargetObj ? existingTargetObj.monthlySales : 0;
+        }
+
+        const docKey = `${matchedDel}_${matchedCat}`.replace(/[\/\s#$[\]]/g, '_');
+        const docRef = doc(db, 'monthly_item_targets', docKey);
+
+        batch.set(
+          docRef,
+          {
+            categoryName: matchedCat,
+            delegateName: matchedDel,
+            monthlyTarget,
+            monthlySales,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name || 'الأدمن',
+          },
+          { merge: true }
+        );
+        count++;
+      });
+
+      // Also check other sheets in workbook for delegate incentives
+      workbook.SheetNames.forEach((sheetName) => {
+        try {
+          const ws = workbook.Sheets[sheetName];
+          const sheetRows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
+          sheetRows.forEach((r: any) => {
+            const rDel = (
+              r['اسم المندوب'] ||
+              r['المندوب'] ||
+              r['مندوب'] ||
+              r['Representative'] ||
+              r['delegate'] ||
+              ''
+            ).toString().trim();
+            const rInc =
+              r['الحوافز لحد الان'] ??
+              r['الحوافز لحد الآن'] ??
+              r['الحوافز الكلية لحد الان'] ??
+              r['الحوافز الكلية لحد الآن'] ??
+              r['الحوافز الكلية'] ??
+              r['الحوافز'] ??
+              r['حوافز'] ??
+              r['Incentives'] ??
+              null;
+            if (rDel && rInc !== null && rInc !== undefined && String(rInc).trim() !== '') {
+              const normD = normalizeText(rDel);
+              const matchedD = delegatesList.find(
+                (d) => normalizeText(d) === normD || d.trim().toLowerCase() === rDel.toLowerCase()
+              ) || rDel;
+              const incVal = parseFloat(String(rInc).replace(/,/g, '').trim());
+              if (!isNaN(incVal)) {
+                delegateIncentiveMap[matchedD] = incVal;
+              }
+            }
+          });
+        } catch (e) {}
+      });
+
+      // Save delegate incentives to Firestore
+      let incentivesCount = 0;
+      Object.entries(delegateIncentiveMap).forEach(([delName, amount]) => {
+        const incDocKey = `del_${delName}`.replace(/[\/\s#$[\]]/g, '_');
+        const incDocRef = doc(db, 'delegate_incentives', incDocKey);
+        batch.set(
+          incDocRef,
+          {
+            delegateName: delName,
+            incentivesAmount: amount,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name || 'الأدمن',
+          },
+          { merge: true }
+        );
+        incentivesCount++;
+      });
+
+      // Save delegate extra targets to Firestore
+      Object.entries(delegateExtraTargetsMap).forEach(([delName, extraData]) => {
+        const extraDocKey = `del_${delName}`.replace(/[\/\s#$[\]]/g, '_');
+        const extraDocRef = doc(db, 'delegate_monthly_extra_targets', extraDocKey);
+        batch.set(
+          extraDocRef,
+          {
+            delegateName: delName,
+            ...extraData,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name || 'الأدمن',
+          },
+          { merge: true }
+        );
+      });
+
+      if (count === 0 && incentivesCount === 0) {
+        setMonthlyUploadMessage({
+          text: 'لم يتم العثور على سجلات صالحة. تأكد من توفر الأعمدة: (اسم الصنف، اسم المندوب، التاركت الشهري، المبيعات لحد الآن، أو الحوافز لحد الان)',
+          type: 'error',
+        });
+        return;
+      }
+
+      await batch.commit();
+      let successMsg = `تم تحديث بيانات التاركت والمبيعات الشهرية بنجاح (${count} سجل)`;
+      if (incentivesCount > 0) {
+        successMsg += ` مع حوافز (${incentivesCount}) من المندوبين ✅`;
+      } else {
+        successMsg += ` ✅`;
+      }
+      setMonthlyUploadMessage({
+        text: successMsg,
+        type: 'success',
+      });
+
+      setTimeout(() => {
+        setMonthlyUploadMessage(null);
+      }, 7000);
+    } catch (err: any) {
+      console.error('Error uploading monthly targets excel:', err);
+      setMonthlyUploadMessage({
+        text: `حدث خطأ أثناء معالجة ملف الإكسل: ${err.message || 'خطأ غير معروف'}`,
+        type: 'error',
+      });
+    } finally {
+      setIsUploadingMonthlyExcel(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // Helper to download Excel template for all delegates and categories
+  const handleDownloadMonthlyTemplate = () => {
+    try {
+      const rows: any[] = [];
+      const validDelegates = delegatesList.filter((d) => d !== 'الكل' && d !== 'الأدمن');
+
+      validDelegates.forEach((del) => {
+        const normDel = normalizeText(del);
+        const existingIncentive = delegateIncentives.find(
+          (inc) =>
+            normalizeText(inc.delegateName || '') === normDel || inc.delegateName === del
+        )?.incentivesAmount || 0;
+
+        const existingExtra = extraTargetsList.find(
+          (t) => normalizeText(t.delegateName || '') === normDel || t.delegateName === del
+        );
+
+        DEFAULT_CATEGORIES_LIST.forEach((cat) => {
+          const normCat = normalizeText(cat);
+          const existing = monthlyItemTargets.find(
+            (m) =>
+              (normalizeText(m.delegateName || '') === normDel || m.delegateName === del) &&
+              (normalizeText(m.categoryName || '') === normCat || m.categoryName === cat)
+          );
+
+          rows.push({
+            'اسم المندوب': del,
+            'الصنف': cat,
+            'التاركت الشهري': existing ? existing.monthlyTarget : 0,
+            'المبيعات لحد الآن': existing ? existing.monthlySales : 0,
+            'الحوافز الكلية لحد الان': existingIncentive,
+            'تاركت ديناري شهري': existingExtra?.monthlyIqdTarget || 0,
+            'مبيعات ديناري شهري': existingExtra?.monthlyIqdSalesOverride || 0,
+            'مطلوب تبيع لعدد محلات': existingExtra?.targetShopsCount || 0,
+            'تم بيع لعدد محلات': existingExtra?.actualShopsCountOverride || 0,
+            'اسم المنتج الاضافي': existingExtra?.extraProductName || 'جبن مثلثات',
+            'تاركت زبائن شهري': existingExtra?.extraProductCustomersTarget || 0,
+            'تم بيع لهم': existingExtra?.extraProductCustomersActualOverride || 0,
+          });
+        });
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'تاركت_وحوافز_المندوبين');
+      XLSX.writeFile(
+        workbook,
+        `نموذج_تاركت_وحوافز_المندوبين_${new Date().toISOString().split('T')[0]}.xlsx`
+      );
+    } catch (err) {
+      console.error('Error downloading template:', err);
+    }
+  };
+
   const handleOpenActivationModal = () => {
     const initial: Record<string, boolean> = {};
     delegatesList.forEach(del => {
@@ -1092,6 +1716,238 @@ export const ReportsScreen: React.FC = () => {
     });
     return () => unsub();
   }, []);
+
+  // Active representative for extra targets (Delegate view or Admin selection)
+  const activeExtraRep = currentUser.isAdmin
+    ? (selectedDelegate === 'الكل' || selectedDelegate === 'الأدمن' ? '' : selectedDelegate)
+    : currentUser.name;
+
+  // Current month string (YYYY-MM)
+  const currentMonthStr = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
+
+  // Valid delegates list excluding 'الكل' and 'الأدمن'
+  const validDelegatesList = useMemo(
+    () => delegatesList.filter((d) => d !== 'الكل' && d !== 'الأدمن'),
+    [delegatesList]
+  );
+
+  // Extra Targets Stats Calculation: Single delegate for rep, Total sum of all delegates for admin
+  const extraTargetsStats = useMemo(() => {
+    // 1. Single Delegate View (Representative view OR Admin viewing a specific delegate)
+    if (activeExtraRep) {
+      const repNorm = normalizeText(activeExtraRep);
+      const targetRecord = extraTargetsList.find(
+        (t) => normalizeText(t.delegateName || '') === repNorm || t.delegateName === activeExtraRep
+      );
+
+      const repSales = salesEntries.filter((s) => {
+        const sMonth = (s.dateString || '').substring(0, 7);
+        if (sMonth !== currentMonthStr) return false;
+        const sNorm = normalizeText(s.delegateName || '');
+        return sNorm === repNorm || s.delegateName === activeExtraRep;
+      });
+
+      // Target IQD
+      const iqdTarget = targetRecord?.monthlyIqdTarget || 0;
+      const calcIqd = repSales.reduce((acc, s) => {
+        const prod = productsList.find((p) => p.productName === s.productName);
+        const price = prod ? (s.priceMode === 'wholesale' ? prod.wholesalePrice || 0 : prod.retailPrice || 0) : 0;
+        return acc + price * s.quantity;
+      }, 0);
+      const iqdSales =
+        targetRecord?.monthlyIqdSalesOverride !== undefined && targetRecord.monthlyIqdSalesOverride > 0
+          ? targetRecord.monthlyIqdSalesOverride
+          : calcIqd;
+      const iqdPct = iqdTarget > 0 ? (iqdSales / iqdTarget) * 100 : 0;
+
+      // Shops
+      const shopsTarget = targetRecord?.targetShopsCount || 0;
+      const uniqueShops = new Set(
+        repSales
+          .map((s) => (s.customerName || s.customerCode || '').trim())
+          .filter((name) => name.length > 0)
+      );
+      const shopsActual =
+        targetRecord?.actualShopsCountOverride !== undefined && targetRecord.actualShopsCountOverride > 0
+          ? targetRecord.actualShopsCountOverride
+          : uniqueShops.size;
+      const shopsPct = shopsTarget > 0 ? (shopsActual / shopsTarget) * 100 : 0;
+
+      // Extra Product
+      const extraProdName = targetRecord?.extraProductName || 'جبن مثلثات';
+      const extraCustTarget = targetRecord?.extraProductCustomersTarget || 0;
+      const extraCustSet = new Set(
+        repSales
+          .filter((s) => {
+            const pNorm = normalizeText(s.productName || '');
+            const cNorm = normalizeText(s.categoryName || '');
+            const targetNorm = normalizeText(extraProdName);
+            return (
+              pNorm === targetNorm ||
+              cNorm === targetNorm ||
+              s.productName?.trim().toLowerCase() === extraProdName.trim().toLowerCase() ||
+              s.categoryName?.trim().toLowerCase() === extraProdName.trim().toLowerCase()
+            );
+          })
+          .map((s) => (s.customerName || s.customerCode || '').trim())
+          .filter((name) => name.length > 0)
+      );
+      const extraCustActual =
+        targetRecord?.extraProductCustomersActualOverride !== undefined &&
+        targetRecord.extraProductCustomersActualOverride > 0
+          ? targetRecord.extraProductCustomersActualOverride
+          : extraCustSet.size;
+      const extraCustPct = extraCustTarget > 0 ? (extraCustActual / extraCustTarget) * 100 : 0;
+
+      return {
+        title: `الأهداف والمبيعات التراكمية الإضافية (${activeExtraRep})`,
+        isTotal: false,
+        iqdTarget,
+        iqdSales,
+        iqdPct,
+        shopsTarget,
+        shopsActual,
+        shopsPct,
+        extraProdName,
+        extraCustTarget,
+        extraCustActual,
+        extraCustPct,
+      };
+    }
+
+    // 2. Admin Total View (مجموع جميع المندوبين)
+    let sumIqdTarget = 0;
+    let sumIqdSales = 0;
+    let sumShopsTarget = 0;
+    let sumShopsActual = 0;
+    let sumExtraCustTarget = 0;
+    let sumExtraCustActual = 0;
+    let commonExtraProdName = 'جبن مثلثات';
+
+    const configured = extraTargetsList.find((t) => t.extraProductName)?.extraProductName;
+    if (configured) commonExtraProdName = configured;
+
+    validDelegatesList.forEach((del) => {
+      const dNorm = normalizeText(del);
+      const targetRecord = extraTargetsList.find(
+        (t) => normalizeText(t.delegateName || '') === dNorm || t.delegateName === del
+      );
+
+      const delSales = salesEntries.filter((s) => {
+        const sMonth = (s.dateString || '').substring(0, 7);
+        if (sMonth !== currentMonthStr) return false;
+        const sNorm = normalizeText(s.delegateName || '');
+        return sNorm === dNorm || s.delegateName === del;
+      });
+
+      // Target IQD
+      sumIqdTarget += targetRecord?.monthlyIqdTarget || 0;
+      const calcIqd = delSales.reduce((acc, s) => {
+        const prod = productsList.find((p) => p.productName === s.productName);
+        const price = prod ? (s.priceMode === 'wholesale' ? prod.wholesalePrice || 0 : prod.retailPrice || 0) : 0;
+        return acc + price * s.quantity;
+      }, 0);
+      const iqdSales =
+        targetRecord?.monthlyIqdSalesOverride !== undefined && targetRecord.monthlyIqdSalesOverride > 0
+          ? targetRecord.monthlyIqdSalesOverride
+          : calcIqd;
+      sumIqdSales += iqdSales;
+
+      // Shops
+      sumShopsTarget += targetRecord?.targetShopsCount || 0;
+      const uniqueShops = new Set(
+        delSales
+          .map((s) => (s.customerName || s.customerCode || '').trim())
+          .filter((name) => name.length > 0)
+      );
+      const shopsActual =
+        targetRecord?.actualShopsCountOverride !== undefined && targetRecord.actualShopsCountOverride > 0
+          ? targetRecord.actualShopsCountOverride
+          : uniqueShops.size;
+      sumShopsActual += shopsActual;
+
+      // Extra Product
+      const prodName = targetRecord?.extraProductName || commonExtraProdName;
+      sumExtraCustTarget += targetRecord?.extraProductCustomersTarget || 0;
+      const extraCustSet = new Set(
+        delSales
+          .filter((s) => {
+            const pNorm = normalizeText(s.productName || '');
+            const cNorm = normalizeText(s.categoryName || '');
+            const targetNorm = normalizeText(prodName);
+            return (
+              pNorm === targetNorm ||
+              cNorm === targetNorm ||
+              s.productName?.trim().toLowerCase() === prodName.trim().toLowerCase() ||
+              s.categoryName?.trim().toLowerCase() === prodName.trim().toLowerCase()
+            );
+          })
+          .map((s) => (s.customerName || s.customerCode || '').trim())
+          .filter((name) => name.length > 0)
+      );
+      const extraCustActual =
+        targetRecord?.extraProductCustomersActualOverride !== undefined &&
+        targetRecord.extraProductCustomersActualOverride > 0
+          ? targetRecord.extraProductCustomersActualOverride
+          : extraCustSet.size;
+      sumExtraCustActual += extraCustActual;
+    });
+
+    const iqdPct = sumIqdTarget > 0 ? (sumIqdSales / sumIqdTarget) * 100 : 0;
+    const shopsPct = sumShopsTarget > 0 ? (sumShopsActual / sumShopsTarget) * 100 : 0;
+    const extraCustPct = sumExtraCustTarget > 0 ? (sumExtraCustActual / sumExtraCustTarget) * 100 : 0;
+
+    return {
+      title: 'الأهداف والمبيعات التراكمية الإضافية (الإجمالي العام)',
+      isTotal: true,
+      iqdTarget: sumIqdTarget,
+      iqdSales: sumIqdSales,
+      iqdPct,
+      shopsTarget: sumShopsTarget,
+      shopsActual: sumShopsActual,
+      shopsPct,
+      extraProdName: commonExtraProdName,
+      extraCustTarget: sumExtraCustTarget,
+      extraCustActual: sumExtraCustActual,
+      extraCustPct,
+    };
+  }, [
+    activeExtraRep,
+    extraTargetsList,
+    salesEntries,
+    currentMonthStr,
+    validDelegatesList,
+    productsList,
+  ]);
+
+  // Save extra targets from Admin modal
+  const handleSaveExtraTargets = async () => {
+    if (!editExtraTargetDelegate) return;
+    try {
+      setIsSavingExtraTargets(true);
+      const docKey = `del_${editExtraTargetDelegate}`.replace(/[\/\s#$[\]]/g, '_');
+      await setDoc(
+        doc(db, 'delegate_monthly_extra_targets', docKey),
+        {
+          delegateName: editExtraTargetDelegate,
+          monthlyIqdTarget: parseFloat(editMonthlyIqdTarget.replace(/,/g, '')) || 0,
+          targetShopsCount: parseFloat(editTargetShopsCount.replace(/,/g, '')) || 0,
+          extraProductName: editExtraProductName.trim() || 'جبن مثلثات',
+          extraProductCustomersTarget: parseFloat(editExtraProductCustomersTarget.replace(/,/g, '')) || 0,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.name || 'الأدمن',
+        },
+        { merge: true }
+      );
+      setShowEditExtraTargetsModal(false);
+      setUserMessage('تم حفظ أهداف المندوب الشهرية بنجاح ✅');
+    } catch (err) {
+      console.error('Error saving extra targets:', err);
+      setUserMessage('حدث خطأ أثناء حفظ الأهداف.');
+    } finally {
+      setIsSavingExtraTargets(false);
+    }
+  };
 
   const getProductCode = (productName: string) => {
     const p = productsList.find(p => p.productName === productName);
@@ -1725,20 +2581,6 @@ export const ReportsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Daily Reset Info Banner */}
-      <div className="bg-slate-900 border border-emerald-500/40 rounded-xl p-4 text-white shadow-md space-y-2 print:hidden">
-        <div className="flex items-center gap-2">
-          <RotateCcw className="w-5 h-5 text-emerald-400" />
-          <h3 className="font-bold text-sm text-emerald-200">
-            نظام التقرير والمبيعات اليومية
-          </h3>
-        </div>
-
-        <p className="text-xs text-slate-300 font-semibold leading-relaxed">
-          * يتم تصفير المبيعات وبدء يوم عمل جديد تلقائياً في الساعة 12:00 منتصف الليل (12:00 AM) من كل يوم، مع المحافظة التامة على قيم التاركت التراكمي.
-        </p>
-      </div>
-
       {/* Weekly Sales Progress Interactive Chart (Recharts) [HIDDEN]
       <div className="bg-emerald-950 border-2 border-emerald-500 rounded-2xl p-4 text-white shadow-xl space-y-4 print:hidden">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1803,80 +2645,809 @@ export const ReportsScreen: React.FC = () => {
       <div className="bg-white border-2 border-slate-600 rounded-2xl overflow-hidden shadow-xl space-y-0 w-full">
         <div className="bg-slate-950 p-2.5 sm:p-3.5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
           <div>
-            <h3 className="font-extrabold text-white text-xs sm:text-base">
-              تفاصيل المبيعات والتاركت حسب الأصناف (16 صنف)
-            </h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-extrabold text-white text-xs sm:text-base">
+                تفاصيل المبيعات والتاركت حسب الأصناف (16 صنف)
+              </h3>
+              <span className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                currentUser.isAdmin
+                  ? 'bg-blue-900/60 text-blue-300 border-blue-700/50'
+                  : 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50'
+              }`}>
+                {currentUser.isAdmin
+                  ? (selectedDelegate && selectedDelegate !== 'الكل' && selectedDelegate !== 'الأدمن'
+                      ? `عرض خاص بالمندوب: ${selectedDelegate}`
+                      : 'عرض الإدارة: الإجمالي التراكمي لكافة المندوبين')
+                  : `عرض التاركت والمبيعات الخاصة بك (${currentUser.name})`}
+              </span>
+            </div>
             <p className="text-[10px] sm:text-[11px] text-emerald-300/90 font-bold mt-0.5">
-              مرتبة تصاعدياً من الأصناف الأقل تحقيقاً (0%) إلى الأعلى إنجازاً (100%)
+              مرتبة تصاعدياً من الأصناف الأقل تحقيقاً (0%) إلى الأعلى إنجازاً (100%) - مع صف فرعي شهري لكل مادة
             </p>
           </div>
-          <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-emerald-700/50">
-            {achievedCategories.length} أصناف محققة
-          </span>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 px-2 sm:px-2.5 py-1 rounded-lg border border-emerald-700/50">
+              {achievedCategories.length} أصناف محققة
+            </span>
+
+            {/* Admin Upload Control & Functionality (Exclusively to Admin) */}
+            {currentUser.isAdmin && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  ref={monthlyExcelInputRef}
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleMonthlyExcelUpload}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => monthlyExcelInputRef.current?.click()}
+                  disabled={isUploadingMonthlyExcel}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
+                  title="رفع ملف إكسل لتحديث التاركت والمبيعات وحوافز المندوبين"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>{isUploadingMonthlyExcel ? 'جاري الرفع...' : 'رفع إكسل التاركت والمبيعات والحوافز'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadMonthlyTemplate}
+                  className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  title="تحميل نموذج الإكسل الشامل"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تحميل النموذج</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Upload Status Banner */}
+        {monthlyUploadMessage && (
+          <div
+            className={`p-2.5 text-xs font-bold flex items-center justify-between border-b ${
+              monthlyUploadMessage.type === 'success'
+                ? 'bg-emerald-900/90 text-emerald-100 border-emerald-700'
+                : 'bg-rose-900/90 text-rose-100 border-rose-700'
+            }`}
+          >
+            <span>{monthlyUploadMessage.text}</span>
+            <button
+              onClick={() => setMonthlyUploadMessage(null)}
+              className="text-white hover:opacity-75 p-0.5 rounded"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         <div className="overflow-x-auto w-full">
           <table className="w-full min-w-[340px] sm:min-w-full text-right border-collapse text-xs">
-            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+            <thead className={`font-black text-xs uppercase tracking-wider ${isDarkMode ? 'bg-slate-800/95 text-slate-200 border-b-2 border-slate-700' : 'bg-slate-100 text-slate-700 border-b-2 border-slate-300'}`}>
               <tr>
-                <th className="py-2.5 sm:py-3 px-1.5 sm:px-3 w-[33%]">الصنف</th>
-                <th className="py-2.5 sm:py-3 px-1 sm:px-3 text-center w-[20%]">المبيعات (كجم)</th>
-                <th className="py-2.5 sm:py-3 px-1 sm:px-3 text-center w-[20%]">التاركت (كجم)</th>
-                <th className="py-2.5 sm:py-3 px-1.5 sm:px-3 text-center w-[27%]">نسبة الإنجاز %</th>
+                <th className="py-3 px-2 sm:px-3.5 w-[33%] text-right font-black">الصنف</th>
+                <th className="py-3 px-1 sm:px-3 text-center w-[20%] font-black">المبيعات (كجم)</th>
+                <th className="py-3 px-1 sm:px-3 text-center w-[20%] font-black">التاركت (كجم)</th>
+                <th className="py-3 px-1.5 sm:px-3 text-center w-[27%] font-black">نسبة الإنجاز %</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-              {categoryReports.map((item, idx) => (
-                <tr
-                  key={item.categoryName}
-                  className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}
-                >
-                  <td className="py-2.5 sm:py-3 px-1.5 sm:px-3 font-bold">
-                    <div className="flex items-center gap-1.5">
-                      <span>{item.categoryName}</span>
-                      {item.isAchieved && (
-                        <span className="px-1.5 py-0.5 bg-amber-400 text-slate-950 font-black text-[9px] sm:text-[10px] rounded-full shadow-sm">
-                          🏆 100%
+            <tbody className={isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-700'}>
+              {categoryReports.map((item, idx) => {
+                const monthlyStats = getMonthlyCategoryStats(item.categoryName);
+                const isMonthlyAchieved = monthlyStats.monthlyTarget > 0 && monthlyStats.percentage >= 100;
+                return (
+                  <React.Fragment key={item.categoryName}>
+                    {/* Primary Day Row */}
+                    <tr
+                      className={`border-b border-dashed transition-all duration-300 ${
+                        isMonthlyAchieved
+                          ? 'bg-lime-400/20 dark:bg-lime-400/20 hover:bg-lime-400/25 border-lime-400/60 dark:border-[#39ff14]/60 shadow-[0_0_15px_rgba(163,230,53,0.35)] dark:shadow-[0_0_20px_rgba(57,255,20,0.45)]'
+                          : isDarkMode
+                            ? 'bg-slate-900/90 hover:bg-slate-800/70 border-slate-800'
+                            : 'bg-white hover:bg-slate-50 border-slate-300/80'
+                      }`}
+                    >
+                      <td className={`py-2.5 sm:py-3 px-2 sm:px-3.5 ${
+                        isMonthlyAchieved
+                          ? 'border-r-2 border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
+                          : 'font-extrabold'
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          {isMonthlyAchieved && (
+                            <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400 shrink-0 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse" />
+                          )}
+                          <span className={isMonthlyAchieved ? 'text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)] text-xs sm:text-sm' : 'font-extrabold'}>
+                            {item.categoryName}
+                          </span>
+                          {item.isAchieved && (
+                            <span className="px-1.5 py-0.5 bg-amber-400 text-slate-950 font-black text-[9px] sm:text-[10px] rounded-full shadow-sm">
+                              🏆 100%
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className={`py-2.5 sm:py-3 px-1 sm:px-3 text-center text-xs sm:text-sm ${
+                        isMonthlyAchieved
+                          ? 'border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20 text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                          : 'font-extrabold'
+                      }`}>
+                        {formatWithCommas(parseFloat(item.dailySalesWeightKg.toFixed(1)), true)}
+                      </td>
+                      <td className={`py-2.5 sm:py-3 px-1 sm:px-3 text-center text-xs sm:text-sm ${
+                        isMonthlyAchieved
+                          ? 'border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20 text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                          : 'font-bold'
+                      }`}>
+                        {formatWithCommas(parseFloat(item.dailyTargetWeightKg.toFixed(1)), true)}
+                      </td>
+                      <td className={`py-2.5 sm:py-3 px-1.5 sm:px-3 text-center ${
+                        isMonthlyAchieved
+                          ? 'border-l-2 border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
+                          : ''
+                      }`}>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold">
+                            <span className={isMonthlyAchieved ? 'text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]' : ''}>
+                              {item.percentage.toFixed(0)}%
+                            </span>
+                            {item.isAchieved && (
+                              <span className="text-emerald-500 flex items-center gap-0.5">
+                                <Check className="w-3 h-3 inline" /> مكتمل
+                              </span>
+                            )}
+                          </div>
+                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-all duration-300 ${
+                                isMonthlyAchieved
+                                  ? 'bg-lime-500 dark:bg-[#39ff14] shadow-[0_0_10px_rgba(57,255,20,0.9)]'
+                                  : item.isAchieved
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-600'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(0, item.percentage))}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Sub-Row: Monthly Target, Monthly Sales, and Achievement Percentage with Thick Distinct Separator Line Between Items */}
+                    <tr
+                      className={`transition-all duration-300 ${
+                        isMonthlyAchieved
+                          ? 'bg-lime-400/20 dark:bg-lime-400/20 hover:bg-lime-400/25 shadow-[0_4px_15px_rgba(163,230,53,0.35)] dark:shadow-[0_4px_20px_rgba(57,255,20,0.45)]'
+                          : isDarkMode
+                            ? 'bg-slate-900/40 hover:bg-slate-900/60'
+                            : 'bg-slate-50/70 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <td className={`py-1.5 px-2 sm:px-3.5 font-normal ${
+                        isMonthlyAchieved
+                          ? 'border-r-2 border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
+                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                      }`}>
+                        <div className="flex items-center gap-1 pr-2 sm:pr-4">
+                          <span className={`font-black text-[8px] sm:text-[9px] flex items-center gap-1.5 ${
+                            isMonthlyAchieved
+                              ? 'text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_6px_rgba(57,255,20,0.4)]'
+                              : 'text-slate-400 dark:text-slate-400 font-semibold'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full inline-block ${
+                              isMonthlyAchieved
+                                ? 'bg-lime-500 dark:bg-[#39ff14] shadow-[0_0_6px_rgba(57,255,20,0.8)]'
+                                : 'bg-slate-400'
+                            }`}></span>
+                            الشهري:
+                          </span>
+                        </div>
+                      </td>
+                      {/* Sub-row: Monthly Sales (Prominent Phosphor Green when achieved, Light Gray otherwise) */}
+                      <td className={`py-1.5 px-1 sm:px-3 text-center ${
+                        isMonthlyAchieved
+                          ? 'border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
+                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                      }`}>
+                        <span className={`text-[9px] sm:text-[10px] ${
+                          isMonthlyAchieved
+                            ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                            : 'font-semibold text-slate-400 dark:text-slate-400'
+                        }`}>
+                          {formatWithCommas(parseFloat(monthlyStats.monthlySales.toFixed(1)), true)}
                         </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2.5 sm:py-3 px-1 sm:px-3 text-center font-extrabold text-xs sm:text-sm">
-                    {formatWithCommas(parseFloat(item.dailySalesWeightKg.toFixed(1)), true)}
-                  </td>
-                  <td className="py-2.5 sm:py-3 px-1 sm:px-3 text-center font-bold text-xs sm:text-sm">
-                    {formatWithCommas(parseFloat(item.dailyTargetWeightKg.toFixed(1)), true)}
-                  </td>
-                  <td className="py-2.5 sm:py-3 px-1.5 sm:px-3 text-center">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold">
-                        <span>{item.percentage.toFixed(0)}%</span>
-                        {item.isAchieved ? (
-                          <span className="text-emerald-500 flex items-center gap-0.5">
-                            <Check className="w-3 h-3 inline" /> مكتمل
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">
-                            متبقي: {formatWithCommas(parseFloat(item.remainingWeightKg.toFixed(1)), true)} كجم
-                          </span>
-                        )}
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div
-                          className={`h-2 rounded-full transition-all duration-300 ${
-                            item.isAchieved ? 'bg-amber-500' : 'bg-emerald-600'
-                          }`}
-                          style={{ width: `${Math.min(100, Math.max(0, item.percentage))}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
+                          isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
+                        }`}>كجم</span>
+                      </td>
+                      {/* Sub-row: Monthly Target (Prominent Phosphor Green when achieved, Light Gray otherwise) */}
+                      <td className={`py-1.5 px-1 sm:px-3 text-center ${
+                        isMonthlyAchieved
+                          ? 'border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
+                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                      }`}>
+                        <span className={`text-[9px] sm:text-[10px] ${
+                          isMonthlyAchieved
+                            ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                            : 'font-semibold text-slate-400 dark:text-slate-400'
+                        }`}>
+                          {formatWithCommas(parseFloat(monthlyStats.monthlyTarget.toFixed(1)), true)}
+                        </span>
+                        <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
+                          isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
+                        }`}>كجم</span>
+                      </td>
+                      {/* Sub-row: Monthly Achievement Percentage with Phosphor Green Highlight & Coronation Icon */}
+                      <td
+                        className={`py-1.5 px-1.5 sm:px-3 text-center transition-all ${
+                          isMonthlyAchieved
+                            ? 'border-l-2 border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/25 dark:bg-lime-400/25 ring-1 ring-inset ring-lime-400/60'
+                            : 'border-b-4 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center justify-between text-[8px] sm:text-[9px]">
+                            <span
+                              className={`flex items-center gap-1 font-black ${
+                                isMonthlyAchieved
+                                  ? 'text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.6)] text-[9px] sm:text-[10px]'
+                                  : 'text-slate-400 dark:text-slate-400'
+                              }`}
+                            >
+                              {isMonthlyAchieved && (
+                                <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400 inline shrink-0 drop-shadow-sm" />
+                              )}
+                              <span>{monthlyStats.percentage.toFixed(1)}%</span>
+                            </span>
+
+                            {isMonthlyAchieved ? (
+                              <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-lime-400 dark:bg-[#39ff14] text-slate-950 font-black text-[7px] sm:text-[8px] shadow-sm">
+                                👑 تتويج
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[7px] sm:text-[8px]">
+                                {monthlyStats.monthlyTarget > 0
+                                  ? `متبقي: ${formatWithCommas(parseFloat(monthlyStats.remaining.toFixed(1)), true)}`
+                                  : '-'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="w-full bg-slate-200 dark:bg-slate-700/60 rounded-full h-1 overflow-hidden">
+                            <div
+                              className={`h-1 rounded-full transition-all duration-300 ${
+                                isMonthlyAchieved
+                                  ? 'bg-lime-500 dark:bg-[#39ff14] shadow-[0_0_10px_rgba(57,255,20,0.9)]'
+                                  : 'bg-slate-400 dark:bg-slate-500'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(0, monthlyStats.percentage))}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
+
+        {/* Wide Box: Total Incentives So Far at Bottom of Table */}
+        <div className={`p-3.5 sm:p-5 border-t-2 ${
+          isDarkMode 
+            ? 'bg-slate-950/90 border-slate-700/80 text-white' 
+            : 'bg-slate-50/95 border-slate-300 text-slate-900'
+        }`}>
+          {!currentUser.isAdmin ? (
+            /* Representative View: Only shows their personal incentives */
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3.5">
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-emerald-500 text-slate-950 flex items-center justify-center font-black shadow-md shrink-0">
+                  <Award className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-black text-sm sm:text-base">
+                      الحوافز الكلية لحد الان ({currentUser.name})
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                    إجمالي مبالغ الحوافز والعمولات المكتسبة للشهر الحالي بناءً على الأداء والمبيعات المعتمدة
+                  </p>
+                </div>
+              </div>
+
+              <div className="w-full sm:w-auto bg-white dark:bg-slate-900 px-5 py-2.5 rounded-2xl border-2 border-emerald-500/50 shadow-sm flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                <span className="text-xs text-slate-400 font-bold">المبلغ المستحق:</span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                  {formatWithCommas(
+                    delegateIncentives.find(
+                      (inc) =>
+                        normalizeText(inc.delegateName || '') === normalizeText(currentUser.name || '') ||
+                        inc.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()
+                    )?.incentivesAmount || 0,
+                    true
+                  )}
+                  <span className="text-xs font-bold text-slate-500 mr-1.5">د.ع</span>
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* Admin View: Management control and delegates incentives list (no incentives for admin) */
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-black text-sm sm:text-base text-slate-800 dark:text-white flex items-center gap-1.5">
+                      <Award className="w-5 h-5 text-amber-500" />
+                      إدارة حوافز المندوبين الكلية لحد الآن
+                    </h4>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-900/40 text-blue-300 border border-blue-700/40">
+                      لوحة تحكم الإدارة (لا تظهر حوافز للإدارة)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                    تظهر الحوافز لكل مندوب على حدة في حسابه الخاص. يمكن تحديث مبالغ الحوافز من خلال رفع ملف الإكسل أدناه:
+                  </p>
+                </div>
+
+                {/* Upload Button at bottom of table */}
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => monthlyExcelInputRef.current?.click()}
+                    disabled={isUploadingMonthlyExcel}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
+                    title="رفع ملف إكسل لتحديث التاركت والمبيعات وحوافز المندوبين"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isUploadingMonthlyExcel ? 'جاري الرفع...' : 'رفع إكسل التاركت والمبيعات والحوافز'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadMonthlyTemplate}
+                    className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                    title="تحميل نموذج الإكسل الشامل"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>تحميل النموذج</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* List of representatives and their incentives so far */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 flex items-center justify-between">
+                  <span>أسماء المندوبين والحوافز المسجلة لكل مندوب لحد الآن:</span>
+                  <span className="text-[10px] text-slate-400">تظهر هذه المبالغ في حساب كل مندوب على حدة</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {delegatesList.filter(d => d !== 'الكل' && d !== 'الأدمن').map((del) => {
+                    const incVal = delegateIncentives.find(
+                      (inc) =>
+                        normalizeText(inc.delegateName || '') === normalizeText(del) ||
+                        inc.delegateName?.trim().toLowerCase() === del.trim().toLowerCase()
+                    )?.incentivesAmount || 0;
+                    const isSelected = selectedDelegate === del;
+                    return (
+                      <div
+                        key={del}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-all ${
+                          isSelected
+                            ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-500/10'
+                            : isDarkMode
+                            ? 'bg-slate-900/60 border-slate-800 text-slate-200'
+                            : 'bg-white border-slate-200 text-slate-800 shadow-sm'
+                        }`}
+                      >
+                        <span className="font-extrabold truncate">{del}</span>
+                        <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                          {formatWithCommas(incVal, true)} <span className="text-[9px] text-slate-400">د.ع</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Section Below Incentives: Monthly IQD, Shops Reach, and Extra Product Targets */}
+        <div className={`p-4 sm:p-5 border-t-2 ${
+          isDarkMode 
+            ? 'bg-slate-900/90 border-slate-700/80 text-white' 
+            : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                <TrendingUp className="w-5 h-5 text-emerald-500" />
+              </div>
+              <div>
+                <h3 className="font-black text-sm sm:text-base flex items-center gap-2 flex-wrap">
+                  <span>{extraTargetsStats.title}</span>
+                  {extraTargetsStats.isTotal && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-900/40 text-blue-300 border border-blue-700/40">
+                      مجموع كافة المندوبين
+                    </span>
+                  )}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                  {extraTargetsStats.isTotal
+                    ? 'إجمالي ومجموع أداء المبيعات والتاركت الإضافي لكافة المندوبين للشهر الحالي'
+                    : 'متابعة التاركت الديناري، تغطية المحلات، وأداء زبائن الصنف الإضافي للشهر الحالي'}
+                </p>
+              </div>
+            </div>
+
+            {currentUser.isAdmin && (
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <button
+                  type="button"
+                  onClick={() => monthlyExcelInputRef.current?.click()}
+                  disabled={isUploadingMonthlyExcel}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
+                  title="رفع ملف إكسل لتحديث التاركت والمبيعات وحوافز المندوبين والأهداف الإضافية"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>{isUploadingMonthlyExcel ? 'جاري الرفع...' : 'رفع إكسل التاركت والمبيعات والحوافز'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadMonthlyTemplate}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  title="تحميل نموذج الإكسل الشامل"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تحميل النموذج</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetDel = activeExtraRep || (delegatesList.find(d => d !== 'الكل' && d !== 'الأدمن') || '');
+                    setEditExtraTargetDelegate(targetDel);
+                    const existing = extraTargetsList.find(t => t.delegateName === targetDel);
+                    setEditMonthlyIqdTarget(existing ? String(existing.monthlyIqdTarget || '') : '');
+                    setEditTargetShopsCount(existing ? String(existing.targetShopsCount || '') : '');
+                    setEditExtraProductName(existing?.extraProductName || 'جبن مثلثات');
+                    setEditExtraProductCustomersTarget(existing ? String(existing.extraProductCustomersTarget || '') : '');
+                    setShowEditExtraTargetsModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>تعديل الأهداف الإضافية</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3 Grid Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            {/* Card 1: تاركت ديناري شهري ومبيعات ديناري شهري */}
+            <div className={`p-4 rounded-2xl border-2 transition-all space-y-3 ${
+              extraTargetsStats.iqdPct >= 100
+                ? 'bg-lime-400/10 border-lime-400/50 ring-1 ring-lime-400/40 shadow-sm'
+                : isDarkMode
+                ? 'bg-slate-950/80 border-slate-800'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-500 shrink-0">
+                    <Coins className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-xs sm:text-sm">التاركت الديناري الشهري</h4>
+                    <span className="text-[10px] text-slate-400 font-bold">المبيعات النقدية بالدينار</span>
+                  </div>
+                </div>
+                {extraTargetsStats.iqdPct >= 100 && (
+                  <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-lime-400 text-slate-950 font-black text-[9px] shadow-sm">
+                    👑 100%+
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-slate-800/80 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">تاركت ديناري شهري:</span>
+                  <span className="font-mono font-black text-slate-800 dark:text-slate-200">
+                    {formatWithCommas(extraTargetsStats.iqdTarget, true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">مبيعات ديناري شهري:</span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    {formatWithCommas(extraTargetsStats.iqdSales, true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
+                  <span className={`font-mono font-black text-sm ${extraTargetsStats.iqdPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-blue-600 dark:text-blue-400'}`}>
+                    {extraTargetsStats.iqdPct.toFixed(1)}%
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden mt-1">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      extraTargetsStats.iqdPct >= 100 ? 'bg-lime-400 dark:bg-[#39ff14] shadow-[0_0_8px_rgba(57,255,20,0.8)]' : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, extraTargetsStats.iqdPct))}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: مطلوب تبيع لعدد محلات وتم بيع لعدد محلات */}
+            <div className={`p-4 rounded-2xl border-2 transition-all space-y-3 ${
+              extraTargetsStats.shopsPct >= 100
+                ? 'bg-lime-400/10 border-lime-400/50 ring-1 ring-lime-400/40 shadow-sm'
+                : isDarkMode
+                ? 'bg-slate-950/80 border-slate-800'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-500/20 text-blue-500 shrink-0">
+                    <Store className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-xs sm:text-sm">تغطية عدد المحلات</h4>
+                    <span className="text-[10px] text-slate-400 font-bold">الانتشار وعدد المحلات</span>
+                  </div>
+                </div>
+                {extraTargetsStats.shopsPct >= 100 && (
+                  <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-lime-400 text-slate-950 font-black text-[9px] shadow-sm">
+                    👑 100%+
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-slate-800/80 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">مطلوب تبيع لعدد محلات:</span>
+                  <span className="font-mono font-black text-slate-800 dark:text-slate-200">
+                    {formatWithCommas(extraTargetsStats.shopsTarget, true)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لعدد محلات:</span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    {formatWithCommas(extraTargetsStats.shopsActual, true)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
+                  <span className={`font-mono font-black text-sm ${extraTargetsStats.shopsPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-blue-600 dark:text-blue-400'}`}>
+                    {extraTargetsStats.shopsPct.toFixed(1)}%
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden mt-1">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      extraTargetsStats.shopsPct >= 100 ? 'bg-lime-400 dark:bg-[#39ff14] shadow-[0_0_8px_rgba(57,255,20,0.8)]' : 'bg-blue-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, extraTargetsStats.shopsPct))}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: اسم المنتج الإضافي، تاركت زبائن شهري، تم بيع لهم */}
+            <div className={`p-4 rounded-2xl border-2 transition-all space-y-3 ${
+              extraTargetsStats.extraCustPct >= 100
+                ? 'bg-lime-400/10 border-lime-400/50 ring-1 ring-lime-400/40 shadow-sm'
+                : isDarkMode
+                ? 'bg-slate-950/80 border-slate-800'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-purple-500/20 text-purple-500 shrink-0">
+                    <PackagePlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-xs sm:text-sm">المنتج الإضافي وزبائنه</h4>
+                    <span className="text-[10px] text-slate-400 font-bold">هدف الصنف الترويجي</span>
+                  </div>
+                </div>
+                {extraTargetsStats.extraCustPct >= 100 && (
+                  <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-lime-400 text-slate-950 font-black text-[9px] shadow-sm">
+                    👑 100%+
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-slate-800/80 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">اسم المنتج الاضافي:</span>
+                  <span className="font-black text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20 truncate max-w-[130px]">
+                    {extraTargetsStats.extraProdName}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">تاركت زبائن شهري:</span>
+                  <span className="font-mono font-black text-slate-800 dark:text-slate-200">
+                    {formatWithCommas(extraTargetsStats.extraCustTarget, true)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لهم:</span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    {formatWithCommas(extraTargetsStats.extraCustActual, true)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
+                  <span className={`font-mono font-black text-sm ${extraTargetsStats.extraCustPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-purple-600 dark:text-purple-400'}`}>
+                    {extraTargetsStats.extraCustPct.toFixed(1)}%
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden mt-1">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      extraTargetsStats.extraCustPct >= 100 ? 'bg-lime-400 dark:bg-[#39ff14] shadow-[0_0_8px_rgba(57,255,20,0.8)]' : 'bg-purple-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, extraTargetsStats.extraCustPct))}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Edit Extra Targets Modal for Admin */}
+      {showEditExtraTargetsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowEditExtraTargetsModal(false)}
+        >
+          <div
+            className={`p-6 rounded-3xl shadow-2xl w-full max-w-lg border text-right space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <h3 className="font-black text-base text-emerald-400 flex items-center gap-2">
+                <Pencil className="w-5 h-5" />
+                تعديل الأهداف التراكمية الشهرية للمندوب
+              </h3>
+              <button
+                onClick={() => setShowEditExtraTargetsModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">المندوب:</label>
+                <select
+                  value={editExtraTargetDelegate}
+                  onChange={(e) => {
+                    const del = e.target.value;
+                    setEditExtraTargetDelegate(del);
+                    const existing = extraTargetsList.find((t) => t.delegateName === del);
+                    setEditMonthlyIqdTarget(existing ? String(existing.monthlyIqdTarget || '') : '');
+                    setEditTargetShopsCount(existing ? String(existing.targetShopsCount || '') : '');
+                    setEditExtraProductName(existing?.extraProductName || 'جبن مثلثات');
+                    setEditExtraProductCustomersTarget(
+                      existing ? String(existing.extraProductCustomersTarget || '') : ''
+                    );
+                  }}
+                  className={`w-full p-2.5 rounded-xl border font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                >
+                  {delegatesList
+                    .filter((d) => d !== 'الكل' && d !== 'الأدمن')
+                    .map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">تاركت ديناري شهري (د.ع):</label>
+                <input
+                  type="text"
+                  value={editMonthlyIqdTarget}
+                  onChange={(e) => setEditMonthlyIqdTarget(parseArabicDigits(e.target.value))}
+                  placeholder="مثال: 50,000,000"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">مطلوب تبيع لعدد محلات (محل):</label>
+                <input
+                  type="text"
+                  value={editTargetShopsCount}
+                  onChange={(e) => setEditTargetShopsCount(parseArabicDigits(e.target.value))}
+                  placeholder="مثال: 150"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">اسم المنتج الإضافي:</label>
+                <input
+                  type="text"
+                  value={editExtraProductName}
+                  onChange={(e) => setEditExtraProductName(e.target.value)}
+                  placeholder="مثال: جبن كيري / جبن مثلثات"
+                  className={`w-full p-2.5 rounded-xl border font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">تاركت زبائن شهري للمنتج الإضافي (زبون):</label>
+                <input
+                  type="text"
+                  value={editExtraProductCustomersTarget}
+                  onChange={(e) => setEditExtraProductCustomersTarget(parseArabicDigits(e.target.value))}
+                  placeholder="مثال: 80"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowEditExtraTargetsModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs border ${
+                  isDarkMode
+                    ? 'bg-slate-800 text-slate-300 border-slate-700'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveExtraTargets}
+                disabled={isSavingExtraTargets}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all disabled:opacity-50"
+              >
+                {isSavingExtraTargets ? 'جاري الحفظ...' : 'حفظ الأهداف'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showActivationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowActivationModal(false)}>

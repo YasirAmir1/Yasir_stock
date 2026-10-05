@@ -96,12 +96,12 @@ const MainAppContent: React.FC = () => {
         </div>
       )}
       {/* Offline / Sync Banner */}
-      {!isOnline && currentUser?.isAdmin && (
+      {!isOnline && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50">
           <span>⚠️ أنت تعمل حالياً في وضع عدم الاتصال (Offline). سيتم حفظ مبيعاتك محلياً ومزامنتها تلقائياً عند اتصال الإنترنت.</span>
         </div>
       )}
-      {isOnline && pendingSyncCount > 0 && currentUser?.isAdmin && (
+      {isOnline && pendingSyncCount > 0 && (
         <div className="bg-emerald-600 text-white px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50 animate-pulse">
           <span>🔄 جاري مزامنة ({pendingSyncCount}) من المدخلات المعلقة مع قاعدة البيانات...</span>
         </div>
@@ -176,36 +176,36 @@ const MainAppContent: React.FC = () => {
               {/* User Info Card (Mobile Only) */}
               <div
                 className={`sm:hidden px-2.5 py-1 rounded-xl border flex ${
-                  currentUser.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
+                  currentUser?.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
                 } ${
                   isDarkMode
                     ? 'bg-slate-800/80 border-slate-700 text-slate-200'
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className={`flex flex-col ${currentUser.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
+                <div className={`flex flex-col ${currentUser?.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
                     <span className="font-extrabold text-xs leading-tight">
-                        {currentUser.name}
+                        {currentUser?.name || 'مستخدم'}
                     </span>
-                    {!currentUser.isAdmin && (
+                    {!currentUser?.isAdmin && (
                       <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                          {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                          {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
                       </span>
                     )}
                 </div>
-                {!currentUser.isAdmin && (delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                {!currentUser?.isAdmin && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
                     <div className="relative">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
                             className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
                         >
-                            {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || '').slice(-2)}
+                            {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || '').slice(-2)}
                         </button>
                         {showTooltip && (
                             <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                                <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
+                                <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
                                 <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                    آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                    آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
                                 </p>
                                 <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
                             </div>
@@ -220,43 +220,42 @@ const MainAppContent: React.FC = () => {
               {/* User Info Card (Desktop Only) */}
               <div
                 className={`hidden sm:flex px-3 py-1.5 rounded-xl border ${
-                  currentUser.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
+                  currentUser?.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
                 } ${
                   isDarkMode
                     ? 'bg-slate-800/80 border-slate-700 text-slate-200'
                     : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
                 }`}
               >
-                <div className={`flex flex-col ${currentUser.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
+                <div className={`flex flex-col ${currentUser?.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
                     <span className="font-extrabold text-xs sm:text-sm leading-tight">
-                        {currentUser.name}
+                        {currentUser?.name || 'مستخدم'}
                     </span>
-                    {!currentUser.isAdmin && (
+                    {!currentUser?.isAdmin && (
                       <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                          {delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || 'لا يوجد كود'}
+                          {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
                       </span>
                     )}
                 </div>
-                {!currentUser.isAdmin && (delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode) && (
+                {!currentUser?.isAdmin && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
                     <div className="relative">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
                             className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
                         >
-                            {(delegateAccounts.find(a => a.username === currentUser.username)?.delegateCode || currentUser.delegateCode || '').slice(-2)}
+                            {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || '').slice(-2)}
                         </button>
-                            {showTooltip && (
-                                <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                                    <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser.delegateName}</p>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                        آخر تحديث: {currentUser.targetSetTimestamp ? new Date(currentUser.targetSetTimestamp).toLocaleDateString('ar-EG') : 'غير متوفر'}
-                                    </p>
-                                    <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
+                        {showTooltip && (
+                            <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                                <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                    آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                </p>
+                                <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
+                            </div>
+                        )}
+                    </div>
+                )}
               </div>
 
               {/* Notification Button (Available for Admin, Data Entry, and Delegates) - Ultra compact on mobile */}
@@ -374,6 +373,7 @@ const MainAppContent: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
 
       {/* Logout Confirmation Modal */}
       {showLogoutModal && (

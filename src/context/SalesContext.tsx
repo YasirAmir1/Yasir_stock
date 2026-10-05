@@ -859,80 +859,55 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // 1. Independent listener for delegate accounts (only once on mount, immune to date/delegate switching)
   useEffect(() => {
-    let salesQuery;
-    if (currentUser.isAdmin) {
-      if (selectedDelegate === 'الكل') {
-        salesQuery = query(collection(db, 'sales_entries'), where('dateString', '==', selectedDate));
-      } else {
-        salesQuery = query(
-          collection(db, 'sales_entries'),
-          where('dateString', '==', selectedDate),
-          where('delegateName', '==', selectedDelegate)
-        );
-      }
-    } else {
-      salesQuery = query(
-        collection(db, 'sales_entries'),
-        where('dateString', '==', selectedDate),
-        where('delegateName', '==', currentUser.name)
-      );
-    }
-
-    const unsubSales = onSnapshot(
-      salesQuery,
+    const unsubAccounts = onSnapshot(
+      collection(db, 'delegate_accounts'),
       (snapshot) => {
-        const entriesMap = new globalThis.Map<string, SalesEntry>();
-        snapshot.forEach((doc) => {
-          const data = doc.data() as SalesEntry;
-          if (data && data.id) {
-            entriesMap.set(data.id, data);
+        const accs: DelegateAccount[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as DelegateAccount;
+          if (data && data.username) {
+            accs.push(data);
           }
         });
-        const pending = getPendingQueue();
-        pending.forEach((entry) => {
-          if (entry.dateString === selectedDate) {
-            if (currentUser.isAdmin) {
-              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
-                entriesMap.set(entry.id, entry);
-              }
-            } else {
-              if (entry.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()) {
-                entriesMap.set(entry.id, entry);
-              }
-            }
+
+        // Merge with default accounts to guarantee accounts like rafatdata and YASIR always exist
+        const mergedAccs = [...accs];
+        DEFAULT_DELEGATE_ACCOUNTS_ENTITIES.forEach((defAcc) => {
+          const exists = mergedAccs.some(
+            (a) => a.username.toLowerCase() === defAcc.username.toLowerCase()
+          );
+          if (!exists) {
+            mergedAccs.push(defAcc);
+            // Persist missing default account to Firestore so it stays synced
+            setDoc(doc(db, 'delegate_accounts', defAcc.username.toLowerCase()), defAcc, { merge: true })
+              .catch((err) => console.error('Failed to sync default account to Firestore:', defAcc.username, err));
           }
         });
-        setSalesEntries(Array.from(entriesMap.values()));
+
+        if (mergedAccs.length > 0) {
+          setDelegateAccounts(mergedAccs);
+        }
       },
       (err) => {
-        console.error('Sales listener error (offline fallback active):', err);
-        const entriesMap = new globalThis.Map<string, SalesEntry>();
-        const pending = getPendingQueue();
-        pending.forEach((entry) => {
-          if (entry.dateString === selectedDate) {
-            if (currentUser.isAdmin) {
-              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
-                entriesMap.set(entry.id, entry);
-              }
-            } else {
-              if (entry.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()) {
-                entriesMap.set(entry.id, entry);
-              }
-            }
-          }
-        });
-        setSalesEntries(Array.from(entriesMap.values()));
+        console.error('Accounts listener error:', err);
+        setDelegateAccounts((prev) => (prev.length > 0 ? prev : DEFAULT_DELEGATE_ACCOUNTS_ENTITIES));
       }
     );
 
+    return () => unsubAccounts();
+  }, []);
+
+  // 2. Independent listener for targets and locks (depends only on user role/name, not date/delegate)
+  useEffect(() => {
     let targetsQuery;
-    if (currentUser.isAdmin) {
+    if (currentUser?.isAdmin) {
       targetsQuery = collection(db, 'delegate_targets');
     } else {
       targetsQuery = query(
         collection(db, 'delegate_targets'),
-        where('delegateName', '==', currentUser.name)
+        where('delegateName', '==', currentUser?.name || '')
       );
     }
 
@@ -954,12 +929,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     let locksQuery;
-    if (currentUser.isAdmin) {
+    if (currentUser?.isAdmin) {
       locksQuery = collection(db, 'target_locks');
     } else {
       locksQuery = query(
         collection(db, 'target_locks'),
-        where('delegateName', '==', currentUser.name)
+        where('delegateName', '==', currentUser?.name || '')
       );
     }
 
@@ -981,45 +956,84 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     );
 
-    const unsubAccounts = onSnapshot(collection(db, 'delegate_accounts'), (snapshot) => {
-      const accs: DelegateAccount[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as DelegateAccount;
-        if (data && data.username) {
-          accs.push(data);
-        }
-      });
+    return () => {
+      unsubTargets();
+      unsubLocks();
+    };
+  }, [currentUser?.isAdmin, currentUser?.name]);
 
-      // Merge with default accounts to guarantee accounts like rafatdata and YASIR always exist
-      const mergedAccs = [...accs];
-      DEFAULT_DELEGATE_ACCOUNTS_ENTITIES.forEach((defAcc) => {
-        const exists = mergedAccs.some(
-          (a) => a.username.toLowerCase() === defAcc.username.toLowerCase()
+  // 3. Independent listener for sales entries (scoped to selected date and delegate)
+  useEffect(() => {
+    let salesQuery;
+    if (currentUser?.isAdmin) {
+      if (selectedDelegate === 'الكل') {
+        salesQuery = query(collection(db, 'sales_entries'), where('dateString', '==', selectedDate));
+      } else {
+        salesQuery = query(
+          collection(db, 'sales_entries'),
+          where('dateString', '==', selectedDate),
+          where('delegateName', '==', selectedDelegate)
         );
-        if (!exists) {
-          mergedAccs.push(defAcc);
-          // Persist missing default account to Firestore so it stays synced
-          setDoc(doc(db, 'delegate_accounts', defAcc.username.toLowerCase()), defAcc, { merge: true })
-            .catch((err) => console.error('Failed to sync default account to Firestore:', defAcc.username, err));
-        }
-      });
-
-      if (mergedAccs.length > 0) {
-        setDelegateAccounts(mergedAccs);
       }
-    }, (err) => {
-      console.error('Accounts listener error:', err);
-      // Fallback to default accounts so delegate data is never broken
-      setDelegateAccounts(prev => prev.length > 0 ? prev : DEFAULT_DELEGATE_ACCOUNTS_ENTITIES);
-    });
+    } else {
+      salesQuery = query(
+        collection(db, 'sales_entries'),
+        where('dateString', '==', selectedDate),
+        where('delegateName', '==', currentUser?.name || '')
+      );
+    }
+
+    const unsubSales = onSnapshot(
+      salesQuery,
+      (snapshot) => {
+        const entriesMap = new globalThis.Map<string, SalesEntry>();
+        snapshot.forEach((doc) => {
+          const data = doc.data() as SalesEntry;
+          if (data && data.id) {
+            entriesMap.set(data.id, data);
+          }
+        });
+        const pending = getPendingQueue();
+        pending.forEach((entry) => {
+          if (entry.dateString === selectedDate) {
+            if (currentUser?.isAdmin) {
+              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
+                entriesMap.set(entry.id, entry);
+              }
+            } else {
+              if (entry.delegateName?.trim().toLowerCase() === currentUser?.name?.trim().toLowerCase()) {
+                entriesMap.set(entry.id, entry);
+              }
+            }
+          }
+        });
+        setSalesEntries(Array.from(entriesMap.values()));
+      },
+      (err) => {
+        console.error('Sales listener error (offline fallback active):', err);
+        const entriesMap = new globalThis.Map<string, SalesEntry>();
+        const pending = getPendingQueue();
+        pending.forEach((entry) => {
+          if (entry.dateString === selectedDate) {
+            if (currentUser?.isAdmin) {
+              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
+                entriesMap.set(entry.id, entry);
+              }
+            } else {
+              if (entry.delegateName?.trim().toLowerCase() === currentUser?.name?.trim().toLowerCase()) {
+                entriesMap.set(entry.id, entry);
+              }
+            }
+          }
+        });
+        setSalesEntries(Array.from(entriesMap.values()));
+      }
+    );
 
     return () => {
       unsubSales();
-      unsubTargets();
-      unsubLocks();
-      unsubAccounts();
     };
-  }, [currentUser.isAdmin, currentUser.name, selectedDate, selectedDelegate]);
+  }, [currentUser?.isAdmin, currentUser?.name, selectedDate, selectedDelegate]);
 
   const saveSalesEntries = async (
     newEntriesData: Omit<SalesEntry, 'id' | 'timestamp'>[]
@@ -1218,7 +1232,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const effectiveDelegate = !currentUser.isAdmin ? currentUser.name : selectedDelegate;
 
     const filteredEntries =
-      effectiveDelegate === 'الكل'
+      effectiveDelegate === 'الكل' || effectiveDelegate === 'الأدمن'
         ? rawSavedEntries
         : rawSavedEntries.filter(
             (e) => e.delegateName?.trim().toLowerCase() === effectiveDelegate?.trim().toLowerCase()
@@ -1229,7 +1243,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         .filter(
           (e) => (e.categoryName || '').trim().toLowerCase() === (displayName || '').trim().toLowerCase()
         )
-        .reduce((sum, item) => sum + item.totalWeightKg, 0);
+        .reduce((sum, item) => sum + (Number(item.totalWeightKg) || 0), 0);
 
       let targetKg = 0;
 
@@ -1241,7 +1255,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         );
         targetKg = found ? (Number(found.dailyTargetWeightKg) || 0) : 0;
       } else {
-        targetKg = delegatesList.reduce((sum, del) => {
+        targetKg = (delegatesList || []).reduce((sum, del) => {
           const found = delegateTargets.find(
             (t) =>
               t.delegateName?.trim().toLowerCase() === del.trim().toLowerCase() &&
@@ -1266,8 +1280,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
     });
 
-    return reports.sort((a, b) => (a.percentage !== b.percentage ? a.percentage - b.percentage : a.categoryId - b.categoryId));
-  }, [currentUser, selectedDelegate, rawSavedEntries, delegateTargets]);
+    return reports.sort((a, b) => {
+      const pA = isNaN(a.percentage) ? 0 : a.percentage;
+      const pB = isNaN(b.percentage) ? 0 : b.percentage;
+      return pA !== pB ? pA - pB : a.categoryId - b.categoryId;
+    });
+  }, [currentUser, selectedDelegate, rawSavedEntries, delegateTargets, delegatesList]);
 
   const loginAccount = (account: UserAccount) => {
     const normalizedAccount: UserAccount = {
@@ -1439,6 +1457,30 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateDelegateTarget = async (delegateName: string, categoryName: string, targetKg: number) => {
     const now = Date.now();
+    // Update local state immediately to avoid race condition and delay
+    setDelegateTargets((prev) => {
+      const idx = prev.findIndex(
+        (t) =>
+          t.delegateName?.trim().toLowerCase() === delegateName?.trim().toLowerCase() &&
+          t.categoryName?.trim().toLowerCase() === categoryName?.trim().toLowerCase()
+      );
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], dailyTargetWeightKg: targetKg, lastUpdatedTimestamp: now };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          id: `${delegateName}_${categoryName}`.replace(/[\/\s]/g, '_'),
+          delegateName,
+          categoryName,
+          dailyTargetWeightKg: targetKg,
+          lastUpdatedTimestamp: now,
+        },
+      ];
+    });
+
     try {
       const docId = `${delegateName}_${categoryName}`.replace(/[\/\s]/g, '_');
       await setDoc(
@@ -1452,6 +1494,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
         { merge: true }
       );
+      setIsOnline(true);
+      setSyncFailureAlert(false);
+      setPendingSyncCount(getPendingQueue().length);
     } catch (e) {
       console.error('Error updating delegate target:', e);
     }
@@ -1470,6 +1515,51 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const now = Date.now();
+
+    // 1. Immediately update local targets to avoid race conditions and UI delay
+    setDelegateTargets((prev) => {
+      const filtered = prev.filter(
+        (t) => t.delegateName?.trim().toLowerCase() !== delegateName.trim().toLowerCase()
+      );
+      const newTargets = targetsList.map((item) => ({
+        id: `${delegateName}_${item.categoryName}`.replace(/[\/\s]/g, '_'),
+        delegateName,
+        categoryName: item.categoryName,
+        dailyTargetWeightKg: item.targetKg,
+        lastUpdatedTimestamp: now,
+      }));
+      return [...filtered, ...newTargets];
+    });
+
+    setTargetLockMap((prev) => ({ ...prev, [delegateName]: now }));
+
+    // 2. Preserve cumulative monthly target without overwriting or losing saved values
+    const accMatch = delegateAccounts.find(
+      (a) =>
+        a.delegateName?.trim().toLowerCase() === delegateName?.trim().toLowerCase() ||
+        a.username?.toLowerCase() === delegateName?.trim().toLowerCase()
+    );
+
+    let effectiveMonthlyTarget: number;
+    if (monthlyTargetKg !== undefined && monthlyTargetKg > 0) {
+      effectiveMonthlyTarget = monthlyTargetKg;
+    } else if (accMatch?.monthlyTargetKg && accMatch.monthlyTargetKg > 0) {
+      effectiveMonthlyTarget = accMatch.monthlyTargetKg;
+    } else {
+      // Calculate cumulative target across 26 working days of daily category targets
+      effectiveMonthlyTarget = targetsList.reduce((sum, item) => sum + (Number(item.targetKg) || 0), 0) * 26;
+    }
+
+    if (accMatch) {
+      setDelegateAccounts((prev) =>
+        prev.map((a) =>
+          a.username.toLowerCase() === accMatch.username.toLowerCase()
+            ? { ...a, monthlyTargetKg: effectiveMonthlyTarget, targetSetTimestamp: now }
+            : a
+        )
+      );
+    }
+
     try {
       const batch = writeBatch(db);
       targetsList.forEach((item) => {
@@ -1488,15 +1578,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         );
       });
 
-      if (monthlyTargetKg !== undefined) {
-        const accMatch = delegateAccounts.find(
-          (a) => a.delegateName?.trim().toLowerCase() === delegateName?.trim().toLowerCase()
-        );
-        if (accMatch) {
-          const updatedAcc = { ...accMatch, monthlyTargetKg, targetSetTimestamp: now };
-          const accRef = doc(db, 'delegate_accounts', accMatch.username.toLowerCase());
-          batch.set(accRef, updatedAcc, { merge: true });
-        }
+      if (accMatch) {
+        const updatedAcc = { ...accMatch, monthlyTargetKg: effectiveMonthlyTarget, targetSetTimestamp: now };
+        const accRef = doc(db, 'delegate_accounts', accMatch.username.toLowerCase());
+        batch.set(accRef, updatedAcc, { merge: true });
       }
 
       const lockDocId = delegateName.replace(/[\/\s]/g, '_');
@@ -1507,8 +1592,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         { merge: true }
       );
 
-      batch.commit();
-      setUserMessage(`تم تثبيت وتحديث التاركت للمندوب (${delegateName}) لمدة 31 يوماً بنجاح ✅`);
+      // Commit to Firestore and update sync status immediately upon success
+      batch
+        .commit()
+        .then(() => {
+          setIsOnline(true);
+          setSyncFailureAlert(false);
+          setPendingSyncCount(getPendingQueue().length);
+          setUserMessage(`تم تثبيت وتحديث التاركت للمندوب (${delegateName}) لمدة 31 يوماً بنجاح ومزامنته فوراً ✅`);
+        })
+        .catch((err) => {
+          console.error('Batch update target commit error:', err);
+          setUserMessage(`فشل مزامنة التاركت مع السيرفر: ${err.message || ''}`);
+        });
+
       return true;
     } catch (e) {
       console.error('Batch update target error:', e);
