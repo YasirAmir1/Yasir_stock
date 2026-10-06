@@ -3598,7 +3598,7 @@ export const ReportsScreen: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-black text-sm sm:text-base flex items-center gap-2">
-                    <span>متابعة أداء الصنف المحدد</span>
+                    <span>تاركت اضافي للمنتج :</span>
                     <span className="text-xs px-2.5 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold">
                       {specificProductStats.productName || specificProductName}
                     </span>
@@ -3628,14 +3628,14 @@ export const ReportsScreen: React.FC = () => {
                 {/* 1. Admin Product Specification Input */}
                 <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-300 dark:border-slate-700">
                   <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap px-1">
-                    اسم الصنف:
+                    اسم المنتج:
                   </span>
                   <input
                     type="text"
                     list="specific-products-datalist"
                     value={tempSpecificProductName}
                     onChange={(e) => setTempSpecificProductName(e.target.value)}
-                    placeholder="اكتب اسم الصنف..."
+                    placeholder="اكتب اسم المنتج..."
                     className="px-2 py-1 text-xs font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500 w-36 sm:w-44"
                   />
                   <datalist id="specific-products-datalist">
@@ -3669,10 +3669,10 @@ export const ReportsScreen: React.FC = () => {
                     onClick={() => specificProductExcelInputRef.current?.click()}
                     disabled={isUploadingSpecificProductExcel}
                     className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
-                    title="رفع ملف إكسل مخصص لتحديث مبيعات وتاركت ومحلات الصنف المحدد واستبدال البيانات السابقة"
+                    title="رفع ملف إكسل مخصص لتحديث مبيعات وتاركت ومحلات المنتج المحدد واستبدال البيانات السابقة"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>{isUploadingSpecificProductExcel ? 'جاري الرفع...' : 'رفع إكسل الصنف المحدد'}</span>
+                    <span>{isUploadingSpecificProductExcel ? 'جاري الرفع...' : 'رفع إكسل المنتج المحدد'}</span>
                   </button>
 
                   <button
@@ -3761,13 +3761,13 @@ export const ReportsScreen: React.FC = () => {
                     <h4 className={`font-black text-xs sm:text-base flex items-center gap-1.5 ${
                       specificProductStats.salesPct >= 100 ? 'text-lime-800 dark:text-[#39ff14]' : ''
                     }`}>
-                      <span>مبيعات الصنف (قطعة) مقابل تاركت الصنف (قطعة)</span>
+                      <span>مبيعات لحد الان</span>
                       {specificProductStats.salesPct >= 100 && (
                         <Crown className="w-5 h-5 fill-amber-400 text-amber-400 drop-shadow-md animate-bounce inline shrink-0" />
                       )}
                     </h4>
                     <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                      الصنف المحدد: {specificProductStats.productName || specificProductName}
+                      المنتج المحدد: {specificProductStats.productName || specificProductName}
                     </span>
                   </div>
                 </div>
@@ -3894,7 +3894,7 @@ export const ReportsScreen: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-black text-xs sm:text-sm text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                      <span>تغطية عدد المحلات (الوصول)</span>
+                      <span>تغطية عدد المحلات (الانتشار)</span>
                       {specificProductStats.shopsPct >= 100 && (
                         <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-[#39ff14] inline" />
                       )}
@@ -3936,7 +3936,7 @@ export const ReportsScreen: React.FC = () => {
                 <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl">
                   <div className="text-[10px] text-slate-400 font-bold mb-0.5">تم بيع لعدد محلات</div>
                   <div className="font-mono font-black text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
-                    {formatWithCommas(specificProductStats.actualShops)}
+                    {specificProductStats.actualShops}
                     <span className="text-[9px] text-slate-400 mr-1">محل</span>
                   </div>
                 </div>
@@ -3944,7 +3944,7 @@ export const ReportsScreen: React.FC = () => {
                 <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl">
                   <div className="text-[10px] text-slate-400 font-bold mb-0.5">تاركت تغطية المحلات</div>
                   <div className="font-mono font-black text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-                    {formatWithCommas(specificProductStats.targetShops)}
+                    {specificProductStats.targetShops}
                     <span className="text-[9px] text-slate-400 mr-1">محل مطلوب</span>
                   </div>
                 </div>
@@ -3963,8 +3963,8 @@ export const ReportsScreen: React.FC = () => {
                     }`}
                   >
                     {specificProductStats.actualShops >= specificProductStats.targetShops && specificProductStats.targetShops > 0
-                      ? `+${formatWithCommas(specificProductStats.actualShops - specificProductStats.targetShops)}`
-                      : formatWithCommas(Math.max(0, specificProductStats.targetShops - specificProductStats.actualShops))}
+                      ? `+${specificProductStats.actualShops - specificProductStats.targetShops}`
+                      : Math.max(0, specificProductStats.targetShops - specificProductStats.actualShops)}
                     <span className="text-[9px] text-slate-400 mr-1">محل</span>
                   </div>
                 </div>
@@ -4062,10 +4062,10 @@ export const ReportsScreen: React.FC = () => {
                               {formatWithCommas(del.salesCartons)}
                             </td>
                             <td className="p-2.5 text-center font-mono font-black text-emerald-600 dark:text-emerald-400">
-                              {formatWithCommas(del.actualShops)}
+                              {del.actualShops}
                             </td>
                             <td className="p-2.5 text-center font-mono font-bold text-slate-600 dark:text-slate-300">
-                              {formatWithCommas(del.targetShops)}
+                              {del.targetShops}
                             </td>
                             <td className="p-2.5 text-center font-mono font-black">
                               <span
@@ -4382,14 +4382,14 @@ export const ReportsScreen: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 dark:text-slate-400 font-bold">مطلوب تبيع لعدد محلات:</span>
                   <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                    {formatWithCommas(extraTargetsStats.shopsTarget, true)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                    {extraTargetsStats.shopsTarget} <span className="text-[9px] text-slate-400 font-normal">محل</span>
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لعدد محلات:</span>
                   <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-                    {formatWithCommas(extraTargetsStats.shopsActual, true)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                    {extraTargetsStats.shopsActual} <span className="text-[9px] text-slate-400 font-normal">محل</span>
                   </span>
                 </div>
 
@@ -4447,14 +4447,14 @@ export const ReportsScreen: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 dark:text-slate-400 font-bold">تاركت زبائن شهري:</span>
                   <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                    {formatWithCommas(extraTargetsStats.extraCustTarget, true)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                    {extraTargetsStats.extraCustTarget} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لهم:</span>
                   <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-                    {formatWithCommas(extraTargetsStats.extraCustActual, true)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                    {extraTargetsStats.extraCustActual} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
                   </span>
                 </div>
 
