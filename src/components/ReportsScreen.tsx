@@ -5,7 +5,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -17,6 +17,20 @@ import {
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
 import { DailySalesCompletionBar } from './DailySalesCompletionBar';
+
+export interface SpecificProductTarget {
+  id?: string;
+  delegateName: string;
+  productName?: string;
+  targetPieces?: number;
+  salesPiecesOverride?: number;
+  targetCartons: number;
+  salesCartonsOverride?: number;
+  targetShops: number;
+  actualShopsOverride?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
 
 export interface MonthlyItemTarget {
   id?: string;
@@ -1017,6 +1031,7 @@ export const ReportsScreen: React.FC = () => {
     setUserMessage,
     isDarkMode, // Added
     productsList, // Added
+    allSalesEntries, // Added for carton & shop calculations
   } = useSales();
 
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
@@ -1113,6 +1128,28 @@ export const ReportsScreen: React.FC = () => {
   const [monthlyUploadMessage, setMonthlyUploadMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const monthlyExcelInputRef = useRef<HTMLInputElement>(null);
 
+  // Specific Product Tracking State (Before Total Incentives)
+  const [specificProductName, setSpecificProductName] = useState<string>('جبن مثلثات');
+  const [tempSpecificProductName, setTempSpecificProductName] = useState<string>('جبن مثلثات');
+  const [isEditingSpecificProductName, setIsEditingSpecificProductName] = useState<boolean>(false);
+  const [isSavingSpecificProductName, setIsSavingSpecificProductName] = useState<boolean>(false);
+  const [specificProductTargets, setSpecificProductTargets] = useState<SpecificProductTarget[]>([]);
+  const [isUploadingSpecificProductExcel, setIsUploadingSpecificProductExcel] = useState<boolean>(false);
+  const [specificProductUploadMessage, setSpecificProductUploadMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const specificProductExcelInputRef = useRef<HTMLInputElement>(null);
+  const [showAdminSpecificBreakdown, setShowAdminSpecificBreakdown] = useState<boolean>(false);
+
+  // Manual Edit Modal State for Specific Product
+  const [showEditSpecificProductModal, setShowEditSpecificProductModal] = useState<boolean>(false);
+  const [editSpecificProductDelegate, setEditSpecificProductDelegate] = useState<string>('');
+  const [editSpecificTargetPieces, setEditSpecificTargetPieces] = useState<string>('');
+  const [editSpecificSalesPieces, setEditSpecificSalesPieces] = useState<string>('');
+  const [editSpecificTargetCartons, setEditSpecificTargetCartons] = useState<string>('');
+  const [editSpecificSalesCartons, setEditSpecificSalesCartons] = useState<string>('');
+  const [editSpecificTargetShops, setEditSpecificTargetShops] = useState<string>('');
+  const [editSpecificActualShops, setEditSpecificActualShops] = useState<string>('');
+  const [isSavingSpecificProductModal, setIsSavingSpecificProductModal] = useState<boolean>(false);
+
   // Subscribe to monthly_item_targets collection in Firestore
   useEffect(() => {
     const unsub = onSnapshot(
@@ -1194,6 +1231,58 @@ export const ReportsScreen: React.FC = () => {
       },
       (err) => {
         console.error('Error fetching delegate_monthly_extra_targets:', err);
+      }
+    );
+    return () => unsub();
+  }, [currentUser.isAdmin, currentUser.name]);
+
+  // Subscribe to specific_product_config in app_settings (Admin product specification)
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'app_settings', 'specific_product_config'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.productName) {
+            setSpecificProductName(data.productName);
+            setTempSpecificProductName(data.productName);
+          }
+        }
+      },
+      (err) => {
+        console.error('Error fetching specific_product_config:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Subscribe to specific_product_targets collection in Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'specific_product_targets'),
+      (snapshot) => {
+        const list: SpecificProductTarget[] = [];
+        const myNorm = normalizeText(currentUser.name || '');
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as SpecificProductTarget;
+          if (data) {
+            if (currentUser.isAdmin) {
+              list.push({ ...data, id: docSnap.id });
+            } else {
+              const dNorm = normalizeText(data.delegateName || '');
+              if (
+                dNorm === myNorm ||
+                data.delegateName?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()
+              ) {
+                list.push({ ...data, id: docSnap.id });
+              }
+            }
+          }
+        });
+        setSpecificProductTargets(list);
+      },
+      (err) => {
+        console.error('Error fetching specific_product_targets:', err);
       }
     );
     return () => unsub();
@@ -1948,6 +2037,489 @@ export const ReportsScreen: React.FC = () => {
       setIsSavingExtraTargets(false);
     }
   };
+
+  // --- Specific Product Tracking Handlers & Calculations ---
+
+  // Admin save specified product name
+  const handleSaveSpecificProductName = async () => {
+    const cleanName = tempSpecificProductName.trim();
+    if (!cleanName) return;
+    try {
+      setIsSavingSpecificProductName(true);
+      await setDoc(
+        doc(db, 'app_settings', 'specific_product_config'),
+        {
+          productName: cleanName,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.name || 'الأدمن',
+        },
+        { merge: true }
+      );
+      setSpecificProductName(cleanName);
+      setIsEditingSpecificProductName(false);
+      setUserMessage(`تم تعيين وحفظ المنتج المخصص (${cleanName}) بنجاح لكافة المندوبين ✅`);
+    } catch (e) {
+      console.error('Error saving specific product name:', e);
+      setUserMessage('حدث خطأ أثناء حفظ اسم المنتج المخصص.');
+    } finally {
+      setIsSavingSpecificProductName(false);
+    }
+  };
+
+  // Dedicated Excel upload for Specific Product Section
+  const handleSpecificProductExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploadingSpecificProductExcel(true);
+      setSpecificProductUploadMessage(null);
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
+
+      if (!jsonData || jsonData.length === 0) {
+        setSpecificProductUploadMessage({ text: 'ملف الإكسل فارغ أو غير صالح!', type: 'error' });
+        return;
+      }
+
+      const batch = writeBatch(db);
+      let count = 0;
+
+      jsonData.forEach((row: any) => {
+        const rawDelegate = (
+          row['اسم المندوب'] ||
+          row['المندوب'] ||
+          row['مندوب'] ||
+          row['Representative'] ||
+          row['delegate'] ||
+          row['delegateName'] ||
+          ''
+        ).toString().trim();
+
+        if (!rawDelegate) return;
+
+        const normDel = normalizeText(rawDelegate);
+        const matchedDel = delegatesList.find(
+          (d) => normalizeText(d) === normDel || d.trim().toLowerCase() === rawDelegate.toLowerCase()
+        ) || rawDelegate;
+
+        const existingRecord = specificProductTargets.find(
+          (t) => normalizeText(t.delegateName || '') === normDel || t.delegateName === matchedDel
+        );
+
+        const rawProd = (row['اسم المنتج'] || row['المنتج'] || row['Product'] || '').toString().trim();
+        const prodName = rawProd || specificProductName;
+
+        const matchedProd = productsList.find(
+          (p) => normalizeText(p.productName) === normalizeText(prodName) || p.productName === prodName
+        );
+        const cartonQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+
+        const rawTargetPieces =
+          row['تاركت الصنف (قطعة)'] ??
+          row['تاركت المنتج (قطعة)'] ??
+          row['تاركت القطعة'] ??
+          row['التاركت بالقطعة'] ??
+          row['تاركت قطعة'] ??
+          row['Target Pieces'] ??
+          row['targetPieces'] ??
+          null;
+
+        const rawSalesPieces =
+          row['مبيعات الصنف (قطعة)'] ??
+          row['مبيعات المنتج (قطعة)'] ??
+          row['مبيعات القطعة'] ??
+          row['المبيعات بالقطعة'] ??
+          row['مبيعات قطعة'] ??
+          row['Sales Pieces'] ??
+          row['salesPieces'] ??
+          null;
+
+        const rawTargetCartons =
+          row['تاركت المنتج (كارتون)'] ??
+          row['تاركت الصنف (كارتون)'] ??
+          row['تاركت الكارتون'] ??
+          row['التاركت بالكارتون'] ??
+          row['تاركت المنتج'] ??
+          row['تاركت كارتون'] ??
+          row['التاركت'] ??
+          row['Target Cartons'] ??
+          null;
+
+        const rawSalesCartons =
+          row['مبيعات المنتج (كارتون)'] ??
+          row['مبيعات الصنف (كارتون)'] ??
+          row['مبيعات الكارتون'] ??
+          row['المبيعات بالكارتون'] ??
+          row['مبيعات المنتج'] ??
+          row['مبيعات كارتون'] ??
+          row['المبيعات'] ??
+          row['Sales Cartons'] ??
+          null;
+
+        const rawTargetShops =
+          row['مطلوب تبيع لعدد محلات'] ??
+          row['تاركت المحلات'] ??
+          row['هدف المحلات'] ??
+          row['تاركت تغطية المحلات'] ??
+          row['مطلوب محلات'] ??
+          row['Target Shops'] ??
+          null;
+
+        const rawActualShops =
+          row['تم بيع لعدد محلات'] ??
+          row['محلات تم البيع لها'] ??
+          row['عدد المحلات المباع لها'] ??
+          row['عدد المحلات'] ??
+          row['المحلات المباع لها'] ??
+          row['Actual Shops'] ??
+          null;
+
+        let targetPieces: number = 0;
+        let targetCartons: number = 0;
+
+        if (rawTargetPieces !== null && String(rawTargetPieces).trim() !== '') {
+          const v = parseFloat(String(rawTargetPieces).replace(/,/g, '').trim());
+          targetPieces = !isNaN(v) ? v : 0;
+        }
+        if (rawTargetCartons !== null && String(rawTargetCartons).trim() !== '') {
+          const v = parseFloat(String(rawTargetCartons).replace(/,/g, '').trim());
+          targetCartons = !isNaN(v) ? v : 0;
+        }
+
+        if (targetPieces > 0 && targetCartons === 0 && cartonQty > 0) {
+          targetCartons = parseFloat((targetPieces / cartonQty).toFixed(1));
+        } else if (targetCartons > 0 && targetPieces === 0 && cartonQty > 0) {
+          targetPieces = Math.round(targetCartons * cartonQty);
+        } else if (targetPieces === 0 && targetCartons === 0 && existingRecord) {
+          targetPieces = existingRecord.targetPieces || (existingRecord.targetCartons && cartonQty > 0 ? Math.round(existingRecord.targetCartons * cartonQty) : 0);
+          targetCartons = existingRecord.targetCartons || 0;
+        }
+
+        let salesPiecesOverride: number = 0;
+        let salesCartonsOverride: number = 0;
+
+        if (rawSalesPieces !== null && String(rawSalesPieces).trim() !== '') {
+          const v = parseFloat(String(rawSalesPieces).replace(/,/g, '').trim());
+          salesPiecesOverride = !isNaN(v) ? v : 0;
+        }
+        if (rawSalesCartons !== null && String(rawSalesCartons).trim() !== '') {
+          const v = parseFloat(String(rawSalesCartons).replace(/,/g, '').trim());
+          salesCartonsOverride = !isNaN(v) ? v : 0;
+        }
+
+        if (salesPiecesOverride > 0 && salesCartonsOverride === 0 && cartonQty > 0) {
+          salesCartonsOverride = parseFloat((salesPiecesOverride / cartonQty).toFixed(1));
+        } else if (salesCartonsOverride > 0 && salesPiecesOverride === 0 && cartonQty > 0) {
+          salesPiecesOverride = Math.round(salesCartonsOverride * cartonQty);
+        } else if (salesPiecesOverride === 0 && salesCartonsOverride === 0 && existingRecord) {
+          salesPiecesOverride = existingRecord.salesPiecesOverride || 0;
+          salesCartonsOverride = existingRecord.salesCartonsOverride || 0;
+        }
+
+        let targetShops: number;
+        if (rawTargetShops !== null && String(rawTargetShops).trim() !== '') {
+          const v = parseFloat(String(rawTargetShops).replace(/,/g, '').trim());
+          targetShops = !isNaN(v) ? v : (existingRecord ? existingRecord.targetShops : 0);
+        } else {
+          targetShops = existingRecord ? existingRecord.targetShops : 0;
+        }
+
+        let actualShopsOverride: number;
+        if (rawActualShops !== null && String(rawActualShops).trim() !== '') {
+          const v = parseFloat(String(rawActualShops).replace(/,/g, '').trim());
+          actualShopsOverride = !isNaN(v) ? v : (existingRecord?.actualShopsOverride || 0);
+        } else {
+          actualShopsOverride = existingRecord?.actualShopsOverride || 0;
+        }
+
+        const docKey = `del_${matchedDel}`.replace(/[\/\s#$[\]]/g, '_');
+        const docRef = doc(db, 'specific_product_targets', docKey);
+
+        batch.set(
+          docRef,
+          {
+            delegateName: matchedDel,
+            productName: prodName,
+            targetPieces,
+            salesPiecesOverride,
+            targetCartons,
+            salesCartonsOverride,
+            targetShops,
+            actualShopsOverride,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name || 'الأدمن',
+          },
+          { merge: true }
+        );
+        count++;
+      });
+
+      if (count === 0) {
+        setSpecificProductUploadMessage({
+          text: 'لم يتم العثور على سجلات صالحة في ملف الإكسل.',
+          type: 'error',
+        });
+        return;
+      }
+
+      await batch.commit();
+      setSpecificProductUploadMessage({
+        text: `تم تحديث ومزامنة أهداف ومبيعات المنتج المخصص بنجاح لـ (${count}) مندوب ✅`,
+        type: 'success',
+      });
+      setUserMessage(`تم تحديث أهداف ومبيعات المنتج المخصص لـ (${count}) مندوب بنجاح ✅`);
+
+      setTimeout(() => {
+        setSpecificProductUploadMessage(null);
+      }, 7000);
+    } catch (err: any) {
+      console.error('Error uploading specific product excel:', err);
+      setSpecificProductUploadMessage({
+        text: `حدث خطأ أثناء معالجة ملف الإكسل: ${err.message || 'خطأ غير معروف'}`,
+        type: 'error',
+      });
+    } finally {
+      setIsUploadingSpecificProductExcel(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // Dedicated template download for Specific Product Section
+  const handleDownloadSpecificProductTemplate = () => {
+    try {
+      const validDelegates = delegatesList.filter((d) => d !== 'الكل' && d !== 'الأدمن');
+      const rows: any[] = [];
+      const matchedProd = productsList.find(
+        (p) => normalizeText(p.productName) === normalizeText(specificProductName) || p.productName === specificProductName
+      );
+      const cartonQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+
+      validDelegates.forEach((del) => {
+        const normDel = normalizeText(del);
+        const existingRecord = specificProductTargets.find(
+          (t) => normalizeText(t.delegateName || '') === normDel || t.delegateName === del
+        );
+
+        const currentTargetPieces = existingRecord?.targetPieces ?? (existingRecord?.targetCartons && cartonQty > 0 ? Math.round(existingRecord.targetCartons * cartonQty) : 0);
+        const currentSalesPieces = existingRecord?.salesPiecesOverride ?? (existingRecord?.salesCartonsOverride && cartonQty > 0 ? Math.round(existingRecord.salesCartonsOverride * cartonQty) : 0);
+
+        rows.push({
+          'اسم المندوب': del,
+          'اسم المنتج': existingRecord?.productName || specificProductName,
+          'تاركت الصنف (قطعة)': currentTargetPieces,
+          'مبيعات الصنف (قطعة)': currentSalesPieces,
+          'تاركت المنتج (كارتون)': existingRecord ? existingRecord.targetCartons : 0,
+          'مبيعات المنتج (كارتون)': existingRecord?.salesCartonsOverride || 0,
+          'مطلوب تبيع لعدد محلات': existingRecord ? existingRecord.targetShops : 0,
+          'تم بيع لعدد محلات': existingRecord?.actualShopsOverride || 0,
+        });
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'متابعة_المنتج_المخصص');
+      XLSX.writeFile(
+        workbook,
+        `نموذج_المنتج_المخصص_${specificProductName}_${new Date().toISOString().split('T')[0]}.xlsx`
+      );
+    } catch (err) {
+      console.error('Error downloading specific product template:', err);
+    }
+  };
+
+  // Manual save for Admin modal
+  const handleSaveSpecificProductModal = async () => {
+    if (!editSpecificProductDelegate) return;
+    try {
+      setIsSavingSpecificProductModal(true);
+      const docKey = `del_${editSpecificProductDelegate}`.replace(/[\/\s#$[\]]/g, '_');
+      const targetPiecesVal = parseFloat(editSpecificTargetPieces.replace(/,/g, '')) || 0;
+      const salesPiecesVal = parseFloat(editSpecificSalesPieces.replace(/,/g, '')) || 0;
+      const targetCartonsVal = parseFloat(editSpecificTargetCartons.replace(/,/g, '')) || 0;
+      const salesCartonsVal = parseFloat(editSpecificSalesCartons.replace(/,/g, '')) || 0;
+
+      await setDoc(
+        doc(db, 'specific_product_targets', docKey),
+        {
+          delegateName: editSpecificProductDelegate,
+          productName: specificProductName,
+          targetPieces: targetPiecesVal,
+          salesPiecesOverride: salesPiecesVal,
+          targetCartons: targetCartonsVal,
+          salesCartonsOverride: salesCartonsVal,
+          targetShops: parseFloat(editSpecificTargetShops.replace(/,/g, '')) || 0,
+          actualShopsOverride: parseFloat(editSpecificActualShops.replace(/,/g, '')) || 0,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.name || 'الأدمن',
+        },
+        { merge: true }
+      );
+      setShowEditSpecificProductModal(false);
+      setUserMessage(`تم حفظ أهداف ومبيعات المنتج المخصص للمندوب (${editSpecificProductDelegate}) بنجاح ✅`);
+    } catch (err) {
+      console.error('Error saving specific product modal:', err);
+      setUserMessage('حدث خطأ أثناء حفظ أهداف المنتج المخصص.');
+    } finally {
+      setIsSavingSpecificProductModal(false);
+    }
+  };
+
+  const openEditSpecificProduct = (delegateName: string) => {
+    setEditSpecificProductDelegate(delegateName);
+    const existing = specificProductTargets.find(
+      (t) => normalizeText(t.delegateName || '') === normalizeText(delegateName) || t.delegateName === delegateName
+    );
+    const matchedProd = productsList.find(
+      (p) => normalizeText(p.productName) === normalizeText(specificProductName) || p.productName === specificProductName
+    );
+    const cQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+
+    const tPieces = existing?.targetPieces ?? (existing?.targetCartons && cQty > 0 ? Math.round(existing.targetCartons * cQty) : '');
+    const sPieces = existing?.salesPiecesOverride ?? (existing?.salesCartonsOverride && cQty > 0 ? Math.round(existing.salesCartonsOverride * cQty) : '');
+
+    setEditSpecificTargetPieces(tPieces ? String(tPieces) : '');
+    setEditSpecificSalesPieces(sPieces ? String(sPieces) : '');
+    setEditSpecificTargetCartons(existing ? String(existing.targetCartons || '') : '');
+    setEditSpecificSalesCartons(
+      existing && existing.salesCartonsOverride !== undefined ? String(existing.salesCartonsOverride) : ''
+    );
+    setEditSpecificTargetShops(existing ? String(existing.targetShops || '') : '');
+    setEditSpecificActualShops(
+      existing && existing.actualShopsOverride !== undefined ? String(existing.actualShopsOverride) : ''
+    );
+    setShowEditSpecificProductModal(true);
+  };
+
+  // Metrics Tracked Per Representative & Admin Aggregation (Specific Product)
+  // Strictly takes targets, sales, and shops from Excel uploads and Admin records (NOT from app sales entries)
+  const specificProductStats = useMemo(() => {
+    const normTargetProd = normalizeText(specificProductName);
+    const validDelegates = delegatesList.filter((d) => d !== 'الكل' && d !== 'الأدمن');
+    const matchedProd = productsList.find(
+      (p) => normalizeText(p.productName) === normTargetProd || p.productName === specificProductName
+    );
+    const cartonQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+
+    const resolveMetrics = (del: string) => {
+      const dNorm = normalizeText(del);
+      const record = specificProductTargets.find(
+        (t) => normalizeText(t.delegateName || '') === dNorm || t.delegateName === del
+      );
+
+      // 1. Targets (strictly from Excel / record):
+      let targetPieces = record?.targetPieces || 0;
+      let targetCartons = record?.targetCartons || 0;
+
+      if (targetPieces === 0 && targetCartons > 0 && cartonQty > 0) {
+        targetPieces = Math.round(targetCartons * cartonQty);
+      } else if (targetPieces > 0 && targetCartons === 0 && cartonQty > 0) {
+        targetCartons = parseFloat((targetPieces / cartonQty).toFixed(1));
+      }
+
+      // 2. Sales (strictly from Excel uploaded data - NOT from app sales entries):
+      let salesPieces = 0;
+      if (record?.salesPiecesOverride !== undefined && record.salesPiecesOverride !== null) {
+        salesPieces = record.salesPiecesOverride;
+      } else if (record?.salesCartonsOverride !== undefined && record.salesCartonsOverride !== null && cartonQty > 0) {
+        salesPieces = Math.round(record.salesCartonsOverride * cartonQty);
+      }
+
+      let salesCartons = 0;
+      if (record?.salesCartonsOverride !== undefined && record.salesCartonsOverride !== null) {
+        salesCartons = record.salesCartonsOverride;
+      } else if (cartonQty > 0 && salesPieces > 0) {
+        salesCartons = parseFloat((salesPieces / cartonQty).toFixed(1));
+      }
+
+      const salesPct = targetPieces > 0 
+        ? (salesPieces / targetPieces) * 100 
+        : (targetCartons > 0 ? (salesCartons / targetCartons) * 100 : 0);
+
+      // 3. Shops (strictly from Excel uploaded data):
+      const targetShops = record?.targetShops || 0;
+      const actualShops = record?.actualShopsOverride !== undefined && record.actualShopsOverride !== null
+        ? record.actualShopsOverride
+        : 0;
+
+      const shopsPct = targetShops > 0 ? (actualShops / targetShops) * 100 : 0;
+
+      return {
+        delegateName: del,
+        productName: record?.productName || specificProductName,
+        targetPieces,
+        salesPieces,
+        targetCartons,
+        salesCartons,
+        salesPct,
+        targetShops,
+        actualShops,
+        shopsPct,
+      };
+    };
+
+    // 1. Representative View (Or Admin filtering a single delegate)
+    if (!currentUser.isAdmin || (selectedDelegate !== 'الكل' && selectedDelegate !== 'الأدمن')) {
+      const activeRep = !currentUser.isAdmin ? currentUser.name : selectedDelegate;
+      const m = resolveMetrics(activeRep);
+
+      return {
+        isAggregated: false,
+        ...m,
+        delegateBreakdown: [],
+      };
+    }
+
+    // 2. Admin Grand Total View (All Representatives Aggregated)
+    let totalTargetPieces = 0;
+    let totalSalesPieces = 0;
+    let totalTargetCartons = 0;
+    let totalSalesCartons = 0;
+    let totalTargetShops = 0;
+    let totalActualShops = 0;
+
+    const breakdown = validDelegates.map((del) => {
+      const m = resolveMetrics(del);
+      totalTargetPieces += m.targetPieces;
+      totalSalesPieces += m.salesPieces;
+      totalTargetCartons += m.targetCartons;
+      totalSalesCartons += m.salesCartons;
+      totalTargetShops += m.targetShops;
+      totalActualShops += m.actualShops;
+      return m;
+    });
+
+    const totalSalesPct = totalTargetPieces > 0 
+      ? (totalSalesPieces / totalTargetPieces) * 100 
+      : (totalTargetCartons > 0 ? (totalSalesCartons / totalTargetCartons) * 100 : 0);
+    const totalShopsPct = totalTargetShops > 0 ? (totalActualShops / totalTargetShops) * 100 : 0;
+
+    return {
+      isAggregated: true,
+      delegateName: 'الإجمالي العام لكافة المندوبين',
+      productName: specificProductName,
+      targetPieces: totalTargetPieces,
+      salesPieces: totalSalesPieces,
+      targetCartons: totalTargetCartons,
+      salesCartons: totalSalesCartons,
+      salesPct: totalSalesPct,
+      targetShops: totalTargetShops,
+      actualShops: totalActualShops,
+      shopsPct: totalShopsPct,
+      delegateBreakdown: breakdown,
+    };
+  }, [
+    currentUser.isAdmin,
+    currentUser.name,
+    selectedDelegate,
+    specificProductName,
+    specificProductTargets,
+    delegatesList,
+    productsList,
+  ]);
 
   const getProductCode = (productName: string) => {
     const p = productsList.find(p => p.productName === productName);
@@ -2936,6 +3508,497 @@ export const ReportsScreen: React.FC = () => {
           </table>
         </div>
 
+        {/* Specific Product Tracking & Performance Section (Before Total Representative Incentives) */}
+        <div className={`p-4 sm:p-5 border-t-2 ${
+          isDarkMode 
+            ? 'bg-gradient-to-b from-slate-900/90 to-slate-950/90 border-slate-700/80 text-white' 
+            : 'bg-gradient-to-b from-slate-50/95 to-white border-slate-300 text-slate-900'
+        }`}>
+          {/* Section Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center font-black shadow-md shrink-0">
+                <Package className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-black text-sm sm:text-base flex items-center gap-2">
+                    <span>متابعة أداء الصنف المحدد</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold">
+                      {specificProductStats.productName || specificProductName}
+                    </span>
+                  </h3>
+                  {specificProductStats.isAggregated ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-900/40 text-blue-300 border border-blue-700/40">
+                      مجموع كافة المندوبين
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 border border-emerald-700/40">
+                      المندوب: {specificProductStats.delegateName}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                  بيع هذه الكمية لهذه المحلات يتم حساب نصف كارتون للتغطية
+                </p>
+              </div>
+            </div>
+
+            {/* Admin Controls Toolbar: Product Specification & Dedicated Excel Upload */}
+            {currentUser.isAdmin && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-wrap">
+                {/* 1. Admin Product Specification Input */}
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-300 dark:border-slate-700">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap px-1">
+                    اسم الصنف:
+                  </span>
+                  <input
+                    type="text"
+                    list="specific-products-datalist"
+                    value={tempSpecificProductName}
+                    onChange={(e) => setTempSpecificProductName(e.target.value)}
+                    placeholder="اكتب اسم الصنف..."
+                    className="px-2 py-1 text-xs font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500 w-36 sm:w-44"
+                  />
+                  <datalist id="specific-products-datalist">
+                    {productsList.map((p) => (
+                      <option key={p.id} value={p.productName} />
+                    ))}
+                  </datalist>
+                  <button
+                    type="button"
+                    onClick={handleSaveSpecificProductName}
+                    disabled={isSavingSpecificProductName || !tempSpecificProductName.trim()}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-black rounded-lg shadow transition-all disabled:opacity-50 flex items-center gap-1"
+                    title="حفظ وتحديد الصنف المخصص لكافة المندوبين"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isSavingSpecificProductName ? '...' : 'حفظ'}</span>
+                  </button>
+                </div>
+
+                {/* 2. Dedicated Excel Upload & Template Buttons */}
+                <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                  <input
+                    type="file"
+                    ref={specificProductExcelInputRef}
+                    onChange={handleSpecificProductExcelUpload}
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => specificProductExcelInputRef.current?.click()}
+                    disabled={isUploadingSpecificProductExcel}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
+                    title="رفع ملف إكسل مخصص لتحديث مبيعات وتاركت ومحلات الصنف المحدد"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isUploadingSpecificProductExcel ? 'جاري الرفع...' : 'رفع إكسل الصنف المحدد'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadSpecificProductTemplate}
+                    className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                    title="تحميل نموذج الإكسل الخاص بالصنف المحدد"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>نموذج الإكسل</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstDel = delegatesList.find((d) => d !== 'الكل' && d !== 'الأدمن') || '';
+                      openEditSpecificProduct(firstDel);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                    title="تعديل يدوي لأهداف ومبيعات المندوبين"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>تعديل يدوي</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Upload Message Banner */}
+          {specificProductUploadMessage && (
+            <div
+              className={`mb-4 p-3 rounded-xl text-xs font-bold flex items-center justify-between border ${
+                specificProductUploadMessage.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              <span>{specificProductUploadMessage.text}</span>
+              <button
+                type="button"
+                onClick={() => setSpecificProductUploadMessage(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Dynamic Metrics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-4">
+            {/* Card 1: Product Sales (in pieces) vs Target (in pieces) & Achievement % */}
+            <div
+              className={`p-4 sm:p-5 rounded-2xl border transition-all duration-300 ${
+                specificProductStats.salesPct >= 100
+                  ? 'bg-lime-400/20 dark:bg-lime-400/20 border-2 border-lime-400 shadow-[0_0_25px_rgba(163,230,53,0.35)] ring-2 ring-lime-400/40 text-lime-900 dark:text-[#39ff14]'
+                  : isDarkMode
+                  ? 'bg-slate-900/70 border-slate-800 text-white'
+                  : 'bg-white border-slate-200 shadow-sm text-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      specificProductStats.salesPct >= 100
+                        ? 'bg-lime-400/30 text-lime-700 dark:text-[#39ff14] shadow-[0_0_12px_rgba(163,230,53,0.5)]'
+                        : 'bg-indigo-500/20 text-indigo-400'
+                    }`}
+                  >
+                    <Package className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </div>
+                  <div>
+                    <h4 className={`font-black text-xs sm:text-base flex items-center gap-1.5 ${
+                      specificProductStats.salesPct >= 100 ? 'text-lime-800 dark:text-[#39ff14]' : ''
+                    }`}>
+                      <span>مبيعات الصنف (قطعة) مقابل تاركت الصنف (قطعة)</span>
+                      {specificProductStats.salesPct >= 100 && (
+                        <Crown className="w-5 h-5 fill-amber-400 text-amber-400 drop-shadow-md animate-bounce inline shrink-0" />
+                      )}
+                    </h4>
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      الصنف المحدد: {specificProductStats.productName || specificProductName}
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`px-3 py-1.5 rounded-xl font-mono font-black text-base sm:text-lg flex items-center gap-1.5 shadow-sm ${
+                    specificProductStats.salesPct >= 100
+                      ? 'bg-lime-400/30 text-lime-900 dark:text-[#39ff14] border-2 border-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.4)]'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {specificProductStats.salesPct >= 100 && (
+                    <Crown className="w-4 h-4 fill-amber-400 text-amber-400 inline" />
+                  )}
+                  <span>{specificProductStats.salesPct.toFixed(1)}%</span>
+                  {specificProductStats.salesPct >= 100 && (
+                    <span className="text-xs">🏆</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-3 rounded-full overflow-hidden mb-3">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    specificProductStats.salesPct >= 100
+                      ? 'bg-gradient-to-r from-lime-400 via-lime-300 to-[#39ff14] shadow-[0_0_15px_rgba(57,255,20,0.9)]'
+                      : 'bg-gradient-to-r from-indigo-500 to-purple-600'
+                  }`}
+                  style={{ width: `${Math.min(specificProductStats.salesPct, 100)}%` }}
+                />
+              </div>
+
+              {/* 100% Achievement Banner when achieved */}
+              {specificProductStats.salesPct >= 100 && (
+                <div className="mb-3 p-2 rounded-xl bg-lime-400/30 border border-lime-500 flex items-center justify-between text-xs font-black text-lime-900 dark:text-[#39ff14]">
+                  <span className="flex items-center gap-1.5">
+                    <Crown className="w-4 h-4 fill-amber-400 text-amber-400" />
+                    تم الوصول إلى 100% من الهدف الشهري وتجاوزه بنجاح! 👑
+                  </span>
+                  <span className="font-mono text-sm font-black">
+                    +{formatWithCommas(Math.max(0, specificProductStats.salesPieces - specificProductStats.targetPieces))} قطعة فائض
+                  </span>
+                </div>
+              )}
+
+              {/* Numerical breakdown */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-200/60 dark:border-slate-800/80">
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">مبيعات الصنف (قطعة)</div>
+                  <div className={`font-mono font-black text-xs sm:text-base ${
+                    specificProductStats.salesPct >= 100 ? 'text-lime-700 dark:text-[#39ff14]' : 'text-indigo-600 dark:text-indigo-400'
+                  }`}>
+                    {formatWithCommas(specificProductStats.salesPieces)}
+                    <span className="text-[10px] text-slate-400 mr-1">قطعة</span>
+                  </div>
+                  {specificProductStats.salesCartons > 0 && (
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      ≈ {formatWithCommas(specificProductStats.salesCartons)} كارتون
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">تاركت الصنف (قطعة)</div>
+                  <div className="font-mono font-black text-xs sm:text-base text-slate-700 dark:text-slate-300">
+                    {formatWithCommas(specificProductStats.targetPieces)}
+                    <span className="text-[10px] text-slate-400 mr-1">قطعة</span>
+                  </div>
+                  {specificProductStats.targetCartons > 0 && (
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      ≈ {formatWithCommas(specificProductStats.targetCartons)} كارتون
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">
+                    {specificProductStats.salesPieces >= specificProductStats.targetPieces && specificProductStats.targetPieces > 0
+                      ? 'الفائض عن التاركت'
+                      : 'المتبقي للتاركت'}
+                  </div>
+                  <div
+                    className={`font-mono font-black text-xs sm:text-base ${
+                      specificProductStats.salesPieces >= specificProductStats.targetPieces && specificProductStats.targetPieces > 0
+                        ? 'text-lime-700 dark:text-[#39ff14]'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    {specificProductStats.salesPieces >= specificProductStats.targetPieces && specificProductStats.targetPieces > 0
+                      ? `+${formatWithCommas(specificProductStats.salesPieces - specificProductStats.targetPieces)}`
+                      : formatWithCommas(Math.max(0, specificProductStats.targetPieces - specificProductStats.salesPieces))}
+                    <span className="text-[10px] text-slate-400 mr-1">قطعة</span>
+                  </div>
+                  {specificProductStats.salesPieces >= specificProductStats.targetPieces && specificProductStats.targetPieces > 0 && (
+                    <div className="text-[10px] text-lime-600 dark:text-[#39ff14] font-black mt-0.5 flex items-center justify-center gap-1">
+                      <Crown className="w-3 h-3 fill-amber-400 text-amber-400 inline" /> محقق 100%
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Number of Shops Sold To vs Target Shops & Achievement % */}
+            <div
+              className={`p-4 rounded-2xl border transition-all ${
+                specificProductStats.shopsPct >= 100
+                  ? 'bg-lime-400/10 dark:bg-lime-400/15 border-lime-500/50 shadow-[0_0_15px_rgba(132,204,22,0.15)] ring-1 ring-lime-500/30'
+                  : isDarkMode
+                  ? 'bg-slate-900/70 border-slate-800'
+                  : 'bg-white border-slate-200 shadow-sm'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      specificProductStats.shopsPct >= 100
+                        ? 'bg-lime-500/20 text-lime-600 dark:text-[#39ff14]'
+                        : 'bg-emerald-500/20 text-emerald-400'
+                    }`}
+                  >
+                    <Store className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-xs sm:text-sm text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <span>تغطية عدد المحلات (الوصول)</span>
+                      {specificProductStats.shopsPct >= 100 && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-[#39ff14] inline" />
+                      )}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      نسبة المحلات المكتسبة للصنف
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`px-3 py-1 rounded-xl font-mono font-black text-sm sm:text-base flex items-center gap-1 ${
+                    specificProductStats.shopsPct >= 100
+                      ? 'bg-lime-400/25 text-lime-700 dark:text-[#39ff14] border border-lime-500/40'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>{specificProductStats.shopsPct.toFixed(1)}%</span>
+                  {specificProductStats.shopsPct >= 100 && (
+                    <span className="text-xs">⭐</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden mb-3">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    specificProductStats.shopsPct >= 100
+                      ? 'bg-gradient-to-r from-lime-500 to-[#39ff14] shadow-[0_0_8px_rgba(57,255,20,0.6)]'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                  }`}
+                  style={{ width: `${Math.min(specificProductStats.shopsPct, 100)}%` }}
+                />
+              </div>
+
+              {/* Numerical breakdown */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">تم بيع لعدد محلات</div>
+                  <div className="font-mono font-black text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
+                    {formatWithCommas(specificProductStats.actualShops)}
+                    <span className="text-[9px] text-slate-400 mr-1">محل</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">تاركت تغطية المحلات</div>
+                  <div className="font-mono font-black text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+                    {formatWithCommas(specificProductStats.targetShops)}
+                    <span className="text-[9px] text-slate-400 mr-1">محل مطلوب</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl">
+                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">
+                    {specificProductStats.actualShops >= specificProductStats.targetShops && specificProductStats.targetShops > 0
+                      ? 'تغطية مكتملة'
+                      : 'متبقي للتغطية'}
+                  </div>
+                  <div
+                    className={`font-mono font-black text-xs sm:text-sm ${
+                      specificProductStats.actualShops >= specificProductStats.targetShops && specificProductStats.targetShops > 0
+                        ? 'text-lime-600 dark:text-[#39ff14]'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    {specificProductStats.actualShops >= specificProductStats.targetShops && specificProductStats.targetShops > 0
+                      ? `+${formatWithCommas(specificProductStats.actualShops - specificProductStats.targetShops)}`
+                      : formatWithCommas(Math.max(0, specificProductStats.targetShops - specificProductStats.actualShops))}
+                    <span className="text-[9px] text-slate-400 mr-1">محل</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Admin Aggregation: Representatives Breakdown Accordion / Grid */}
+          {currentUser.isAdmin && specificProductStats.isAggregated && (
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminSpecificBreakdown(!showAdminSpecificBreakdown)}
+                  className="flex items-center gap-1.5 text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  {showAdminSpecificBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  <span>
+                    {showAdminSpecificBreakdown ? 'إخفاء' : 'عرض'} تفاصيل أداء كل مندوب للصنف المحدد ({specificProductStats.delegateBreakdown.length})
+                  </span>
+                </button>
+                <span className="text-[10px] text-slate-400">
+                  يمكن تعديل أهداف ومبيعات كل مندوب بالضغط على زر التعديل
+                </span>
+              </div>
+
+              {showAdminSpecificBreakdown && (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-inner">
+                  <table className="w-full text-right text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-black text-[11px] border-b border-slate-200 dark:border-slate-700">
+                        <th className="p-2.5">المندوب</th>
+                        <th className="p-2.5 text-center">مبيعات (قطعة)</th>
+                        <th className="p-2.5 text-center">تاركت (قطعة)</th>
+                        <th className="p-2.5 text-center">نسبة الإنجاز %</th>
+                        <th className="p-2.5 text-center">مبيعات (كارتون)</th>
+                        <th className="p-2.5 text-center">تم بيع لمحلات</th>
+                        <th className="p-2.5 text-center">تاركت المحلات</th>
+                        <th className="p-2.5 text-center">نسبة المحلات</th>
+                        <th className="p-2.5 text-center">إجراء</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {specificProductStats.delegateBreakdown.map((del) => {
+                        const isSalesAchieved = del.salesPct >= 100;
+                        const isShopsAchieved = del.shopsPct >= 100;
+                        return (
+                          <tr
+                            key={del.delegateName}
+                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
+                              isSalesAchieved
+                                ? 'bg-lime-400/20 text-lime-900 dark:text-[#39ff14] font-black'
+                                : ''
+                            }`}
+                          >
+                            <td className="p-2.5 font-extrabold flex items-center gap-1.5">
+                              <span>{del.delegateName}</span>
+                              {isSalesAchieved && (
+                                <Crown className="w-4 h-4 fill-amber-400 text-amber-400 inline" />
+                              )}
+                            </td>
+                            <td className={`p-2.5 text-center font-mono font-black ${
+                              isSalesAchieved ? 'text-lime-700 dark:text-[#39ff14]' : 'text-indigo-600 dark:text-indigo-400'
+                            }`}>
+                              {formatWithCommas(del.salesPieces)}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-600 dark:text-slate-300">
+                              {formatWithCommas(del.targetPieces)}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-black">
+                              <span
+                                className={`px-2 py-0.5 rounded-lg text-[11px] inline-flex items-center gap-1 ${
+                                  isSalesAchieved
+                                    ? 'bg-lime-400/30 text-lime-900 dark:text-[#39ff14] border border-lime-500'
+                                    : 'text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                {isSalesAchieved && (
+                                  <Crown className="w-3 h-3 fill-amber-400 text-amber-400 inline" />
+                                )}
+                                {del.salesPct.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-500 dark:text-slate-400">
+                              {formatWithCommas(del.salesCartons)}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-black text-emerald-600 dark:text-emerald-400">
+                              {formatWithCommas(del.actualShops)}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-600 dark:text-slate-300">
+                              {formatWithCommas(del.targetShops)}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-black">
+                              <span
+                                className={`px-2 py-0.5 rounded-lg text-[11px] ${
+                                  isShopsAchieved
+                                    ? 'bg-lime-400/20 text-lime-700 dark:text-[#39ff14] border border-lime-500/30'
+                                    : 'text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                {del.shopsPct.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => openEditSpecificProduct(del.delegateName)}
+                                className="p-1 rounded-lg bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 transition-all"
+                                title="تعديل أهداف ومبيعات هذا المندوب"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Wide Box: Total Incentives So Far at Bottom of Table */}
         <div className={`p-3.5 sm:p-5 border-t-2 ${
           isDarkMode 
@@ -3443,6 +4506,164 @@ export const ReportsScreen: React.FC = () => {
                 className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all disabled:opacity-50"
               >
                 {isSavingExtraTargets ? 'جاري الحفظ...' : 'حفظ الأهداف'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Specific Product Targets Modal for Admin */}
+      {showEditSpecificProductModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowEditSpecificProductModal(false)}
+        >
+          <div
+            className={`p-6 rounded-3xl shadow-2xl w-full max-w-lg border text-right space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <h3 className="font-black text-base text-indigo-400 flex items-center gap-2">
+                <Pencil className="w-5 h-5" />
+                تعديل أهداف ومبيعات الصنف المحدد للمندوب
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEditSpecificProductModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">المندوب:</label>
+                <select
+                  value={editSpecificProductDelegate}
+                  onChange={(e) => openEditSpecificProduct(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                >
+                  {delegatesList
+                    .filter((d) => d !== 'الكل' && d !== 'الأدمن')
+                    .map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">الصنف المحدد المعتمد:</label>
+                <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-bold">
+                  {specificProductName}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">تاركت الصنف (قطعة):</label>
+                <input
+                  type="text"
+                  value={editSpecificTargetPieces}
+                  onChange={(e) => setEditSpecificTargetPieces(parseArabicDigits(e.target.value))}
+                  placeholder="مثال: 1200"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">مبيعات الصنف الفعلية (قطعة):</label>
+                <input
+                  type="text"
+                  value={editSpecificSalesPieces}
+                  onChange={(e) => setEditSpecificSalesPieces(parseArabicDigits(e.target.value))}
+                  placeholder="المبيعات الفعلية المرفوعة من ملف الإكسل (مثال: 500)"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold mb-1 text-slate-400">تاركت الكارتون (اختياري):</label>
+                  <input
+                    type="text"
+                    value={editSpecificTargetCartons}
+                    onChange={(e) => setEditSpecificTargetCartons(parseArabicDigits(e.target.value))}
+                    placeholder="مثال: 50"
+                    className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold mb-1 text-slate-400">مبيعات الكارتون (اختياري):</label>
+                  <input
+                    type="text"
+                    value={editSpecificSalesCartons}
+                    onChange={(e) => setEditSpecificSalesCartons(parseArabicDigits(e.target.value))}
+                    placeholder="مثال: 45"
+                    className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">مطلوب تبيع لعدد محلات (محل):</label>
+                <input
+                  type="text"
+                  value={editSpecificTargetShops}
+                  onChange={(e) => setEditSpecificTargetShops(parseArabicDigits(e.target.value))}
+                  placeholder="مثال: 50"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-400">تم بيع لعدد محلات (محل):</label>
+                <input
+                  type="text"
+                  value={editSpecificActualShops}
+                  onChange={(e) => setEditSpecificActualShops(parseArabicDigits(e.target.value))}
+                  placeholder="المحلات المباع لها المرفوعة من الإكسل (مثال: 35)"
+                  className={`w-full p-2.5 rounded-xl border font-mono font-bold ${
+                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowEditSpecificProductModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs border ${
+                  isDarkMode
+                    ? 'bg-slate-800 text-slate-300 border-slate-700'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSpecificProductModal}
+                disabled={isSavingSpecificProductModal}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md transition-all disabled:opacity-50"
+              >
+                {isSavingSpecificProductModal ? 'جاري الحفظ...' : 'حفظ الأهداف'}
               </button>
             </div>
           </div>
