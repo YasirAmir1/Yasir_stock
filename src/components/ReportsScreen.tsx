@@ -3,7 +3,7 @@ import html2canvas from 'html2canvas-pro';
 import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
@@ -2067,6 +2067,7 @@ export const ReportsScreen: React.FC = () => {
   };
 
   // Dedicated Excel upload for Specific Product Section
+  // Replaces all previous data with the newly uploaded file's data (no accumulation or merging with previous files)
   const handleSpecificProductExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2085,8 +2086,50 @@ export const ReportsScreen: React.FC = () => {
         return;
       }
 
+      // 1. Wipe out all previous records so only the newly uploaded file data is kept & displayed
+      const existingSnap = await getDocs(collection(db, 'specific_product_targets'));
+      if (!existingSnap.empty) {
+        const deleteBatch = writeBatch(db);
+        existingSnap.forEach((docSnap) => {
+          deleteBatch.delete(docSnap.ref);
+        });
+        await deleteBatch.commit();
+      }
+
+      // Check if file specifies a product name in any of the rows
+      let detectedProductName = '';
+      for (const row of jsonData) {
+        const rawP = (row['اسم المنتج'] || row['اسم الصنف'] || row['الصنف'] || row['المنتج'] || row['Product'] || row['Item'] || '').toString().trim();
+        if (rawP) {
+          detectedProductName = rawP;
+          break;
+        }
+      }
+
+      const activeProdName = detectedProductName || specificProductName;
+
+      if (detectedProductName && detectedProductName !== specificProductName) {
+        setSpecificProductName(detectedProductName);
+        setTempSpecificProductName(detectedProductName);
+        await setDoc(
+          doc(db, 'specific_product_config', 'current'),
+          {
+            productName: detectedProductName,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name || 'الأدمن',
+          },
+          { merge: true }
+        );
+      }
+
+      const matchedProd = productsList.find(
+        (p) => normalizeText(p.productName) === normalizeText(activeProdName) || p.productName === activeProdName
+      );
+      const cartonQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+
       const batch = writeBatch(db);
       let count = 0;
+      const seenDelegates = new Set<string>();
 
       jsonData.forEach((row: any) => {
         const rawDelegate = (
@@ -2096,6 +2139,8 @@ export const ReportsScreen: React.FC = () => {
           row['Representative'] ||
           row['delegate'] ||
           row['delegateName'] ||
+          row['اسم الموظف'] ||
+          row['الموظف'] ||
           ''
         ).toString().trim();
 
@@ -2106,34 +2151,38 @@ export const ReportsScreen: React.FC = () => {
           (d) => normalizeText(d) === normDel || d.trim().toLowerCase() === rawDelegate.toLowerCase()
         ) || rawDelegate;
 
-        const existingRecord = specificProductTargets.find(
-          (t) => normalizeText(t.delegateName || '') === normDel || t.delegateName === matchedDel
-        );
+        if (seenDelegates.has(matchedDel)) return;
+        seenDelegates.add(matchedDel);
 
-        const rawProd = (row['اسم المنتج'] || row['المنتج'] || row['Product'] || '').toString().trim();
-        const prodName = rawProd || specificProductName;
-
-        const matchedProd = productsList.find(
-          (p) => normalizeText(p.productName) === normalizeText(prodName) || p.productName === prodName
-        );
-        const cartonQty = matchedProd?.cartonQuantity ? Number(matchedProd.cartonQuantity) : 0;
+        const rawProd = (row['اسم المنتج'] || row['اسم الصنف'] || row['الصنف'] || row['المنتج'] || row['Product'] || '').toString().trim();
+        const rowProdName = rawProd || activeProdName;
 
         const rawTargetPieces =
           row['تاركت الصنف (قطعة)'] ??
+          row['تاركت الصنف (قطع)'] ??
           row['تاركت المنتج (قطعة)'] ??
           row['تاركت القطعة'] ??
+          row['تاركت القطع'] ??
           row['التاركت بالقطعة'] ??
           row['تاركت قطعة'] ??
+          row['تاركت قطع'] ??
+          row['هدف القطع'] ??
+          row['هدف الصنف (قطعة)'] ??
           row['Target Pieces'] ??
           row['targetPieces'] ??
           null;
 
         const rawSalesPieces =
           row['مبيعات الصنف (قطعة)'] ??
+          row['مبيعات الصنف (قطع)'] ??
           row['مبيعات المنتج (قطعة)'] ??
           row['مبيعات القطعة'] ??
+          row['مبيعات القطع'] ??
           row['المبيعات بالقطعة'] ??
           row['مبيعات قطعة'] ??
+          row['مبيعات قطع'] ??
+          row['المبيعات قطعة'] ??
+          row['مبيعات الصنف'] ??
           row['Sales Pieces'] ??
           row['salesPieces'] ??
           null;
@@ -2145,6 +2194,8 @@ export const ReportsScreen: React.FC = () => {
           row['التاركت بالكارتون'] ??
           row['تاركت المنتج'] ??
           row['تاركت كارتون'] ??
+          row['تاركت الكراتين'] ??
+          row['هدف الكراتين'] ??
           row['التاركت'] ??
           row['Target Cartons'] ??
           null;
@@ -2156,6 +2207,7 @@ export const ReportsScreen: React.FC = () => {
           row['المبيعات بالكارتون'] ??
           row['مبيعات المنتج'] ??
           row['مبيعات كارتون'] ??
+          row['مبيعات الكراتين'] ??
           row['المبيعات'] ??
           row['Sales Cartons'] ??
           null;
@@ -2166,6 +2218,9 @@ export const ReportsScreen: React.FC = () => {
           row['هدف المحلات'] ??
           row['تاركت تغطية المحلات'] ??
           row['مطلوب محلات'] ??
+          row['عدد المحلات المستهدفة'] ??
+          row['محلات مستهدفة'] ??
+          row['تاركت محلات'] ??
           row['Target Shops'] ??
           null;
 
@@ -2175,6 +2230,9 @@ export const ReportsScreen: React.FC = () => {
           row['عدد المحلات المباع لها'] ??
           row['عدد المحلات'] ??
           row['المحلات المباع لها'] ??
+          row['تم البيع لمحلات'] ??
+          row['محلات مباع لها'] ??
+          row['تغطية المحلات'] ??
           row['Actual Shops'] ??
           null;
 
@@ -2194,9 +2252,6 @@ export const ReportsScreen: React.FC = () => {
           targetCartons = parseFloat((targetPieces / cartonQty).toFixed(1));
         } else if (targetCartons > 0 && targetPieces === 0 && cartonQty > 0) {
           targetPieces = Math.round(targetCartons * cartonQty);
-        } else if (targetPieces === 0 && targetCartons === 0 && existingRecord) {
-          targetPieces = existingRecord.targetPieces || (existingRecord.targetCartons && cartonQty > 0 ? Math.round(existingRecord.targetCartons * cartonQty) : 0);
-          targetCartons = existingRecord.targetCartons || 0;
         }
 
         let salesPiecesOverride: number = 0;
@@ -2215,46 +2270,36 @@ export const ReportsScreen: React.FC = () => {
           salesCartonsOverride = parseFloat((salesPiecesOverride / cartonQty).toFixed(1));
         } else if (salesCartonsOverride > 0 && salesPiecesOverride === 0 && cartonQty > 0) {
           salesPiecesOverride = Math.round(salesCartonsOverride * cartonQty);
-        } else if (salesPiecesOverride === 0 && salesCartonsOverride === 0 && existingRecord) {
-          salesPiecesOverride = existingRecord.salesPiecesOverride || 0;
-          salesCartonsOverride = existingRecord.salesCartonsOverride || 0;
         }
 
-        let targetShops: number;
+        let targetShops: number = 0;
         if (rawTargetShops !== null && String(rawTargetShops).trim() !== '') {
           const v = parseFloat(String(rawTargetShops).replace(/,/g, '').trim());
-          targetShops = !isNaN(v) ? v : (existingRecord ? existingRecord.targetShops : 0);
-        } else {
-          targetShops = existingRecord ? existingRecord.targetShops : 0;
+          targetShops = !isNaN(v) ? v : 0;
         }
 
-        let actualShopsOverride: number;
+        let actualShopsOverride: number = 0;
         if (rawActualShops !== null && String(rawActualShops).trim() !== '') {
           const v = parseFloat(String(rawActualShops).replace(/,/g, '').trim());
-          actualShopsOverride = !isNaN(v) ? v : (existingRecord?.actualShopsOverride || 0);
-        } else {
-          actualShopsOverride = existingRecord?.actualShopsOverride || 0;
+          actualShopsOverride = !isNaN(v) ? v : 0;
         }
 
         const docKey = `del_${matchedDel}`.replace(/[\/\s#$[\]]/g, '_');
         const docRef = doc(db, 'specific_product_targets', docKey);
 
-        batch.set(
-          docRef,
-          {
-            delegateName: matchedDel,
-            productName: prodName,
-            targetPieces,
-            salesPiecesOverride,
-            targetCartons,
-            salesCartonsOverride,
-            targetShops,
-            actualShopsOverride,
-            updatedAt: new Date().toISOString(),
-            updatedBy: currentUser.name || 'الأدمن',
-          },
-          { merge: true }
-        );
+        // Save fresh document without merging old file values
+        batch.set(docRef, {
+          delegateName: matchedDel,
+          productName: rowProdName,
+          targetPieces,
+          salesPiecesOverride,
+          targetCartons,
+          salesCartonsOverride,
+          targetShops,
+          actualShopsOverride,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.name || 'الأدمن',
+        });
         count++;
       });
 
@@ -2268,10 +2313,10 @@ export const ReportsScreen: React.FC = () => {
 
       await batch.commit();
       setSpecificProductUploadMessage({
-        text: `تم تحديث ومزامنة أهداف ومبيعات المنتج المخصص بنجاح لـ (${count}) مندوب ✅`,
+        text: `تم استبدال وعرض بيانات الملف الجديد بنجاح لـ (${count}) مندوب ✅ (دون دمج أو تجميع من الملفات السابقة)`,
         type: 'success',
       });
-      setUserMessage(`تم تحديث أهداف ومبيعات المنتج المخصص لـ (${count}) مندوب بنجاح ✅`);
+      setUserMessage(`تم عرض بيانات ملف الإكسل الجديد لـ (${count}) مندوب بنجاح ✅`);
 
       setTimeout(() => {
         setSpecificProductUploadMessage(null);
@@ -2285,6 +2330,26 @@ export const ReportsScreen: React.FC = () => {
     } finally {
       setIsUploadingSpecificProductExcel(false);
       if (e.target) e.target.value = '';
+    }
+  };
+
+  // Clear / Reset all specific product targets from Firestore
+  const handleClearSpecificProductData = async () => {
+    if (!window.confirm('هل أنت متأكد من مسح وتفريغ كافة بيانات ملف الإكسل للصنف المحدد؟')) return;
+    try {
+      const existingSnap = await getDocs(collection(db, 'specific_product_targets'));
+      if (!existingSnap.empty) {
+        const deleteBatch = writeBatch(db);
+        existingSnap.forEach((docSnap) => {
+          deleteBatch.delete(docSnap.ref);
+        });
+        await deleteBatch.commit();
+      }
+      setSpecificProductTargets([]);
+      setUserMessage('تم مسح وتفريغ بيانات الصنف المحدد بنجاح ✅');
+    } catch (err: any) {
+      console.error('Error clearing specific product targets:', err);
+      setUserMessage('حدث خطأ أثناء مسح البيانات.');
     }
   };
 
@@ -2473,7 +2538,7 @@ export const ReportsScreen: React.FC = () => {
       };
     }
 
-    // 2. Admin Grand Total View (All Representatives Aggregated)
+    // 2. Admin Grand Total View (Aggregated ONLY from records present in the uploaded Excel file)
     let totalTargetPieces = 0;
     let totalSalesPieces = 0;
     let totalTargetCartons = 0;
@@ -2481,8 +2546,10 @@ export const ReportsScreen: React.FC = () => {
     let totalTargetShops = 0;
     let totalActualShops = 0;
 
-    const breakdown = validDelegates.map((del) => {
-      const m = resolveMetrics(del);
+    // Display and sum ONLY delegates from the uploaded file (no ghost delegates or old files)
+    const activeRecords = specificProductTargets;
+    const breakdown = activeRecords.map((record) => {
+      const m = resolveMetrics(record.delegateName);
       totalTargetPieces += m.targetPieces;
       totalSalesPieces += m.salesPieces;
       totalTargetCartons += m.targetCartons;
@@ -2490,6 +2557,14 @@ export const ReportsScreen: React.FC = () => {
       totalTargetShops += m.targetShops;
       totalActualShops += m.actualShops;
       return m;
+    });
+
+    // Sort delegates by sales pieces descending (المندوب أعلى مبيعات بالقطع في أعلى الجدول)
+    breakdown.sort((a, b) => {
+      if (b.salesPieces !== a.salesPieces) {
+        return b.salesPieces - a.salesPieces;
+      }
+      return b.salesPct - a.salesPct;
     });
 
     const totalSalesPct = totalTargetPieces > 0 
@@ -3538,9 +3613,12 @@ export const ReportsScreen: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                  بيع هذه الكمية لهذه المحلات يتم حساب نصف كارتون للتغطية
-                </p>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 shadow-sm">
+                    <span className="text-amber-500 text-sm">💡</span>
+                    <span>بيع هذه الكمية لهذه المحلات يتم حساب نصف كارتون للتغطية</span>
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -3591,7 +3669,7 @@ export const ReportsScreen: React.FC = () => {
                     onClick={() => specificProductExcelInputRef.current?.click()}
                     disabled={isUploadingSpecificProductExcel}
                     className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
-                    title="رفع ملف إكسل مخصص لتحديث مبيعات وتاركت ومحلات الصنف المحدد"
+                    title="رفع ملف إكسل مخصص لتحديث مبيعات وتاركت ومحلات الصنف المحدد واستبدال البيانات السابقة"
                   >
                     <Upload className="w-4 h-4" />
                     <span>{isUploadingSpecificProductExcel ? 'جاري الرفع...' : 'رفع إكسل الصنف المحدد'}</span>
@@ -3619,6 +3697,18 @@ export const ReportsScreen: React.FC = () => {
                     <Pencil className="w-3.5 h-3.5" />
                     <span>تعديل يدوي</span>
                   </button>
+
+                  {specificProductTargets.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearSpecificProductData}
+                      className="flex items-center gap-1 px-2.5 py-2 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 hover:text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                      title="مسح وتفريغ كافة بيانات ملف الإكسل المرفوع للصنف المحدد"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>مسح بيانات الملف</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -3809,8 +3899,8 @@ export const ReportsScreen: React.FC = () => {
                         <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-[#39ff14] inline" />
                       )}
                     </h4>
-                    <span className="text-[10px] text-slate-400 font-semibold">
-                      نسبة المحلات المكتسبة للصنف
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold block">
+                      بيع هذه الكمية لهذه المحلات يتم حساب نصف كارتون للتغطية
                     </span>
                   </div>
                 </div>
@@ -3893,12 +3983,9 @@ export const ReportsScreen: React.FC = () => {
                 >
                   {showAdminSpecificBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   <span>
-                    {showAdminSpecificBreakdown ? 'إخفاء' : 'عرض'} تفاصيل أداء كل مندوب للصنف المحدد ({specificProductStats.delegateBreakdown.length})
+                    {showAdminSpecificBreakdown ? 'إخفاء' : 'عرض'} مبيعات منتج محدد ({specificProductStats.productName || specificProductName}) ({specificProductStats.delegateBreakdown.length})
                   </span>
                 </button>
-                <span className="text-[10px] text-slate-400">
-                  يمكن تعديل أهداف ومبيعات كل مندوب بالضغط على زر التعديل
-                </span>
               </div>
 
               {showAdminSpecificBreakdown && (
@@ -3918,26 +4005,39 @@ export const ReportsScreen: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {specificProductStats.delegateBreakdown.map((del) => {
+                      {specificProductStats.delegateBreakdown.map((del, idx) => {
                         const isSalesAchieved = del.salesPct >= 100;
                         const isShopsAchieved = del.shopsPct >= 100;
+                        const isTopSeller = idx === 0 && del.salesPieces > 0;
                         return (
                           <tr
                             key={del.delegateName}
                             className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
-                              isSalesAchieved
+                              isTopSeller
+                                ? 'bg-amber-500/10 dark:bg-amber-500/10 font-black ring-1 ring-amber-500/30'
+                                : isSalesAchieved
                                 ? 'bg-lime-400/20 text-lime-900 dark:text-[#39ff14] font-black'
                                 : ''
                             }`}
                           >
-                            <td className="p-2.5 font-extrabold flex items-center gap-1.5">
+                            <td className="p-2.5 font-extrabold flex items-center gap-1.5 flex-wrap">
+                              {isTopSeller && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-amber-500/25 text-amber-700 dark:text-amber-300 text-[10px] font-black border border-amber-500/40 inline-flex items-center gap-0.5 shadow-sm">
+                                  <span>🥇</span>
+                                  <span>الأعلى مبيعاً</span>
+                                </span>
+                              )}
                               <span>{del.delegateName}</span>
                               {isSalesAchieved && (
                                 <Crown className="w-4 h-4 fill-amber-400 text-amber-400 inline" />
                               )}
                             </td>
                             <td className={`p-2.5 text-center font-mono font-black ${
-                              isSalesAchieved ? 'text-lime-700 dark:text-[#39ff14]' : 'text-indigo-600 dark:text-indigo-400'
+                              isTopSeller
+                                ? 'text-amber-600 dark:text-amber-400 font-black'
+                                : isSalesAchieved
+                                ? 'text-lime-700 dark:text-[#39ff14]'
+                                : 'text-indigo-600 dark:text-indigo-400'
                             }`}>
                               {formatWithCommas(del.salesPieces)}
                             </td>
