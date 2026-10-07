@@ -5,7 +5,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -171,13 +171,22 @@ const DailyAdminReport: React.FC<{
   setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>,
   completedDelegates: Record<string, boolean>
 }> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates }) => {
+  const { isDarkMode } = useSales();
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   const productsReportRef = useRef<HTMLDivElement>(null);
   const categorySummaryReportRef = useRef<HTMLDivElement>(null);
   const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
-  const handleDownload = async () => {
+  const [reportActionModal, setReportActionModal] = useState<{
+    isOpen: boolean;
+    target: 'main' | 'products';
+    title: string;
+  } | null>(null);
+  const [isProcessingAction, setIsProcessingAction] = useState<'share' | 'download' | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  const handleDownload = async (actionType: 'share' | 'download' = 'download') => {
     const targetElement = threeTablesCaptureRef.current;
     if (targetElement) {
       try {
@@ -367,25 +376,45 @@ const DailyAdminReport: React.FC<{
 
         const fileName = `تقرير-مبيعات-اليوم-(مفرد-وجملة-والكل)-${today}.jpg`;
 
-        // Check if device supports navigator.share with files (mobile WhatsApp sharing)
-        canvas.toBlob(async (blob) => {
-          if (blob && navigator.canShare) {
+        if (actionType === 'share') {
+          let sharedSuccessfully = false;
+          if (navigator.share && navigator.canShare) {
             try {
-              const file = new File([blob], fileName, { type: 'image/jpeg' });
-              if (navigator.canShare({ files: [file] })) {
-                await navigator.share({
-                  files: [file],
-                  title: 'تقرير مبيعات اليوم الشامل',
-                  text: `تقرير مبيعات اليوم (${today}) - جدول المفرد + جدول الجملة + جدول الكل`,
-                });
-                return;
+              const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+              if (blob) {
+                const file = new File([blob], fileName, { type: 'image/jpeg' });
+                if (navigator.canShare({ files: [file] })) {
+                  await navigator.share({
+                    files: [file],
+                    title: 'تقرير مبيعات اليوم الشامل',
+                    text: `تقرير مبيعات اليوم (${today}) - جدول المفرد + جدول الجملة + جدول الكل`,
+                  });
+                  sharedSuccessfully = true;
+                }
               }
             } catch (err: any) {
-              if (err.name === 'AbortError') return; // User closed share dialog
+              if (err.name === 'AbortError') {
+                sharedSuccessfully = true;
+              } else {
+                console.warn("navigator.share error:", err);
+              }
             }
           }
 
-          // Fallback to standard anchor file download
+          if (!sharedSuccessfully) {
+            // Fallback for desktop or browsers without file share: download the image
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setActionFeedback("تم تنزيل صورة التقرير بنجاح! يمكنك الآن مشاركتها عبر واتساب أو التطبيقات الأخرى.");
+            setTimeout(() => setActionFeedback(null), 5000);
+          }
+        } else {
+          // Direct Download as image
           const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
           const link = document.createElement('a');
           link.download = fileName;
@@ -393,22 +422,26 @@ const DailyAdminReport: React.FC<{
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-        }, 'image/jpeg', 0.95);
+          setActionFeedback("تم تحميل صورة التقرير بنجاح ✅");
+          setTimeout(() => setActionFeedback(null), 4000);
+        }
 
       } catch (error) {
         console.error("html2canvas error:", error);
-        alert("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
+        setActionFeedback("حدث خطأ أثناء إنشاء صورة التقرير. يرجى المحاولة مرة أخرى.");
+        setTimeout(() => setActionFeedback(null), 4000);
       } finally {
         setIsDownloading(null);
       }
     } else {
-      alert("عذراً، عنصر التقرير غير موجود.");
+      setActionFeedback("عذراً، عنصر التقرير غير موجود.");
+      setTimeout(() => setActionFeedback(null), 4000);
     }
   };
   
   const combinedReportRef = useRef<HTMLDivElement>(null);
   
-  const handleDownloadProducts = async () => {
+  const handleDownloadProducts = async (actionType: 'share' | 'download' = 'download') => {
     if (combinedReportRef.current) {
       try {
         setIsDownloading('products');
@@ -503,19 +536,66 @@ const DailyAdminReport: React.FC<{
             });
           }
         });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        const link = document.createElement('a');
-        link.download = `مبيعات-أصناف-مختارة-${new Date().toLocaleDateString('ar-EG')}.jpg`;
-        link.href = dataUrl;
-        link.click();
+        const fileName = `مبيعات-أصناف-مختارة-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+
+        if (actionType === 'share') {
+          let sharedSuccessfully = false;
+          if (navigator.share && navigator.canShare) {
+            try {
+              const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+              if (blob) {
+                const file = new File([blob], fileName, { type: 'image/jpeg' });
+                if (navigator.canShare({ files: [file] })) {
+                  await navigator.share({
+                    files: [file],
+                    title: 'تقرير مبيعات أصناف مختارة (المجمع)',
+                    text: `تقرير مبيعات أصناف مختارة (المجمع) - تاريخ ${today}`,
+                  });
+                  sharedSuccessfully = true;
+                }
+              }
+            } catch (err: any) {
+              if (err.name === 'AbortError') {
+                sharedSuccessfully = true;
+              } else {
+                console.warn("navigator.share error:", err);
+              }
+            }
+          }
+
+          if (!sharedSuccessfully) {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setActionFeedback("تم تنزيل صورة التقرير بنجاح! يمكنك الآن مشاركتها عبر واتساب أو التطبيقات الأخرى.");
+            setTimeout(() => setActionFeedback(null), 5000);
+          }
+        } else {
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          const link = document.createElement('a');
+          link.download = fileName;
+          link.href = dataUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setActionFeedback("تم تحميل صورة التقرير بنجاح ✅");
+          setTimeout(() => setActionFeedback(null), 4000);
+        }
+
       } catch (error) {
         console.error("html2canvas error:", error);
-        alert("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
+        setActionFeedback("حدث خطأ أثناء تحميل التقرير كصورة. يرجى المحاولة مرة أخرى.");
+        setTimeout(() => setActionFeedback(null), 4000);
       } finally {
         setIsDownloading(null);
       }
     } else {
-      alert("عذراً، عنصر التقرير غير موجود.");
+      setActionFeedback("عذراً، عنصر التقرير غير موجود.");
+      setTimeout(() => setActionFeedback(null), 4000);
     }
   };
   
@@ -726,17 +806,21 @@ const DailyAdminReport: React.FC<{
                 </div>
                 <div className="no-export w-full sm:w-auto flex justify-end">
                     <button 
-                      onClick={handleDownload} 
+                      onClick={() => setReportActionModal({
+                        isOpen: true,
+                        target: 'main',
+                        title: 'تقرير مبيعات اليوم الشامل (مفرد + جملة + الكل)'
+                      })} 
                       disabled={isDownloading === 'main'} 
                       className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 sm:py-2 sm:px-4 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
-                      title="تحميل تقرير المبيعات (المفرد + الجملة + الكل) كصورة واحدة"
+                      title="خيارات تصدير ومشاركة تقرير المبيعات"
                     >
                         {isDownloading === 'main' ? (
                           <span className="animate-spin">⏳</span>
                         ) : (
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         )}
-                        <span>{isDownloading === 'main' ? 'جاري إنشاء الصورة...' : 'تحميل التقرير'}</span>
+                        <span>{isDownloading === 'main' ? 'جاري تجهيز الصورة...' : 'تحميل التقرير'}</span>
                     </button>
                 </div>
             </div>
@@ -854,13 +938,22 @@ const DailyAdminReport: React.FC<{
         {currentUser.isAdmin && (
         <div className="space-y-3 sm:space-y-4 w-full">
             {currentUser.isAdmin && (
-            <button onClick={handleDownloadProducts} disabled={isDownloading === 'products'} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs cursor-pointer active:scale-95" title="تحميل التقرير كصورة">
+            <button 
+              onClick={() => setReportActionModal({
+                isOpen: true,
+                target: 'products',
+                title: 'تقرير مبيعات أصناف مختارة (المجمع)'
+              })} 
+              disabled={isDownloading === 'products'} 
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
+              title="خيارات تصدير ومشاركة التقرير المجمع"
+            >
                 {isDownloading === 'products' ? (
                   <span className="animate-spin">⏳</span>
                 ) : (
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 )}
-                <span>{isDownloading === 'products' ? 'جاري التحميل...' : 'تحميل التقرير المجمع'}</span>
+                <span>{isDownloading === 'products' ? 'جاري تجهيز الصورة...' : 'تحميل التقرير المجمع'}</span>
             </button>
             )}
             
@@ -992,6 +1085,157 @@ const DailyAdminReport: React.FC<{
         </div>
         </div>
         )}
+
+      {/* Floating Action Feedback */}
+      {actionFeedback && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] px-4 py-2.5 rounded-2xl bg-slate-900/95 text-white border border-emerald-500/60 shadow-2xl flex items-center gap-2.5 text-xs font-bold animate-in fade-in slide-in-from-bottom-3 duration-200 backdrop-blur-sm">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{actionFeedback}</span>
+        </div>
+      )}
+
+      {/* Report Action Modal (Share or Download Image) */}
+      {reportActionModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => {
+            if (!isProcessingAction) setReportActionModal(null);
+          }}
+        >
+          <div 
+            className={`p-5 sm:p-6 rounded-3xl shadow-2xl w-full max-w-md border text-right space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <Share2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
+                    خيارات تصدير ومشاركة التقرير
+                  </h3>
+                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                    {reportActionModal.title}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setReportActionModal(null)} 
+                disabled={!!isProcessingAction}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+              اختر الإجراء المطلوب للتقرير:
+            </p>
+
+            {/* The Two Options */}
+            <div className="space-y-3">
+              {/* Option 1: Share report to social media apps (including WhatsApp) */}
+              <button
+                type="button"
+                disabled={!!isProcessingAction}
+                onClick={async () => {
+                  setIsProcessingAction('share');
+                  if (reportActionModal.target === 'main') {
+                    await handleDownload('share');
+                  } else {
+                    await handleDownloadProducts('share');
+                  }
+                  setIsProcessingAction(null);
+                  setReportActionModal(null);
+                }}
+                className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 text-right cursor-pointer group active:scale-[0.98] ${
+                  isProcessingAction === 'share'
+                    ? 'bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/20'
+                    : 'border-emerald-500/30 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                    {isProcessingAction === 'share' ? (
+                      <span className="animate-spin text-base">⏳</span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                      </svg>
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-black text-xs sm:text-sm text-emerald-900 dark:text-emerald-300">
+                      مشاركة التقرير إلى برامج التواصل الاجتماعي (منها واتساب)
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                      إرسال صورة التقرير مباشرة إلى واتساب، التليجرام أو التطبيقات الأخرى
+                    </div>
+                  </div>
+                </div>
+                <span className="text-emerald-600 dark:text-emerald-400 font-black text-base shrink-0">←</span>
+              </button>
+
+              {/* Option 2: Download report as image */}
+              <button
+                type="button"
+                disabled={!!isProcessingAction}
+                onClick={async () => {
+                  setIsProcessingAction('download');
+                  if (reportActionModal.target === 'main') {
+                    await handleDownload('download');
+                  } else {
+                    await handleDownloadProducts('download');
+                  }
+                  setIsProcessingAction(null);
+                  setReportActionModal(null);
+                }}
+                className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 text-right cursor-pointer group active:scale-[0.98] ${
+                  isProcessingAction === 'download'
+                    ? 'bg-blue-500/15 border-blue-500 ring-2 ring-blue-500/20'
+                    : 'border-blue-500/30 hover:border-blue-500 bg-blue-50/50 hover:bg-blue-50 dark:bg-blue-950/20 dark:hover:bg-blue-950/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                    {isProcessingAction === 'download' ? (
+                      <span className="animate-spin text-base">⏳</span>
+                    ) : (
+                      <Download className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-black text-xs sm:text-sm text-blue-900 dark:text-blue-300">
+                      تحميل التقرير كصورة
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                      تنزيل وحفظ ملف صورة التقرير بجودة عالية على جهازك
+                    </div>
+                  </div>
+                </div>
+                <span className="text-blue-600 dark:text-blue-400 font-black text-base shrink-0">←</span>
+              </button>
+            </div>
+
+            {/* Cancel button */}
+            <div className="pt-2">
+              <button
+                type="button"
+                disabled={!!isProcessingAction}
+                onClick={() => setReportActionModal(null)}
+                className="w-full py-2.5 px-4 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
