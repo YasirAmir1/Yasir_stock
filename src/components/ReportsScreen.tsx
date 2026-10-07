@@ -458,6 +458,9 @@ const DailyAdminReport: React.FC<{
             const targetEl = clonedDoc.querySelector('.bg-slate-900') || clonedDoc.body;
             if (targetEl) {
               (targetEl as HTMLElement).style.backgroundColor = '#f1f5f9';
+              (targetEl as HTMLElement).style.padding = '32px';
+              (targetEl as HTMLElement).style.width = '1060px';
+              (targetEl as HTMLElement).style.minWidth = '1060px';
             }
             const innerCard = clonedDoc.querySelector('.bg-indigo-900');
             if (innerCard) {
