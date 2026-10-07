@@ -471,6 +471,8 @@ const DailyAdminReport: React.FC<{
             const tables = clonedDoc.querySelectorAll('table');
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
+              tableEl.style.width = "100%";
+              tableEl.style.tableLayout = "fixed";
               tableEl.style.borderCollapse = 'collapse';
               tableEl.style.border = '2px solid #64748b';
               tableEl.style.textAlign = 'center';
