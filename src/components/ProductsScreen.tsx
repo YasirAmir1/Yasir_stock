@@ -63,6 +63,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
+  const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
 
   // ... (rest of the component)
 
@@ -539,8 +540,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return;
     }
 
-    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل
-    if (!isEditingInvoice) {
+    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    if (!isEditingInvoice && !isAdminUser) {
       if (total < 25000 || uniqueProducts.size < 3) {
         setMinInvoiceAlertData({ total, count: uniqueProducts.size });
         return;
@@ -606,8 +607,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return;
     }
 
-    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل
-    if (!isEditingInvoice) {
+    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    if (!isEditingInvoice && !isAdminUser) {
       if (total < 25000 || uniqueProducts.size < 3) {
         setMinInvoiceAlertData({ total, count: uniqueProducts.size });
         return;
@@ -800,17 +801,35 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 <span>الزبون: {customerName.trim() || 'غير محدد حتى الآن'}</span>
               </div>
               <div className="text-xs font-bold mb-2">
-                الحالة المطبقة: <span className="underline">{isEditingInvoice ? 'تعديل / إضافة مستثناة من الشروط' : 'فاتورة جديدة خاضعة للشروط'}</span>
+                الحالة المطبقة: <span className="underline">
+                  {currentUser?.isAdmin 
+                    ? 'إدخال من قبل الإدارة (معفى بالكامل من الشروط 👑)'
+                    : isEditingInvoice 
+                      ? 'تعديل / إضافة مستثناة من الشروط' 
+                      : 'فاتورة جديدة خاضعة للشروط'}
+                </span>
               </div>
               <p className="text-[11px] sm:text-xs leading-relaxed opacity-90">
-                {isEditingInvoice 
-                  ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
-                  : `هذا الزبون لا يمتلك أي فاتورة مسجلة لليوم الحالي، لذا تُعتبر هذه فاتورة افتتاحية جديدة وتخضع إلزامياً لشرطي الحد الأدنى.`}
+                {currentUser?.isAdmin
+                  ? `بصفتك مسؤول النظام (الأدمن)، تم رفع شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف) بالكامل. يمكنك حفظ أي فاتورة بأي كمية أو مبلغ بحرية تامّة.`
+                  : isEditingInvoice 
+                    ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
+                    : `هذا الزبون لا يمتلك أي فاتورة مسجلة لليوم الحالي، لذا تُعتبر هذه فاتورة افتتاحية جديدة وتخضع إلزامياً لشرطي الحد الأدنى.`}
               </p>
             </div>
 
             {/* Detailed Conditions Comparison */}
             <div className="space-y-2.5 text-xs">
+              {currentUser?.isAdmin && (
+                <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-700 space-y-1.5 text-purple-900 dark:text-purple-200">
+                  <div className="flex items-center gap-1.5 font-black text-purple-700 dark:text-purple-300">
+                    <span>👑 إعفاء حساب الأدمن (مرفوع الشرط):</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed pr-2">
+                    تم رفع وتجاوز شرط الـ 25 ألف و 3 أصناف تلقائياً لحساب الإدارة (الأدمن)، مما يتيح إدخال أي فاتورة بحرية تامة دون قيود.
+                  </p>
+                </div>
+              )}
               <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
                 <div className="flex items-center gap-1.5 font-black text-emerald-600 dark:text-emerald-400">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
@@ -856,14 +875,20 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
             
             {/* Status indicator inside confirm modal */}
             <div className={`p-3 rounded-xl border text-xs font-bold mb-4 flex items-center justify-between gap-2 ${
-              isEditingInvoice 
-                ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200' 
-                : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+              currentUser?.isAdmin
+                ? 'bg-purple-50 dark:bg-purple-950/30 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200'
+                : isEditingInvoice 
+                  ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200' 
+                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
             }`}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="shrink-0 text-sm">{isEditingInvoice ? '✏️' : '🆕'}</span>
+                <span className="shrink-0 text-sm">{currentUser?.isAdmin ? '👑' : isEditingInvoice ? '✏️' : '🆕'}</span>
                 <span className="truncate">
-                  {isEditingInvoice ? 'تعديل / ملحق لفاتورة (مستثناة من الشروط)' : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 3 أصناف ✅)'}
+                  {currentUser?.isAdmin
+                    ? 'إدخال أدمن (مستثنى بالكامل من شرط الـ 25 ألف و 3 أصناف 👑)'
+                    : isEditingInvoice 
+                      ? 'تعديل / ملحق لفاتورة (مستثناة من الشروط)' 
+                      : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 3 أصناف ✅)'}
                 </span>
               </div>
               <button 
@@ -907,13 +932,21 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 type="button"
                 onClick={() => setShowConditionsModal(true)}
                 className={`cursor-pointer px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all shadow-xs ${
-                  isEditingInvoice 
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700' 
-                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700'
+                  currentUser?.isAdmin
+                    ? 'bg-purple-100 text-purple-900 border border-purple-300 hover:bg-purple-200 dark:bg-purple-900/50 dark:text-purple-300 dark:border-purple-700'
+                    : isEditingInvoice 
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700' 
+                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700'
                 }`}
                 title="انقر لفتح توضيح شروط الفاتورة"
               >
-                <span>{isEditingInvoice ? '✏️ تعديل / إضافة (مستثناة من الشروط)' : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 3 أصناف)'}</span>
+                <span>
+                  {currentUser?.isAdmin
+                    ? '👑 إدخال أدمن (مستثنى من الشروط)'
+                    : isEditingInvoice 
+                      ? '✏️ تعديل / إضافة (مستثناة من الشروط)' 
+                      : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 3 أصناف)'}
+                </span>
                 <HelpCircle className="w-3.5 h-3.5 opacity-80" />
               </button>
             </div>

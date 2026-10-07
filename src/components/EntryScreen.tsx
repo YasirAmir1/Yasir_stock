@@ -248,7 +248,9 @@ export const EntryScreen: React.FC = () => {
     }
 
     // التحقق الصارم من شروط حفظ الفاتورة بعد التعديل (ألا يقل عن 3 أصناف ولا يقل عن 25,000 د.ع)
-    if (oldEntry) {
+    // استثناء: عند إدخال أو تعديل الفاتورة من قبل الأدمن يتم رفع هذا الشرط بالكامل
+    const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+    if (!isAdminUser && oldEntry) {
       const targetCustomerCode = oldEntry.customerCode ? String(oldEntry.customerCode).trim() : '';
       const targetCustomerName = oldEntry.customerName ? oldEntry.customerName.trim().toLowerCase() : '';
 
@@ -735,43 +737,47 @@ export const EntryScreen: React.FC = () => {
     // التحقق الصارم من شروط حفظ الفاتورة (للفواتير الجديدة وحتى بعد التعديل أو الإضافة):
     // 1. لا تحفظ فاتورة فيها عدد المنتجات أقل من 3
     // 2. لا تحفظ فاتورة يقل مجموعها عن 25,000 د.ع
-    const existingEntriesForCustomer = safeSavedEntries.filter(e => {
-      const isToday = e.dateString === new Date().toISOString().split('T')[0] || !e.dateString;
-      const matchCustomer = (customerCode && e.customerCode && String(e.customerCode).trim() === String(customerCode).trim()) ||
-                            (e.customerName && e.customerName.trim().toLowerCase() === trimmedCustomerName.toLowerCase());
-      return isToday && matchCustomer;
-    });
-
-    const isAddingToExisting = existingEntriesForCustomer.length > 0;
-
-    const allProductNames = [
-      ...existingEntriesForCustomer.map(e => e.productName),
-      ...itemsToSave.map(e => e.productName)
-    ];
-    const totalUniqueProducts = new Set(allProductNames).size;
-
-    const existingTotal = existingEntriesForCustomer.reduce((sum, e) => {
-      const prod = productsList.find(p => p.productName === e.productName);
-      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-      return sum + (price * e.quantity);
-    }, 0);
-
-    const newItemsTotal = itemsToSave.reduce((sum, e) => {
-      const prod = productsList.find(p => p.productName === e.productName);
-      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-      return sum + (price * e.quantity);
-    }, 0);
-
-    const combinedTotalPrice = existingTotal + newItemsTotal;
-
-    if (totalUniqueProducts < 3 || combinedTotalPrice < 25000) {
-      setMinInvoiceAlertData({
-        total: combinedTotalPrice,
-        count: totalUniqueProducts,
-        customerName: trimmedCustomerName,
-        context: isAddingToExisting ? 'edit' : 'new'
+    // استثناء: عند إدخال الفاتورة من قبل الأدمن يتم رفع هذا الشرط بالكامل
+    const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+    if (!isAdminUser) {
+      const existingEntriesForCustomer = safeSavedEntries.filter(e => {
+        const isToday = e.dateString === new Date().toISOString().split('T')[0] || !e.dateString;
+        const matchCustomer = (customerCode && e.customerCode && String(e.customerCode).trim() === String(customerCode).trim()) ||
+                              (e.customerName && e.customerName.trim().toLowerCase() === trimmedCustomerName.toLowerCase());
+        return isToday && matchCustomer;
       });
-      return;
+
+      const isAddingToExisting = existingEntriesForCustomer.length > 0;
+
+      const allProductNames = [
+        ...existingEntriesForCustomer.map(e => e.productName),
+        ...itemsToSave.map(e => e.productName)
+      ];
+      const totalUniqueProducts = new Set(allProductNames).size;
+
+      const existingTotal = existingEntriesForCustomer.reduce((sum, e) => {
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+      }, 0);
+
+      const newItemsTotal = itemsToSave.reduce((sum, e) => {
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+        return sum + (price * e.quantity);
+      }, 0);
+
+      const combinedTotalPrice = existingTotal + newItemsTotal;
+
+      if (totalUniqueProducts < 3 || combinedTotalPrice < 25000) {
+        setMinInvoiceAlertData({
+          total: combinedTotalPrice,
+          count: totalUniqueProducts,
+          customerName: trimmedCustomerName,
+          context: isAddingToExisting ? 'edit' : 'new'
+        });
+        return;
+      }
     }
 
     saveSalesEntries(itemsToSave);
@@ -1594,23 +1600,26 @@ export const EntryScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            // التحقق الصارم مما إذا كان حذف هذا الصنف سيجعل الفاتورة أقل من 3 أصناف أو أقل من 25,000 د.ع
-                            const remainingEntries = entries.filter(e => e.id !== entry.id);
-                            const remainingCount = new Set(remainingEntries.map(e => e.productName)).size;
-                            const remainingTotal = remainingEntries.reduce((sum, e) => {
-                              const p = productsList.find(prodItem => prodItem.productName === e.productName);
-                              const price = p ? (e.priceMode === 'wholesale' ? (p.wholesalePrice || 0) : (p.retailPrice || 0)) : 0;
-                              return sum + (price * e.quantity);
-                            }, 0);
+                            // التحقق الصارم مما إذا كان حذف هذا الصنف سيجعل الفاتورة أقل من 3 أصناف أو أقل من 25,000 د.ع (معفى عند الأدمن)
+                            const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+                            if (!isAdminUser) {
+                              const remainingEntries = entries.filter(e => e.id !== entry.id);
+                              const remainingCount = new Set(remainingEntries.map(e => e.productName)).size;
+                              const remainingTotal = remainingEntries.reduce((sum, e) => {
+                                const p = productsList.find(prodItem => prodItem.productName === e.productName);
+                                const price = p ? (e.priceMode === 'wholesale' ? (p.wholesalePrice || 0) : (p.retailPrice || 0)) : 0;
+                                return sum + (price * e.quantity);
+                              }, 0);
 
-                            if (remainingCount < 3 || remainingTotal < 25000) {
-                              setMinInvoiceAlertData({
-                                total: remainingTotal,
-                                count: remainingCount,
-                                customerName: entry.customerName,
-                                context: 'deleteItem'
-                              });
-                              return;
+                              if (remainingCount < 3 || remainingTotal < 25000) {
+                                setMinInvoiceAlertData({
+                                  total: remainingTotal,
+                                  count: remainingCount,
+                                  customerName: entry.customerName,
+                                  context: 'deleteItem'
+                                });
+                                return;
+                              }
                             }
 
                             setDeleteConfirmation({

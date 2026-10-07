@@ -187,13 +187,13 @@ const DailyAdminReport: React.FC<{
         await new Promise(resolve => setTimeout(resolve, 300));
         
         const canvas = await html2canvas(targetElement, {
-          backgroundColor: '#0f172a',
+          backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
           scale: 2,
           useCORS: true,
           allowTaint: true,
           logging: false,
           onclone: (clonedDoc) => {
-            sanitizeModernColors(clonedDoc, '#0f172a');
+            sanitizeModernColors(clonedDoc, '#f1f5f9');
 
             // Hide buttons & export controls
             const noExportEls = clonedDoc.querySelectorAll('.no-export');
@@ -212,9 +212,29 @@ const DailyAdminReport: React.FC<{
               clonedContainer.style.maxWidth = 'none';
               clonedContainer.style.padding = '32px';
               clonedContainer.style.boxSizing = 'border-box';
-              clonedContainer.style.backgroundColor = '#0f172a';
+              clonedContainer.style.backgroundColor = '#f1f5f9'; // Soft light gray (الرصاصي الخافت)
               clonedContainer.style.borderRadius = '16px';
-              clonedContainer.style.color = '#ffffff';
+              clonedContainer.style.border = '2px solid #cbd5e1';
+              clonedContainer.style.color = '#0f172a';
+
+              // Header Card inside container
+              const headerBox = clonedContainer.querySelector('.shadow-md');
+              if (headerBox) {
+                const hEl = headerBox as HTMLElement;
+                hEl.style.backgroundColor = '#ffffff';
+                hEl.style.borderColor = '#cbd5e1';
+                hEl.style.borderRadius = '12px';
+              }
+
+              // Section Cards (Retail, Wholesale, All sales containers)
+              const sectionCards = clonedContainer.querySelectorAll('.shadow-lg');
+              sectionCards.forEach(card => {
+                const cEl = card as HTMLElement;
+                cEl.style.backgroundColor = '#ffffff';
+                cEl.style.borderColor = '#cbd5e1';
+                cEl.style.borderRadius = '12px';
+                cEl.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
+              });
 
               const scrollContainers = clonedContainer.querySelectorAll('.overflow-x-auto');
               scrollContainers.forEach(sc => {
@@ -227,8 +247,9 @@ const DailyAdminReport: React.FC<{
                 tableEl.style.width = '100%';
                 tableEl.style.minWidth = '980px';
                 tableEl.style.borderCollapse = 'collapse';
-                tableEl.style.border = '1px solid #ffffff';
+                tableEl.style.border = '2px solid #64748b';
                 tableEl.style.textAlign = 'center';
+                tableEl.style.backgroundColor = '#ffffff';
               });
 
               const rows = clonedContainer.querySelectorAll('tr');
@@ -237,11 +258,19 @@ const DailyAdminReport: React.FC<{
                 rowEl.style.verticalAlign = 'middle';
               });
 
+              // Style headers and total rows
+              const theadRows = clonedContainer.querySelectorAll('thead tr, thead th');
+              theadRows.forEach(el => {
+                const htmlEl = el as HTMLElement;
+                htmlEl.style.backgroundColor = '#e2e8f0';
+                htmlEl.style.color = '#0f172a';
+              });
+
               // Vertically center all text content and data within every table cell and apply enlarged typography
               const cells = clonedContainer.querySelectorAll('th, td');
               cells.forEach(c => {
                 const cell = c as HTMLElement;
-                cell.style.border = '1px solid #ffffff';
+                cell.style.border = '1px solid #94a3b8';
                 cell.style.textAlign = 'center';
                 cell.style.verticalAlign = 'middle';
                 cell.style.lineHeight = '1.25';
@@ -251,11 +280,19 @@ const DailyAdminReport: React.FC<{
                 // Further increased font size: th: 21px, td: 20px
                 if (cell.tagName.toLowerCase() === 'th') {
                   cell.style.fontSize = '21px';
+                  cell.style.backgroundColor = '#e2e8f0';
+                  cell.style.color = '#0f172a';
                 } else {
                   cell.style.fontSize = '20px';
-                }
-                if (!cell.classList.contains('text-red-500') && !cell.classList.contains('text-red-400')) {
-                  cell.style.color = '#ffffff';
+                  if (cell.parentElement?.matches('.bg-slate-900, .bg-amber-950, tr:last-child')) {
+                    cell.style.backgroundColor = '#e2e8f0';
+                    cell.style.color = '#0f172a';
+                  } else {
+                    cell.style.backgroundColor = '#ffffff';
+                    if (!cell.classList.contains('text-red-500') && !cell.classList.contains('text-red-400')) {
+                      cell.style.color = '#0f172a';
+                    }
+                  }
                 }
               });
 
@@ -268,6 +305,9 @@ const DailyAdminReport: React.FC<{
                 htmlChild.style.fontWeight = 'bold';
                 htmlChild.style.lineHeight = 'inherit';
                 htmlChild.style.margin = '0';
+                if (!htmlChild.classList.contains('text-red-500') && !htmlChild.classList.contains('text-red-400')) {
+                  htmlChild.style.color = '#0f172a';
+                }
               });
 
               // Ensure all headings and text in the container are bold and enlarged
@@ -276,7 +316,7 @@ const DailyAdminReport: React.FC<{
                 const htmlEl = el as HTMLElement;
                 htmlEl.style.fontWeight = 'bold';
                 if (!htmlEl.classList.contains('text-red-500') && !htmlEl.classList.contains('text-red-400') && !htmlEl.classList.contains('text-yellow-400')) {
-                  htmlEl.style.color = '#ffffff';
+                  htmlEl.style.color = '#0f172a';
                 }
               });
 
@@ -285,6 +325,15 @@ const DailyAdminReport: React.FC<{
                 const htmlH = h as HTMLElement;
                 htmlH.style.fontWeight = 'bold';
                 htmlH.style.fontSize = '25px';
+                if (htmlH.innerText?.includes('المفرد')) {
+                  htmlH.style.color = '#047857';
+                } else if (htmlH.innerText?.includes('الجملة')) {
+                  htmlH.style.color = '#4338ca';
+                } else if (htmlH.innerText?.includes('الكل')) {
+                  htmlH.style.color = '#b45309';
+                } else {
+                  htmlH.style.color = '#0f172a';
+                }
               });
 
               const paragraphs = clonedContainer.querySelectorAll('p');
@@ -292,6 +341,7 @@ const DailyAdminReport: React.FC<{
                 const htmlP = p as HTMLElement;
                 htmlP.style.fontWeight = 'bold';
                 htmlP.style.fontSize = '19px';
+                htmlP.style.color = '#475569';
               });
 
               const spans = clonedContainer.querySelectorAll('span');
@@ -300,6 +350,8 @@ const DailyAdminReport: React.FC<{
                 htmlS.style.fontWeight = 'bold';
                 if (htmlS.classList.contains('bg-amber-500/10') || htmlS.innerText?.includes('مفرد + جملة + الكل')) {
                   htmlS.style.fontSize = '18px';
+                  htmlS.style.color = '#b45309';
+                  htmlS.style.backgroundColor = '#fef3c7';
                 }
               });
 
@@ -363,19 +415,35 @@ const DailyAdminReport: React.FC<{
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(combinedReportRef.current, {
-          backgroundColor: '#1e1b4b',
+          backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
           scale: 2,
           useCORS: true,
           allowTaint: true,
           logging: false,
           onclone: (clonedDoc) => {
-            sanitizeModernColors(clonedDoc, '#1e1b4b');
+            sanitizeModernColors(clonedDoc, '#f1f5f9');
+            const targetEl = clonedDoc.querySelector('.bg-slate-900') || clonedDoc.body;
+            if (targetEl) {
+              (targetEl as HTMLElement).style.backgroundColor = '#f1f5f9';
+            }
+            const innerCard = clonedDoc.querySelector('.bg-indigo-900');
+            if (innerCard) {
+              (innerCard as HTMLElement).style.backgroundColor = '#ffffff';
+              (innerCard as HTMLElement).style.color = '#0f172a';
+              (innerCard as HTMLElement).style.border = '1px solid #cbd5e1';
+            }
             const tables = clonedDoc.querySelectorAll('table');
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
               tableEl.style.borderCollapse = 'collapse';
-              tableEl.style.border = '1px solid #ffffff';
+              tableEl.style.border = '2px solid #64748b';
               tableEl.style.textAlign = 'center';
+              tableEl.style.backgroundColor = '#ffffff';
+            });
+            const theadRows = clonedDoc.querySelectorAll('thead tr, thead th');
+            theadRows.forEach(el => {
+              (el as HTMLElement).style.backgroundColor = '#e2e8f0';
+              (el as HTMLElement).style.color = '#0f172a';
             });
             const rows = clonedDoc.querySelectorAll('tr');
             rows.forEach(r => {
@@ -384,17 +452,19 @@ const DailyAdminReport: React.FC<{
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
-              cell.style.border = '1px solid #ffffff';
+              cell.style.border = '1px solid #94a3b8';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
               cell.style.lineHeight = '1.25';
-              cell.style.color = '#ffffff';
+              cell.style.color = '#0f172a';
               cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
                 cell.style.fontSize = '21px';
+                cell.style.backgroundColor = '#e2e8f0';
               } else {
                 cell.style.fontSize = '20px';
+                cell.style.backgroundColor = '#ffffff';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
@@ -405,11 +475,12 @@ const DailyAdminReport: React.FC<{
               htmlChild.style.fontWeight = 'bold';
               htmlChild.style.lineHeight = 'inherit';
               htmlChild.style.margin = '0';
+              htmlChild.style.color = '#0f172a';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
               const htmlEl = el as HTMLElement;
-              htmlEl.style.color = '#ffffff';
+              htmlEl.style.color = '#0f172a';
               htmlEl.style.fontWeight = 'bold';
             });
             const headings = clonedDoc.querySelectorAll('h3');
@@ -417,12 +488,14 @@ const DailyAdminReport: React.FC<{
               const htmlH = h as HTMLElement;
               htmlH.style.fontSize = '25px';
               htmlH.style.fontWeight = 'bold';
+              htmlH.style.color = '#4338ca';
             });
             const paragraphs = clonedDoc.querySelectorAll('p');
             paragraphs.forEach(p => {
               const htmlP = p as HTMLElement;
               htmlP.style.fontSize = '19px';
               htmlP.style.fontWeight = 'bold';
+              htmlP.style.color = '#475569';
             });
             const allElements = clonedDoc.querySelectorAll('*');
             allElements.forEach(el => {
@@ -451,17 +524,27 @@ const DailyAdminReport: React.FC<{
       try {
         window.scrollTo(0, 0);
         const canvas = await html2canvas(categorySummaryReportRef.current, {
-          backgroundColor: '#064e3b', // bg-emerald-900
+          backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
           scale: 2,
           useCORS: true,
           onclone: (clonedDoc) => {
-            sanitizeModernColors(clonedDoc, '#064e3b');
+            sanitizeModernColors(clonedDoc, '#f1f5f9');
+            const targetEl = clonedDoc.body;
+            if (targetEl) {
+              targetEl.style.backgroundColor = '#f1f5f9';
+            }
             const tables = clonedDoc.querySelectorAll('table');
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
               tableEl.style.borderCollapse = 'collapse';
-              tableEl.style.border = '1px solid #ffffff';
+              tableEl.style.border = '2px solid #64748b';
               tableEl.style.textAlign = 'center';
+              tableEl.style.backgroundColor = '#ffffff';
+            });
+            const theadRows = clonedDoc.querySelectorAll('thead tr, thead th');
+            theadRows.forEach(el => {
+              (el as HTMLElement).style.backgroundColor = '#e2e8f0';
+              (el as HTMLElement).style.color = '#0f172a';
             });
             const rows = clonedDoc.querySelectorAll('tr');
             rows.forEach(r => {
@@ -470,17 +553,19 @@ const DailyAdminReport: React.FC<{
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
-              cell.style.border = '1px solid #ffffff';
+              cell.style.border = '1px solid #94a3b8';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
               cell.style.lineHeight = '1.25';
-              cell.style.color = '#ffffff';
+              cell.style.color = '#0f172a';
               cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
                 cell.style.fontSize = '21px';
+                cell.style.backgroundColor = '#e2e8f0';
               } else {
                 cell.style.fontSize = '20px';
+                cell.style.backgroundColor = '#ffffff';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
@@ -491,11 +576,12 @@ const DailyAdminReport: React.FC<{
               htmlChild.style.fontWeight = 'bold';
               htmlChild.style.lineHeight = 'inherit';
               htmlChild.style.margin = '0';
+              htmlChild.style.color = '#0f172a';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
               const htmlEl = el as HTMLElement;
-              htmlEl.style.color = '#ffffff';
+              htmlEl.style.color = '#0f172a';
               htmlEl.style.fontWeight = 'bold';
             });
             const headings = clonedDoc.querySelectorAll('h3');
@@ -503,12 +589,14 @@ const DailyAdminReport: React.FC<{
               const htmlH = h as HTMLElement;
               htmlH.style.fontSize = '25px';
               htmlH.style.fontWeight = 'bold';
+              htmlH.style.color = '#047857';
             });
             const paragraphs = clonedDoc.querySelectorAll('p');
             paragraphs.forEach(p => {
               const htmlP = p as HTMLElement;
               htmlP.style.fontSize = '19px';
               htmlP.style.fontWeight = 'bold';
+              htmlP.style.color = '#475569';
             });
             const allElements = clonedDoc.querySelectorAll('*');
             allElements.forEach(el => {
@@ -922,17 +1010,23 @@ export const ReportsScreen: React.FC = () => {
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(reportRef.current, {
-          backgroundColor: '#0f172a',
+          backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
           scale: 2,
           useCORS: true,
           onclone: (clonedDoc) => {
-            sanitizeModernColors(clonedDoc, '#0f172a');
+            sanitizeModernColors(clonedDoc, '#f1f5f9');
             const tables = clonedDoc.querySelectorAll('table');
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
               tableEl.style.borderCollapse = 'collapse';
-              tableEl.style.border = '1px solid #ffffff';
+              tableEl.style.border = '2px solid #64748b';
               tableEl.style.textAlign = 'center';
+              tableEl.style.backgroundColor = '#ffffff';
+            });
+            const theadRows = clonedDoc.querySelectorAll('thead tr, thead th');
+            theadRows.forEach(el => {
+              (el as HTMLElement).style.backgroundColor = '#e2e8f0';
+              (el as HTMLElement).style.color = '#0f172a';
             });
             const rows = clonedDoc.querySelectorAll('tr');
             rows.forEach(r => {
@@ -941,17 +1035,19 @@ export const ReportsScreen: React.FC = () => {
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
-              cell.style.border = '1px solid #ffffff';
+              cell.style.border = '1px solid #94a3b8';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
               cell.style.lineHeight = '1.25';
-              cell.style.color = '#ffffff';
+              cell.style.color = '#0f172a';
               cell.style.padding = '14px 10px';
               cell.style.fontWeight = 'bold';
               if (cell.tagName.toLowerCase() === 'th') {
                 cell.style.fontSize = '21px';
+                cell.style.backgroundColor = '#e2e8f0';
               } else {
                 cell.style.fontSize = '20px';
+                cell.style.backgroundColor = '#ffffff';
               }
             });
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
@@ -962,11 +1058,12 @@ export const ReportsScreen: React.FC = () => {
               htmlChild.style.fontWeight = 'bold';
               htmlChild.style.lineHeight = 'inherit';
               htmlChild.style.margin = '0';
+              htmlChild.style.color = '#0f172a';
             });
             const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
             textEls.forEach(el => {
               const htmlEl = el as HTMLElement;
-              htmlEl.style.color = '#ffffff';
+              htmlEl.style.color = '#0f172a';
               htmlEl.style.fontWeight = 'bold';
             });
             const headings = clonedDoc.querySelectorAll('h3');
