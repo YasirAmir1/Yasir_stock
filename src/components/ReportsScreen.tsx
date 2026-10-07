@@ -846,14 +846,14 @@ const DailyAdminReport: React.FC<{
                         <tr key={s.name} className="border-b border-white/20 hover:bg-slate-700/50 font-bold">
                             <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{s.name}</td>
                             <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
                             <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
                     <tr className="border-t-2 border-white/40 bg-slate-900 font-black text-xs sm:text-sm">
                         <td className="py-2 px-1.5 sm:p-2.5 text-emerald-300 border border-white/30">إجمالي المفرد</td>
                         <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${retailSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{retailSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{totalRetail.weight.toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(Number(totalRetail.weight.toFixed(1)), true)}</td>
                         <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(totalRetail.amount, true)}</td>
                     </tr>
                 </tbody>
@@ -882,14 +882,14 @@ const DailyAdminReport: React.FC<{
                         <tr key={s.name} className="border-b border-white/20 hover:bg-slate-700/50 font-bold">
                             <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{s.name}</td>
                             <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
                             <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
                     <tr className="border-t-2 border-white/40 bg-slate-900 font-black text-xs sm:text-sm">
                         <td className="py-2 px-1.5 sm:p-2.5 text-indigo-300 border border-white/30">إجمالي الجملة</td>
                         <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${wholesaleSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{wholesaleSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{totalWholesale.weight.toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(Number(totalWholesale.weight.toFixed(1)), true)}</td>
                         <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(totalWholesale.amount, true)}</td>
                     </tr>
                 </tbody>
@@ -918,14 +918,14 @@ const DailyAdminReport: React.FC<{
                         <tr key={s.name} className="border-b border-white/20 hover:bg-amber-800/40 font-bold">
                             <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${completedDelegates[s.name] ? 'text-yellow-400' : ''}`}>{s.name}</td>
                             <td className={`py-2 px-1.5 sm:p-2.5 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{s.weight.toFixed(1)}</td>
+                            <td className="py-2 px-1.5 sm:p-2.5 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
                             <td className="py-2 px-1.5 sm:p-2.5 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                     ))}
                     <tr className="border-t-2 border-white/40 bg-amber-950 font-black text-amber-300 text-xs sm:text-sm">
                         <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">الإجمالي الكلي</td>
                         <td className={`py-2 px-1.5 sm:p-2.5 border border-white/30 ${allSales.reduce((sum, s) => sum + s.count, 0) < 1 ? 'text-red-400' : ''}`}>{allSales.reduce((sum, s) => sum + s.count, 0)}</td>
-                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)}</td>
+                        <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(Number(allSales.reduce((sum, s) => sum + s.weight, 0).toFixed(1)), true)}</td>
                         <td className="py-2 px-1.5 sm:p-2.5 border border-white/30">{formatWithCommas(allSales.reduce((sum, s) => sum + s.amount, 0), true)}</td>
                     </tr>
                 </tbody>
@@ -1004,17 +1004,17 @@ const DailyAdminReport: React.FC<{
                                     {stats.map(s => (
                                         <tr key={s.name} className="border-b border-indigo-800">
                                             <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
-                                            <td className="py-1.5 px-1 sm:p-2">{s.retail.weight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(s.retail.weight.toFixed(1)), true)}</td>
                                             <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.retail.amount, true)}</td>
-                                            <td className="py-1.5 px-1 sm:p-2">{s.wholesale.weight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(s.wholesale.weight.toFixed(1)), true)}</td>
                                             <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.wholesale.amount, true)}</td>
                                         </tr>
                                     ))}
                                     <tr className="border-t-2 border-indigo-600 bg-indigo-950 font-black">
                                         <td className="py-1.5 px-1 sm:p-2">General</td>
-                                        <td className="py-1.5 px-1 sm:p-2">{totals.retailWeight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(totals.retailWeight.toFixed(1)), true)}</td>
                                         <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totals.retailAmount, true)}</td>
-                                        <td className="py-1.5 px-1 sm:p-2">{totals.wholesaleWeight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(totals.wholesaleWeight.toFixed(1)), true)}</td>
                                         <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(totals.wholesaleAmount, true)}</td>
                                     </tr>
                                 </>
@@ -1066,13 +1066,13 @@ const DailyAdminReport: React.FC<{
                                     {stats.map(s => (
                                         <tr key={s.name} className="border-b border-slate-700">
                                             <td className="py-1.5 px-1 sm:p-2 font-bold">{s.name}</td>
-                                            <td className="py-1.5 px-1 sm:p-2">{s.totalWeight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(s.totalWeight.toFixed(1)), true)}</td>
                                             <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(s.totalAmount, true)}</td>
                                         </tr>
                                     ))}
                                     <tr className="border-t-2 border-slate-600 bg-slate-950 font-black">
                                         <td className="py-1.5 px-1 sm:p-2">General</td>
-                                        <td className="py-1.5 px-1 sm:p-2">{grandTotal.weight.toFixed(1)}</td>
+                                        <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(Number(grandTotal.weight.toFixed(1)), true)}</td>
                                         <td className="py-1.5 px-1 sm:p-2">{formatWithCommas(grandTotal.amount, true)}</td>
                                     </tr>
                                 </>
