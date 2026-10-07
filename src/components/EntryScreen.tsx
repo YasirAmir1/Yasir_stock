@@ -281,7 +281,9 @@ export const EntryScreen: React.FC = () => {
         return sum + (price * e.quantity);
       }, 0);
 
-      if (simulatedUniqueProducts < 3 || simulatedTotalPrice < 25000) {
+      // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل عند الأدمن
+      const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+      if (!isAdminUser && (simulatedUniqueProducts < 3 || simulatedTotalPrice < 25000)) {
         setMinInvoiceAlertData({
           total: simulatedTotalPrice,
           count: simulatedUniqueProducts,
@@ -769,7 +771,8 @@ export const EntryScreen: React.FC = () => {
 
       const combinedTotalPrice = existingTotal + newItemsTotal;
 
-      if (totalUniqueProducts < 3 || combinedTotalPrice < 25000) {
+      const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+      if (!isAdminUser && (totalUniqueProducts < 3 || combinedTotalPrice < 25000)) {
         setMinInvoiceAlertData({
           total: combinedTotalPrice,
           count: totalUniqueProducts,
