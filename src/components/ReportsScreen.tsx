@@ -1470,8 +1470,8 @@ export const ReportsScreen: React.FC = () => {
   const monthlyExcelInputRef = useRef<HTMLInputElement>(null);
 
   // Specific Product Tracking State (Before Total Incentives)
-  const [specificProductName, setSpecificProductName] = useState<string>('جبن مثلثات');
-  const [tempSpecificProductName, setTempSpecificProductName] = useState<string>('جبن مثلثات');
+  const [specificProductName, setSpecificProductName] = useState<string>('جبن اماه 200 غم');
+  const [tempSpecificProductName, setTempSpecificProductName] = useState<string>('جبن اماه 200 غم');
   const [isEditingSpecificProductName, setIsEditingSpecificProductName] = useState<boolean>(false);
   const [isSavingSpecificProductName, setIsSavingSpecificProductName] = useState<boolean>(false);
   const [specificProductTargets, setSpecificProductTargets] = useState<SpecificProductTarget[]>([]);
@@ -3930,6 +3930,26 @@ export const ReportsScreen: React.FC = () => {
             ? 'bg-gradient-to-b from-slate-900/90 to-slate-950/90 border-slate-700/80 text-white' 
             : 'bg-gradient-to-b from-slate-50/95 to-white border-slate-300 text-slate-900'
         }`}>
+          {/* Representative Notice & Instruction Banner for Amah Cheese 200g */}
+          <div className="mb-4 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border-2 border-amber-500/40 shadow-sm text-slate-800 dark:text-slate-100 flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0 shadow-sm mt-0.5">
+              <Shield className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-amber-500 text-white shadow-xs">
+                  تنبيه وتوجيهات مهمة للمندوبين 📢
+                </span>
+                <span className="text-xs font-black text-amber-700 dark:text-amber-400">
+                  {specificProductStats.productName || specificProductName || 'جبن اماه 200 غم'}
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                المنتج محمي من قبل البزنس بنسبة <span className="font-black text-amber-700 dark:text-amber-400 underline decoration-amber-500/50">50%</span> ولكن هذا مشروط بتحقيق مبيعات <span className="font-black text-emerald-700 dark:text-emerald-400 underline decoration-emerald-500/50">8 قطع للزبون الواحد</span>، وفي حال بيع 8 قطع للزبون يقوم البزنس بحماية <span className="font-black text-amber-700 dark:text-amber-400 underline decoration-amber-500/50">4 قطع</span> في حال اكسبايرها.
+              </p>
+            </div>
+          </div>
+
           {/* Section Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
