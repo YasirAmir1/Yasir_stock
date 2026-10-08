@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle } from 'lucide-react';
+import { ReportPreviewModal } from './ReportPreviewModal';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -169,15 +170,18 @@ const DailyAdminReport: React.FC<{
   reportRef?: React.RefObject<HTMLDivElement>,
   isDownloading: string | null,
   setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>,
-  completedDelegates: Record<string, boolean>
-}> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates }) => {
+  completedDelegates: Record<string, boolean>,
+  remainingWorkingDays: number
+}> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates, remainingWorkingDays }) => {
   const { isDarkMode } = useSales();
+  const isAdmin = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن');
+  const isDataEntry = Boolean(currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.name?.includes('مدخل'));
+  const isAdminOrDataEntry = isAdmin || isDataEntry;
   const today = new Date().toISOString().split('T')[0];
   const entriesToday = salesEntries.filter(e => e.dateString === today);
-  const productsReportRef = useRef<HTMLDivElement>(null);
-  const categorySummaryReportRef = useRef<HTMLDivElement>(null);
   const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
+  const [previewModal, setPreviewModal] = useState<'main' | 'products' | null>(null);
   const [reportActionModal, setReportActionModal] = useState<{
     isOpen: boolean;
     target: 'main' | 'products';
@@ -185,6 +189,7 @@ const DailyAdminReport: React.FC<{
   } | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState<'share' | 'download' | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const handleDownload = async (actionType: 'share' | 'download' = 'download') => {
     const targetElement = threeTablesCaptureRef.current;
@@ -217,13 +222,13 @@ const DailyAdminReport: React.FC<{
             // Expand container to fixed width (1060px) so mobile screens don't clip the tables and large text fits comfortably
             const clonedContainer = clonedDoc.getElementById('daily-three-reports-container');
             if (clonedContainer) {
-              clonedContainer.style.width = '1060px';
+              clonedContainer.style.width = '1000px';
               clonedContainer.style.maxWidth = 'none';
-              clonedContainer.style.padding = '32px';
+              clonedContainer.style.padding = '30px';
               clonedContainer.style.boxSizing = 'border-box';
               clonedContainer.style.backgroundColor = '#f1f5f9'; // Soft light gray (الرصاصي الخافت)
               clonedContainer.style.borderRadius = '16px';
-              clonedContainer.style.border = '2px solid #cbd5e1';
+              clonedContainer.style.border = '4px solid #64748b';
               clonedContainer.style.color = '#0f172a';
 
               // Header Card inside container
@@ -441,6 +446,44 @@ const DailyAdminReport: React.FC<{
   
   const combinedReportRef = useRef<HTMLDivElement>(null);
   
+  // Helper to ensure 300 DPI resolution in JPEG JFIF header
+  const setDpiJpeg = (buffer: Uint8Array, dpi = 300): Uint8Array => {
+    for (let i = 2; i < Math.min(buffer.length - 18, 120); i++) {
+      if (buffer[i] === 0xFF && buffer[i + 1] === 0xE0) {
+        if (
+          buffer[i + 4] === 0x4A &&
+          buffer[i + 5] === 0x46 &&
+          buffer[i + 6] === 0x49 &&
+          buffer[i + 7] === 0x46 &&
+          buffer[i + 8] === 0x00
+        ) {
+          buffer[i + 11] = 1; // 1 = dots per inch (DPI)
+          buffer[i + 12] = (dpi >> 8) & 0xFF;
+          buffer[i + 13] = dpi & 0xFF;
+          buffer[i + 14] = (dpi >> 8) & 0xFF;
+          buffer[i + 15] = dpi & 0xFF;
+          return buffer;
+        }
+      }
+    }
+    // If no APP0 marker exists, insert a standard JFIF APP0 marker right after SOI (FF D8)
+    const app0 = new Uint8Array([
+      0xFF, 0xE0, // APP0 marker
+      0x00, 0x10, // length = 16 bytes
+      0x4A, 0x46, 0x49, 0x46, 0x00, // JFIF\0
+      0x01, 0x01, // version 1.1
+      0x01,       // units = dots per inch (DPI)
+      (dpi >> 8) & 0xFF, dpi & 0xFF, // X density (300)
+      (dpi >> 8) & 0xFF, dpi & 0xFF, // Y density (300)
+      0x00, 0x00  // thumbnail width & height
+    ]);
+    const newBuf = new Uint8Array(buffer.length + app0.length);
+    newBuf.set(buffer.subarray(0, 2), 0);
+    newBuf.set(app0, 2);
+    newBuf.set(buffer.subarray(2), 2 + app0.length);
+    return newBuf;
+  };
+
   const handleDownloadProducts = async (actionType: 'share' | 'download' = 'download') => {
     if (combinedReportRef.current) {
       try {
@@ -449,7 +492,11 @@ const DailyAdminReport: React.FC<{
         await new Promise(resolve => setTimeout(resolve, 500));
         const canvas = await html2canvas(combinedReportRef.current, {
           backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
-          scale: 2,
+          scale: 2, // 2x subpixel resolution for crisp vector lines and zero pixelation (300 DPI quality)
+          width: 1500,
+          height: 1500,
+          windowWidth: 1600,
+          windowHeight: 1600,
           useCORS: true,
           allowTaint: true,
           logging: false,
@@ -457,107 +504,177 @@ const DailyAdminReport: React.FC<{
             sanitizeModernColors(clonedDoc, '#f1f5f9');
             const targetEl = clonedDoc.querySelector('.bg-slate-900') || clonedDoc.body;
             if (targetEl) {
-              (targetEl as HTMLElement).style.backgroundColor = '#f1f5f9';
-              (targetEl as HTMLElement).style.padding = '32px';
-              (targetEl as HTMLElement).style.width = '1060px';
-              (targetEl as HTMLElement).style.minWidth = '1060px';
+              const el = targetEl as HTMLElement;
+              el.style.backgroundColor = '#f1f5f9';
+              el.style.padding = '40px';
+              el.style.width = '1500px';
+              el.style.minWidth = '1500px';
+              el.style.maxWidth = '1500px';
+              el.style.height = '1500px';
+              el.style.minHeight = '1500px';
+              el.style.maxHeight = '1500px';
+              el.style.boxSizing = 'border-box';
+              el.style.display = 'flex';
+              el.style.flexDirection = 'column';
+              el.style.justifyContent = 'space-between';
+              el.style.borderRadius = '0px';
             }
-            const innerCard = clonedDoc.querySelector('.bg-indigo-900');
-            if (innerCard) {
-              (innerCard as HTMLElement).style.backgroundColor = '#ffffff';
-              (innerCard as HTMLElement).style.color = '#0f172a';
-              (innerCard as HTMLElement).style.border = '1px solid #cbd5e1';
+
+            // Report Header Banner
+            const headerEl = clonedDoc.querySelector('.report-freeze-header');
+            if (headerEl) {
+              const h = headerEl as HTMLElement;
+              h.style.backgroundColor = '#ffffff';
+              h.style.border = '2.5px solid #64748b';
+              h.style.borderRadius = '16px';
+              h.style.padding = '14px 24px';
+              h.style.marginBottom = '14px';
+              h.style.display = 'flex';
+              h.style.justifyContent = 'space-between';
+              h.style.alignItems = 'center';
+              h.style.boxShadow = '0 6px 14px rgba(0,0,0,0.05)';
+
+              const titleText = h.querySelector('h3') as HTMLElement;
+              if (titleText) {
+                titleText.style.fontSize = '22px';
+                titleText.style.fontWeight = '900';
+                titleText.style.color = '#1e293b';
+              }
+              const dateText = h.querySelector('span:last-child') as HTMLElement;
+              if (dateText) {
+                dateText.style.fontSize = '16px';
+                dateText.style.fontWeight = 'bold';
+                dateText.style.color = '#475569';
+              }
             }
+
+            // Both Table Outer Cards (محيط الجدولين بشكل واضح بدون بكسلة)
+            const innerCards = clonedDoc.querySelectorAll('.bg-indigo-900, .bg-slate-800');
+            innerCards.forEach(card => {
+              const c = card as HTMLElement;
+              c.style.backgroundColor = '#ffffff';
+              c.style.color = '#0f172a';
+              c.style.border = '3px solid #64748b';
+              c.style.borderRadius = '18px';
+              c.style.padding = '20px 24px';
+              c.style.boxShadow = '0 8px 20px rgba(0,0,0,0.06)';
+              c.style.boxSizing = 'border-box';
+              c.style.width = '100%';
+              c.style.marginBottom = '14px';
+            });
+
+            // Card Headings
+            const cardHeadings = clonedDoc.querySelectorAll('.bg-indigo-900 h3, .bg-slate-800 h3');
+            cardHeadings.forEach(h => {
+              const htmlH = h as HTMLElement;
+              htmlH.style.fontSize = '20px';
+              htmlH.style.fontWeight = '900';
+              htmlH.style.color = '#1e293b';
+              htmlH.style.marginBottom = '14px';
+              htmlH.style.textAlign = 'center';
+            });
+
+            // Scroll containers
+            const scrollContainers = clonedDoc.querySelectorAll('.overflow-x-auto');
+            scrollContainers.forEach(sc => {
+              (sc as HTMLElement).style.overflow = 'visible';
+            });
+
+            // Tables
             const tables = clonedDoc.querySelectorAll('table');
             tables.forEach(t => {
               const tableEl = t as HTMLTableElement;
               tableEl.style.width = "100%";
-              tableEl.style.tableLayout = "fixed";
+              tableEl.style.tableLayout = "auto";
               tableEl.style.borderCollapse = 'collapse';
               tableEl.style.border = '2px solid #64748b';
               tableEl.style.textAlign = 'center';
               tableEl.style.backgroundColor = '#ffffff';
             });
+
+            // Table header rows
             const theadRows = clonedDoc.querySelectorAll('thead tr, thead th');
             theadRows.forEach(el => {
               (el as HTMLElement).style.backgroundColor = '#e2e8f0';
               (el as HTMLElement).style.color = '#0f172a';
             });
+
             const rows = clonedDoc.querySelectorAll('tr');
             rows.forEach(r => {
               (r as HTMLElement).style.verticalAlign = 'middle';
             });
+
+            // Cells styling with sharp fonts and zero pixelation
             const cells = clonedDoc.querySelectorAll('th, td');
             cells.forEach(c => {
               const cell = c as HTMLElement;
-              cell.style.border = '1px solid #94a3b8';
+              cell.style.border = '1.5px solid #94a3b8';
               cell.style.textAlign = 'center';
               cell.style.verticalAlign = 'middle';
-              cell.style.lineHeight = '1.25';
+              cell.style.lineHeight = '1.3';
               cell.style.color = '#0f172a';
-              cell.style.padding = '14px 10px';
+              cell.style.padding = '10px 8px';
               cell.style.fontWeight = 'bold';
+              cell.style.whiteSpace = 'nowrap';
               if (cell.tagName.toLowerCase() === 'th') {
-                cell.style.fontSize = '21px';
+                cell.style.fontSize = '16px';
+                cell.style.fontWeight = '900';
                 cell.style.backgroundColor = '#e2e8f0';
               } else {
-                cell.style.fontSize = '20px';
+                cell.style.fontSize = '15px';
                 cell.style.backgroundColor = '#ffffff';
               }
             });
+
+            // General / Total rows
+            const generalRows = clonedDoc.querySelectorAll('tr.font-black, tr.bg-indigo-950, tr.bg-slate-950');
+            generalRows.forEach(gr => {
+              const grEl = gr as HTMLElement;
+              grEl.style.backgroundColor = '#e2e8f0';
+              const cellsInRow = gr.querySelectorAll('td');
+              cellsInRow.forEach(td => {
+                td.style.backgroundColor = '#e2e8f0';
+                td.style.color = '#0f172a';
+                td.style.fontWeight = '900';
+                td.style.fontSize = '16px';
+              });
+            });
+
             const cellContents = clonedDoc.querySelectorAll('th *, td *');
             cellContents.forEach(child => {
               const htmlChild = child as HTMLElement;
               htmlChild.style.verticalAlign = 'middle';
               htmlChild.style.fontSize = 'inherit';
-              htmlChild.style.fontWeight = 'bold';
+              htmlChild.style.fontWeight = 'inherit';
               htmlChild.style.lineHeight = 'inherit';
               htmlChild.style.margin = '0';
               htmlChild.style.color = '#0f172a';
             });
-            const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
-            textEls.forEach(el => {
-              const htmlEl = el as HTMLElement;
-              htmlEl.style.color = '#0f172a';
-              htmlEl.style.fontWeight = 'bold';
-            });
-            const headings = clonedDoc.querySelectorAll('h3');
-            headings.forEach(h => {
-              const htmlH = h as HTMLElement;
-              htmlH.style.fontSize = '25px';
-              htmlH.style.fontWeight = 'bold';
-              htmlH.style.color = '#4338ca';
-            });
-            const paragraphs = clonedDoc.querySelectorAll('p');
-            paragraphs.forEach(p => {
-              const htmlP = p as HTMLElement;
-              htmlP.style.fontSize = '19px';
-              htmlP.style.fontWeight = 'bold';
-              htmlP.style.color = '#475569';
-            });
-            const allElements = clonedDoc.querySelectorAll('*');
-            allElements.forEach(el => {
-              (el as HTMLElement).style.fontWeight = 'bold';
-            });
           }
         });
-        const fileName = `مبيعات-أصناف-مختارة-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+        const fileName = `تقرير-التجميد-مبيعات-أصناف-مختارة-${new Date().toLocaleDateString('ar-EG')}.jpg`;
+
+        // Generate 300 DPI JPEG Blob
+        const rawBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.98));
+        let finalBlob: Blob | null = rawBlob;
+        if (rawBlob) {
+          const arrayBuf = await rawBlob.arrayBuffer();
+          const dpiBytes = setDpiJpeg(new Uint8Array(arrayBuf), 300);
+          finalBlob = new Blob([dpiBytes.buffer as ArrayBuffer], { type: 'image/jpeg' });
+        }
 
         if (actionType === 'share') {
           let sharedSuccessfully = false;
-          if (navigator.share && navigator.canShare) {
+          if (navigator.share && navigator.canShare && finalBlob) {
             try {
-              const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
-              if (blob) {
-                const file = new File([blob], fileName, { type: 'image/jpeg' });
-                if (navigator.canShare({ files: [file] })) {
-                  await navigator.share({
-                    files: [file],
-                    title: 'تقرير مبيعات أصناف مختارة (المجمع)',
-                    text: `تقرير مبيعات أصناف مختارة (المجمع) - تاريخ ${today}`,
-                  });
-                  sharedSuccessfully = true;
-                }
+              const file = new File([finalBlob], fileName, { type: 'image/jpeg' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  files: [file],
+                  title: 'تقرير التجميد (مبيعات أصناف مختارة)',
+                  text: `تقرير التجميد (مبيعات أصناف مختارة) - تاريخ ${today}`,
+                });
+                sharedSuccessfully = true;
               }
             } catch (err: any) {
               if (err.name === 'AbortError') {
@@ -568,27 +685,31 @@ const DailyAdminReport: React.FC<{
             }
           }
 
-          if (!sharedSuccessfully) {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          if (!sharedSuccessfully && finalBlob) {
+            const url = URL.createObjectURL(finalBlob);
             const link = document.createElement('a');
             link.download = fileName;
-            link.href = dataUrl;
+            link.href = url;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            URL.revokeObjectURL(url);
             setActionFeedback("تم تنزيل صورة التقرير بنجاح! يمكنك الآن مشاركتها عبر واتساب أو التطبيقات الأخرى.");
             setTimeout(() => setActionFeedback(null), 5000);
           }
         } else {
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-          const link = document.createElement('a');
-          link.download = fileName;
-          link.href = dataUrl;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setActionFeedback("تم تحميل صورة التقرير بنجاح ✅");
-          setTimeout(() => setActionFeedback(null), 4000);
+          if (finalBlob) {
+            const url = URL.createObjectURL(finalBlob);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            setActionFeedback("تم تحميل صورة التقرير بنجاح بدقة 300 DPI ✅");
+            setTimeout(() => setActionFeedback(null), 4000);
+          }
         }
 
       } catch (error) {
@@ -604,103 +725,6 @@ const DailyAdminReport: React.FC<{
     }
   };
   
-  const handleDownloadCategorySummary = async () => {
-    if (categorySummaryReportRef.current) {
-      try {
-        window.scrollTo(0, 0);
-        const canvas = await html2canvas(categorySummaryReportRef.current, {
-          backgroundColor: '#f1f5f9', // Soft light gray (الرصاصي الخافت)
-          scale: 2,
-          useCORS: true,
-          onclone: (clonedDoc) => {
-            sanitizeModernColors(clonedDoc, '#f1f5f9');
-            const targetEl = clonedDoc.body;
-            if (targetEl) {
-              targetEl.style.backgroundColor = '#f1f5f9';
-            }
-            const tables = clonedDoc.querySelectorAll('table');
-            tables.forEach(t => {
-              const tableEl = t as HTMLTableElement;
-              tableEl.style.borderCollapse = 'collapse';
-              tableEl.style.border = '2px solid #64748b';
-              tableEl.style.textAlign = 'center';
-              tableEl.style.backgroundColor = '#ffffff';
-            });
-            const theadRows = clonedDoc.querySelectorAll('thead tr, thead th');
-            theadRows.forEach(el => {
-              (el as HTMLElement).style.backgroundColor = '#e2e8f0';
-              (el as HTMLElement).style.color = '#0f172a';
-            });
-            const rows = clonedDoc.querySelectorAll('tr');
-            rows.forEach(r => {
-              (r as HTMLElement).style.verticalAlign = 'middle';
-            });
-            const cells = clonedDoc.querySelectorAll('th, td');
-            cells.forEach(c => {
-              const cell = c as HTMLElement;
-              cell.style.border = '1px solid #94a3b8';
-              cell.style.textAlign = 'center';
-              cell.style.verticalAlign = 'middle';
-              cell.style.lineHeight = '1.25';
-              cell.style.color = '#0f172a';
-              cell.style.padding = '14px 10px';
-              cell.style.fontWeight = 'bold';
-              if (cell.tagName.toLowerCase() === 'th') {
-                cell.style.fontSize = '21px';
-                cell.style.backgroundColor = '#e2e8f0';
-              } else {
-                cell.style.fontSize = '20px';
-                cell.style.backgroundColor = '#ffffff';
-              }
-            });
-            const cellContents = clonedDoc.querySelectorAll('th *, td *');
-            cellContents.forEach(child => {
-              const htmlChild = child as HTMLElement;
-              htmlChild.style.verticalAlign = 'middle';
-              htmlChild.style.fontSize = 'inherit';
-              htmlChild.style.fontWeight = 'bold';
-              htmlChild.style.lineHeight = 'inherit';
-              htmlChild.style.margin = '0';
-              htmlChild.style.color = '#0f172a';
-            });
-            const textEls = clonedDoc.querySelectorAll('h3, p, span, div');
-            textEls.forEach(el => {
-              const htmlEl = el as HTMLElement;
-              htmlEl.style.color = '#0f172a';
-              htmlEl.style.fontWeight = 'bold';
-            });
-            const headings = clonedDoc.querySelectorAll('h3');
-            headings.forEach(h => {
-              const htmlH = h as HTMLElement;
-              htmlH.style.fontSize = '25px';
-              htmlH.style.fontWeight = 'bold';
-              htmlH.style.color = '#047857';
-            });
-            const paragraphs = clonedDoc.querySelectorAll('p');
-            paragraphs.forEach(p => {
-              const htmlP = p as HTMLElement;
-              htmlP.style.fontSize = '19px';
-              htmlP.style.fontWeight = 'bold';
-              htmlP.style.color = '#475569';
-            });
-            const allElements = clonedDoc.querySelectorAll('*');
-            allElements.forEach(el => {
-              (el as HTMLElement).style.fontWeight = 'bold';
-            });
-          }
-        });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        const link = document.createElement('a');
-        link.download = `تقرير-مجموع-الأصناف-${new Date().toLocaleDateString('ar-EG')}.jpg`;
-        link.href = dataUrl;
-        link.click();
-      } catch (error) {
-        console.error("html2canvas error:", error);
-      }
-    }
-  };
-  
-  // Removed handleDownload and reportRef definition from here
   const getDelegateSales = (priceMode: 'retail' | 'wholesale') => {
     const data: Record<string, { count: number, weight: number, amount: number }> = {};
     
@@ -791,7 +815,30 @@ const DailyAdminReport: React.FC<{
 
   return (
     <div className="space-y-3 sm:space-y-4 px-0 sm:px-2 py-1.5 sm:py-4 w-full max-w-5xl mx-auto">
-        {/* Three Daily Sales Tables Container for Image Export (Retail + Wholesale + All) */}
+        <ReportPreviewModal
+          isOpen={!!previewModal}
+          onClose={() => setPreviewModal(null)}
+          onConfirm={() => {
+            if (previewModal === 'main') handleDownload('download');
+            else handleDownloadProducts('download');
+            setPreviewModal(null);
+          }}
+          title={previewModal === 'main' ? 'معاينة تقرير المبيعات' : 'معاينة تقرير التجميد'}
+          isProcessing={!!isDownloading}
+        >
+          {previewModal === 'main' ? (
+             <div className="text-slate-900 dark:text-slate-100 font-bold p-4">
+                {/* Simplified preview of the main tables */}
+                <p>تم تجهيز تقرير المبيعات للمعاينة.</p>
+                <p>إجمالي الفواتير: {allSales.reduce((sum, s) => sum + s.count, 0)}</p>
+                <p>إجمالي المبيعات: {formatWithCommas(totalRetail.amount + totalWholesale.amount, true)}</p>
+             </div>
+          ) : (
+             <div className="text-slate-900 dark:text-slate-100 font-bold p-4">
+                <p>تم تجهيز تقرير التجميد للمعاينة.</p>
+             </div>
+          )}
+        </ReportPreviewModal>
         <div 
           ref={threeTablesCaptureRef} 
           id="daily-three-reports-container"
@@ -811,11 +858,7 @@ const DailyAdminReport: React.FC<{
                 </div>
                 <div className="no-export w-full sm:w-auto flex justify-end">
                     <button 
-                      onClick={() => setReportActionModal({
-                        isOpen: true,
-                        target: 'main',
-                        title: 'تقرير مبيعات اليوم الشامل (مفرد + جملة + الكل)'
-                      })} 
+                      onClick={() => setPreviewModal('main')}
                       disabled={isDownloading === 'main'} 
                       className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 sm:py-2 sm:px-4 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
                       title="خيارات تصدير ومشاركة تقرير المبيعات"
@@ -940,29 +983,37 @@ const DailyAdminReport: React.FC<{
         </div>
         
         {/* Specific Categories Sales Table & Summary */}
-        {currentUser.isAdmin && (
+        {isAdminOrDataEntry && (
         <div className="space-y-3 sm:space-y-4 w-full">
-            {currentUser.isAdmin && (
-            <button 
-              onClick={() => setReportActionModal({
-                isOpen: true,
-                target: 'products',
-                title: 'تقرير مبيعات أصناف مختارة (المجمع)'
-              })} 
-              disabled={isDownloading === 'products'} 
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg shadow-md transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
-              title="خيارات تصدير ومشاركة التقرير المجمع"
-            >
-                {isDownloading === 'products' ? (
-                  <span className="animate-spin">⏳</span>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                )}
-                <span>{isDownloading === 'products' ? 'جاري تجهيز الصورة...' : 'تحميل التقرير المجمع'}</span>
-            </button>
-            )}
+            <div className="no-export w-full sm:w-auto flex justify-end">
+              <button 
+                onClick={() => setReportActionModal({
+                  isOpen: true,
+                  target: 'products',
+                  title: 'تقرير مبيعات أصناف مختارة (تقرير التجميد)'
+                })} 
+                disabled={isDownloading === 'products'} 
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 sm:py-2 sm:px-4 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
+                title="خيارات تصدير ومشاركة تقرير التجميد"
+              >
+                  {isDownloading === 'products' ? (
+                    <span className="animate-spin">⏳</span>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  )}
+                  <span>{isDownloading === 'products' ? 'جاري تجهيز الصورة...' : 'تحميل تقرير التجميد'}</span>
+              </button>
+            </div>
             
             <div className="space-y-3 sm:space-y-4 bg-slate-900 p-1 sm:p-3 rounded-xl w-full" ref={combinedReportRef}>
+                <div className="report-freeze-header bg-slate-800/90 rounded-xl p-2.5 sm:p-3 text-white w-full flex justify-between items-center border border-slate-700 shadow-md">
+                    <h3 className="font-black text-xs sm:text-sm text-amber-300 flex items-center gap-1.5">
+                        <span>❄️</span>
+                        <span>تقرير التجميد (مبيعات أصناف مختارة)</span>
+                    </h3>
+                    <span className="text-[11px] sm:text-xs text-slate-300 font-bold">التاريخ: {today}</span>
+                </div>
+                
                 <div className="bg-indigo-900 rounded-xl p-1 sm:p-4 text-white w-full">
                     <h3 className="font-bold mb-2 text-xs sm:text-sm">مبيعات أصناف مختارة (مفرد/جملة)</h3>
                 <div className="overflow-x-auto w-full">
@@ -1248,6 +1299,17 @@ const DailyAdminReport: React.FC<{
 export const ReportsScreen: React.FC = () => {
   // Added state for Sales History move
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [remainingWorkingDays, setRemainingWorkingDays] = useState<number>(20);
+
+  const saveRemainingWorkingDays = async () => {
+    try {
+      await setDoc(doc(db, 'app_settings', 'working_days_config'), { days: remainingWorkingDays }, { merge: true });
+      setUserMessage('تم حفظ أيام العمل المتبقية في قاعدة البيانات بنجاح ✅');
+    } catch (e) {
+      console.error('Error saving working days to Firestore:', e);
+      setUserMessage('حدث خطأ أثناء حفظ أيام العمل المتبقية.');
+    }
+  };
   const reportRef = useRef<HTMLDivElement>(null);
 
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
@@ -1582,9 +1644,9 @@ export const ReportsScreen: React.FC = () => {
     return () => unsub();
   }, [currentUser.isAdmin, currentUser.name]);
 
-  // Subscribe to specific_product_config in app_settings (Admin product specification)
+  // Subscribe to specific_product_config and working_days_config in app_settings
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsubProduct = onSnapshot(
       doc(db, 'app_settings', 'specific_product_config'),
       (snap) => {
         if (snap.exists()) {
@@ -1595,11 +1657,26 @@ export const ReportsScreen: React.FC = () => {
           }
         }
       },
-      (err) => {
-        console.error('Error fetching specific_product_config:', err);
-      }
+      (err) => console.error('Error fetching specific_product_config:', err)
     );
-    return () => unsub();
+
+    const unsubDays = onSnapshot(
+      doc(db, 'app_settings', 'working_days_config'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.days !== undefined) {
+            setRemainingWorkingDays(data.days);
+          }
+        }
+      },
+      (err) => console.error('Error fetching working_days_config:', err)
+    );
+
+    return () => {
+        unsubProduct();
+        unsubDays();
+    };
   }, []);
 
   // Subscribe to specific_product_targets collection in Firestore
@@ -1636,6 +1713,8 @@ export const ReportsScreen: React.FC = () => {
 
   // Helper function to resolve category monthly targets and sales
   // Takes into account Representative View vs Admin View
+  // Helper function to resolve category monthly targets and sales
+  // Takes into account Representative View vs Admin View
   const getMonthlyCategoryStats = (categoryName: string) => {
     const trimmedCat = (categoryName || '').trim();
     const normCat = normalizeText(trimmedCat);
@@ -1647,7 +1726,6 @@ export const ReportsScreen: React.FC = () => {
     });
 
     // 1. Representative View:
-    // When a representative logs into their account, display their specific targets & sales
     if (!currentUser.isAdmin) {
       const repNorm = normalizeText(currentUser.name || '');
       const match = catMatches.find((t) => {
@@ -1658,7 +1736,8 @@ export const ReportsScreen: React.FC = () => {
       const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
       const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
       const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-      return { monthlyTarget, monthlySales, percentage, remaining, hasData: !!match };
+      const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+      return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: !!match };
     }
 
     // 2. Admin View with specific representative selected in the filter:
@@ -1672,16 +1751,17 @@ export const ReportsScreen: React.FC = () => {
       const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
       const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
       const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-      return { monthlyTarget, monthlySales, percentage, remaining, hasData: !!match };
+      const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+      return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: !!match };
     }
 
     // 3. Admin View (default):
-    // Aggregate and sum up both the total monthly targets and total monthly sales across ALL representatives for each item
     const monthlyTarget = catMatches.reduce((sum, item) => sum + (Number(item.monthlyTarget) || 0), 0);
     const monthlySales = catMatches.reduce((sum, item) => sum + (Number(item.monthlySales) || 0), 0);
     const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
     const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-    return { monthlyTarget, monthlySales, percentage, remaining, hasData: catMatches.length > 0 };
+    const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+    return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: catMatches.length > 0 };
   };
 
   // Admin Excel Upload Functionality for Monthly Item Targets
@@ -2175,7 +2255,7 @@ export const ReportsScreen: React.FC = () => {
         (t) => normalizeText(t.delegateName || '') === repNorm || t.delegateName === activeExtraRep
       );
 
-      const repSales = salesEntries.filter((s) => {
+      const repSales = (salesEntries || []).filter((s) => {
         const sMonth = (s.dateString || '').substring(0, 7);
         if (sMonth !== currentMonthStr) return false;
         const sNorm = normalizeText(s.delegateName || '');
@@ -3370,7 +3450,7 @@ export const ReportsScreen: React.FC = () => {
         )}
 
       <div className="space-y-3 sm:space-y-4 p-0 sm:p-2 w-full">
-        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} />}
+        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} remainingWorkingDays={remainingWorkingDays} />}
       </div>
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (
@@ -3659,11 +3739,33 @@ export const ReportsScreen: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap mb-4">
             <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 px-2 sm:px-2.5 py-1 rounded-lg border border-emerald-700/50">
               {achievedCategories.length} أصناف محققة
             </span>
 
+            {/* Admin Controls */}
+            {currentUser.isAdmin && (
+              <div className="flex items-center gap-3 bg-slate-800 p-2 rounded-xl border border-slate-700">
+                <label className="text-xs font-bold text-slate-300">أيام العمل المتبقية:</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={remainingWorkingDays}
+                  onChange={(e) => setRemainingWorkingDays(Number(e.target.value))}
+                  className="w-16 px-2 py-1 bg-slate-900 border border-slate-600 rounded-lg text-center text-white font-black text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={saveRemainingWorkingDays}
+                  className="px-2 py-1 bg-emerald-600 text-white rounded-lg font-black text-xs hover:bg-emerald-500"
+                >
+                  حفظ
+                </button>
+              </div>
+            )}
+            
             {/* Admin Upload Control & Functionality (Exclusively to Admin) */}
             {currentUser.isAdmin && (
               <div className="flex items-center gap-1.5">
@@ -3725,7 +3827,7 @@ export const ReportsScreen: React.FC = () => {
               <tr>
                 <th className="py-3 px-2 sm:px-3.5 w-[33%] text-right font-black">الصنف</th>
                 <th className="py-3 px-1 sm:px-3 text-center w-[20%] font-black">المبيعات (كجم)</th>
-                <th className="py-3 px-1 sm:px-3 text-center w-[20%] font-black">التاركت (كجم)</th>
+                <th className="py-3 px-1 sm:px-3 text-center w-[20%] font-black">التاركت المتبقي اليومي الى نهاية الشهر الحالي</th>
                 <th className="py-3 px-1.5 sm:px-3 text-center w-[27%] font-black">نسبة الإنجاز %</th>
               </tr>
             </thead>
@@ -3776,7 +3878,7 @@ export const ReportsScreen: React.FC = () => {
                           ? 'border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20 text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
                           : 'font-bold'
                       }`}>
-                        {formatWithCommas(parseFloat(item.dailyTargetWeightKg.toFixed(1)), true)}
+                        {formatWithCommas(parseFloat((monthlyStats.weightedTarget || item.dailyTargetWeightKg).toFixed(1)), true)}
                       </td>
                       <td className={`py-2.5 sm:py-3 px-1.5 sm:px-3 text-center ${
                         isMonthlyAchieved
