@@ -5,7 +5,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle, Save } from 'lucide-react';
 import { ReportPreviewModal } from './ReportPreviewModal';
 import {
   ResponsiveContainer,
@@ -1299,17 +1299,6 @@ const DailyAdminReport: React.FC<{
 export const ReportsScreen: React.FC = () => {
   // Added state for Sales History move
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [remainingWorkingDays, setRemainingWorkingDays] = useState<number>(20);
-
-  const saveRemainingWorkingDays = async () => {
-    try {
-      await setDoc(doc(db, 'app_settings', 'working_days_config'), { days: remainingWorkingDays }, { merge: true });
-      setUserMessage('تم حفظ أيام العمل المتبقية في قاعدة البيانات بنجاح ✅');
-    } catch (e) {
-      console.error('Error saving working days to Firestore:', e);
-      setUserMessage('حدث خطأ أثناء حفظ أيام العمل المتبقية.');
-    }
-  };
   const reportRef = useRef<HTMLDivElement>(null);
 
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
@@ -1441,6 +1430,43 @@ export const ReportsScreen: React.FC = () => {
     productsList, // Added
     allSalesEntries, // Added for carton & shop calculations
   } = useSales();
+
+  // Remaining working days in current month - initialized from localStorage and synced via Firestore
+  const [remainingWorkingDays, setRemainingWorkingDays] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('remaining_working_days');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+    return 20;
+  });
+  const [isSavingDays, setIsSavingDays] = useState<boolean>(false);
+  const [daysSavedSuccess, setDaysSavedSuccess] = useState<boolean>(false);
+
+  const saveRemainingWorkingDays = async () => {
+    try {
+      setIsSavingDays(true);
+      const val = Math.max(1, Number(remainingWorkingDays) || 1);
+      try {
+        localStorage.setItem('remaining_working_days', String(val));
+      } catch {}
+      await setDoc(
+        doc(db, 'app_settings', 'working_days_config'),
+        { days: val, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      setDaysSavedSuccess(true);
+      setTimeout(() => setDaysSavedSuccess(false), 3000);
+      setUserMessage('تم حفظ عدد أيام العمل المتبقية في قاعدة البيانات بنجاح ✅');
+    } catch (e) {
+      console.error('Error saving working days to Firestore:', e);
+      setUserMessage('حدث خطأ أثناء حفظ أيام العمل المتبقية في قاعدة البيانات.');
+    } finally {
+      setIsSavingDays(false);
+    }
+  };
 
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string }[]>([]);
@@ -1665,8 +1691,11 @@ export const ReportsScreen: React.FC = () => {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          if (data?.days !== undefined) {
+          if (data?.days !== undefined && typeof data.days === 'number') {
             setRemainingWorkingDays(data.days);
+            try {
+              localStorage.setItem('remaining_working_days', String(data.days));
+            } catch {}
           }
         }
       },
@@ -1713,17 +1742,17 @@ export const ReportsScreen: React.FC = () => {
 
   // Helper function to resolve category monthly targets and sales
   // Takes into account Representative View vs Admin View
-  // Helper function to resolve category monthly targets and sales
-  // Takes into account Representative View vs Admin View
   const getMonthlyCategoryStats = (categoryName: string) => {
     const trimmedCat = (categoryName || '').trim();
     const normCat = normalizeText(trimmedCat);
 
     // Filter relevant targets based on category
-    const catMatches = monthlyItemTargets.filter((t) => {
+    const catMatches = (monthlyItemTargets || []).filter((t) => {
       const tNorm = normalizeText(t.categoryName || '');
       return tNorm === normCat || (t.categoryName || '').trim().toLowerCase() === trimmedCat.toLowerCase();
     });
+
+    const days = Math.max(1, Number(remainingWorkingDays) || 20);
 
     // 1. Representative View:
     if (!currentUser.isAdmin) {
@@ -1736,7 +1765,7 @@ export const ReportsScreen: React.FC = () => {
       const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
       const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
       const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-      const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+      const weightedTarget = days > 0 ? (remaining / days) : remaining;
       return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: !!match };
     }
 
@@ -1751,7 +1780,7 @@ export const ReportsScreen: React.FC = () => {
       const monthlySales = match ? Number(match.monthlySales) || 0 : 0;
       const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
       const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-      const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+      const weightedTarget = days > 0 ? (remaining / days) : remaining;
       return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: !!match };
     }
 
@@ -1760,7 +1789,7 @@ export const ReportsScreen: React.FC = () => {
     const monthlySales = catMatches.reduce((sum, item) => sum + (Number(item.monthlySales) || 0), 0);
     const percentage = monthlyTarget > 0 ? (monthlySales / monthlyTarget) * 100 : 0;
     const remaining = monthlyTarget > monthlySales ? monthlyTarget - monthlySales : 0;
-    const weightedTarget = remainingWorkingDays > 0 ? (remaining / remainingWorkingDays) : remaining;
+    const weightedTarget = days > 0 ? (remaining / days) : remaining;
     return { monthlyTarget, monthlySales, percentage, remaining, weightedTarget, hasData: catMatches.length > 0 };
   };
 
@@ -3745,24 +3774,40 @@ export const ReportsScreen: React.FC = () => {
             </span>
 
             {/* Admin Controls */}
-            {currentUser.isAdmin && (
-              <div className="flex items-center gap-3 bg-slate-800 p-2 rounded-xl border border-slate-700">
-                <label className="text-xs font-bold text-slate-300">أيام العمل المتبقية:</label>
+            {currentUser.isAdmin ? (
+              <div className="flex items-center gap-2 bg-slate-800/95 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 shadow-sm">
+                <label className="text-xs font-bold text-slate-300 whitespace-nowrap">أيام العمل المتبقية:</label>
                 <input
                   type="number"
                   min="1"
                   max="31"
                   value={remainingWorkingDays}
-                  onChange={(e) => setRemainingWorkingDays(Number(e.target.value))}
-                  className="w-16 px-2 py-1 bg-slate-900 border border-slate-600 rounded-lg text-center text-white font-black text-sm"
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setRemainingWorkingDays(isNaN(v) ? 1 : v);
+                  }}
+                  className="w-16 px-2 py-1 bg-slate-900 border border-slate-600 rounded-lg text-center text-white font-black text-sm focus:outline-none focus:border-emerald-500"
                 />
                 <button
                   type="button"
                   onClick={saveRemainingWorkingDays}
-                  className="px-2 py-1 bg-emerald-600 text-white rounded-lg font-black text-xs hover:bg-emerald-500"
+                  disabled={isSavingDays}
+                  className={`flex items-center gap-1.5 px-3 py-1 text-white rounded-lg font-black text-xs transition-all shadow-sm active:scale-95 ${
+                    daysSavedSuccess
+                      ? 'bg-emerald-500 hover:bg-emerald-600'
+                      : 'bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50'
+                  }`}
+                  title="حفظ عدد أيام العمل المتبقية في قاعدة البيانات"
                 >
-                  حفظ
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingDays ? 'جاري الحفظ...' : daysSavedSuccess ? 'تم الحفظ ✓' : 'حفظ'}</span>
                 </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-slate-800/90 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 shadow-sm text-xs font-bold text-slate-300">
+                <span>أيام العمل المتبقية:</span>
+                <span className="text-emerald-400 font-black text-sm">{remainingWorkingDays}</span>
+                <span>يوم</span>
               </div>
             )}
             
@@ -3878,7 +3923,24 @@ export const ReportsScreen: React.FC = () => {
                           ? 'border-t-2 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20 text-lime-700 dark:text-[#39ff14] font-black drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
                           : 'font-bold'
                       }`}>
-                        {formatWithCommas(parseFloat((monthlyStats.weightedTarget || item.dailyTargetWeightKg).toFixed(1)), true)}
+                        <div className="flex flex-col items-center justify-center">
+                          <span>
+                            {(() => {
+                              const isZeroTarget = isMonthlyAchieved || (monthlyStats.hasData && (monthlyStats.percentage >= 100 || monthlyStats.remaining <= 0));
+                              const val = isZeroTarget
+                                ? 0
+                                : (monthlyStats.hasData
+                                    ? monthlyStats.weightedTarget
+                                    : item.dailyTargetWeightKg);
+                              return formatWithCommas(parseFloat(Number(val).toFixed(1)), true);
+                            })()}
+                          </span>
+                          <span className={`text-[7.5px] sm:text-[8.5px] font-bold mt-0.5 ${
+                            isMonthlyAchieved ? 'text-lime-700/90 dark:text-[#39ff14]/90' : 'text-slate-400 dark:text-slate-400'
+                          }`}>
+                            (هدف يومي لنهاية الشهر)
+                          </span>
+                        </div>
                       </td>
                       <td className={`py-2.5 sm:py-3 px-1.5 sm:px-3 text-center ${
                         isMonthlyAchieved
@@ -3925,7 +3987,7 @@ export const ReportsScreen: React.FC = () => {
                       <td className={`py-1.5 px-2 sm:px-3.5 font-normal ${
                         isMonthlyAchieved
                           ? 'border-r-2 border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
-                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                          : 'border-b-4 border-slate-400 dark:border-slate-600'
                       }`}>
                         <div className="flex items-center gap-1 pr-2 sm:pr-4">
                           <span className={`font-black text-[8px] sm:text-[9px] flex items-center gap-1.5 ${
@@ -3946,42 +4008,60 @@ export const ReportsScreen: React.FC = () => {
                       <td className={`py-1.5 px-1 sm:px-3 text-center ${
                         isMonthlyAchieved
                           ? 'border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
-                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                          : 'border-b-4 border-slate-400 dark:border-slate-600'
                       }`}>
-                        <span className={`text-[9px] sm:text-[10px] ${
-                          isMonthlyAchieved
-                            ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
-                            : 'font-semibold text-slate-400 dark:text-slate-400'
-                        }`}>
-                          {formatWithCommas(parseFloat(monthlyStats.monthlySales.toFixed(1)), true)}
-                        </span>
-                        <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
-                          isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
-                        }`}>كجم</span>
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span className={`text-[9px] sm:text-[10px] ${
+                              isMonthlyAchieved
+                                ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                                : 'font-semibold text-slate-400 dark:text-slate-400'
+                            }`}>
+                              {formatWithCommas(parseFloat(monthlyStats.monthlySales.toFixed(1)), true)}
+                            </span>
+                            <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
+                              isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
+                            }`}>كجم</span>
+                          </div>
+                          <span className={`text-[7.5px] sm:text-[8.5px] font-bold mt-0.5 ${
+                            isMonthlyAchieved ? 'text-lime-700/90 dark:text-[#39ff14]/90' : 'text-slate-400 dark:text-slate-400'
+                          }`}>
+                            (مبيعات شهري)
+                          </span>
+                        </div>
                       </td>
                       {/* Sub-row: Monthly Target (Prominent Phosphor Green when achieved, Light Gray otherwise) */}
                       <td className={`py-1.5 px-1 sm:px-3 text-center ${
                         isMonthlyAchieved
                           ? 'border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/20 dark:bg-lime-400/20'
-                          : 'border-b-4 border-slate-300 dark:border-slate-700'
+                          : 'border-b-4 border-slate-400 dark:border-slate-600'
                       }`}>
-                        <span className={`text-[9px] sm:text-[10px] ${
-                          isMonthlyAchieved
-                            ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
-                            : 'font-semibold text-slate-400 dark:text-slate-400'
-                        }`}>
-                          {formatWithCommas(parseFloat(monthlyStats.monthlyTarget.toFixed(1)), true)}
-                        </span>
-                        <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
-                          isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
-                        }`}>كجم</span>
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span className={`text-[9px] sm:text-[10px] ${
+                              isMonthlyAchieved
+                                ? 'font-black text-lime-700 dark:text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]'
+                                : 'font-semibold text-slate-400 dark:text-slate-400'
+                            }`}>
+                              {formatWithCommas(parseFloat(monthlyStats.monthlyTarget.toFixed(1)), true)}
+                            </span>
+                            <span className={`text-[7px] sm:text-[8px] mr-0.5 ${
+                              isMonthlyAchieved ? 'text-lime-700/80 dark:text-[#39ff14]/80 font-bold' : 'text-slate-400/80'
+                            }`}>كجم</span>
+                          </div>
+                          <span className={`text-[7.5px] sm:text-[8.5px] font-bold mt-0.5 ${
+                            isMonthlyAchieved ? 'text-lime-700/90 dark:text-[#39ff14]/90' : 'text-slate-400 dark:text-slate-400'
+                          }`}>
+                            (هدف شهري)
+                          </span>
+                        </div>
                       </td>
                       {/* Sub-row: Monthly Achievement Percentage with Phosphor Green Highlight & Coronation Icon */}
                       <td
                         className={`py-1.5 px-1.5 sm:px-3 text-center transition-all ${
                           isMonthlyAchieved
                             ? 'border-l-2 border-b-4 border-lime-400/90 dark:border-[#39ff14]/90 bg-lime-400/25 dark:bg-lime-400/25 ring-1 ring-inset ring-lime-400/60'
-                            : 'border-b-4 border-slate-300 dark:border-slate-700'
+                            : 'border-b-4 border-slate-400 dark:border-slate-600'
                         }`}
                       >
                         <div className="space-y-0.5">
@@ -4000,8 +4080,8 @@ export const ReportsScreen: React.FC = () => {
                             </span>
 
                             {isMonthlyAchieved ? (
-                              <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-lime-400 dark:bg-[#39ff14] text-slate-950 font-black text-[7px] sm:text-[8px] shadow-sm">
-                                👑 تتويج
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-lime-400 dark:bg-[#39ff14] text-slate-950 font-black text-[7.5px] sm:text-[8.5px] shadow-sm">
+                                تم تحقيق الهدف الشهري
                               </span>
                             ) : (
                               <span className="text-slate-400 text-[7px] sm:text-[8px]">
@@ -4024,6 +4104,19 @@ export const ReportsScreen: React.FC = () => {
                         </div>
                       </td>
                     </tr>
+
+                    {/* فاصل كبير وفراغ بارز بين كل صنف والآخر بنفس العرض وبدون نقاط */}
+                    {idx < categoryReports.length - 1 && (
+                      <tr key={`spacer-${item.categoryName}`} className="select-none pointer-events-none" aria-hidden="true">
+                        <td colSpan={4} className="p-0 border-0">
+                          <div className={`h-5 sm:h-6 w-full ${
+                            isDarkMode
+                              ? 'bg-slate-950 border-y-2 border-slate-800 shadow-inner'
+                              : 'bg-slate-200/90 border-y-2 border-slate-300 shadow-inner'
+                          }`} />
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}

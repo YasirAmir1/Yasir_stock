@@ -82,6 +82,15 @@
         "createdAt": { "type": "number" }
       },
       "required": ["id", "customerCode", "customerName", "productName", "delegateName", "defectReason", "status"]
+    },
+    "app_setting": {
+      "title": "App Setting",
+      "description": "General application configuration such as working days",
+      "type": "object",
+      "properties": {
+        "days": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -120,6 +129,14 @@
     "/daily_evaluations/{evalId}": {
       "schema": "daily_evaluation",
       "description": "Saved daily evaluation records",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/app_settings/{settingId}": {
+      "schema": "app_setting",
+      "description": "General application settings such as remaining working days configuration",
       "allow": {
         "read": "true",
         "write": "true"

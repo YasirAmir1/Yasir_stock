@@ -262,8 +262,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
 
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
-      // Hide unavailable products and low stock products (<= 2) for non-admins
-      if (!isAdmin && (p.isAvailable === false || (p.stockCartons || 0) <= 2)) return false;
+      // Hide unavailable products and low stock products (< 6 cartons) for non-admins (مندوبين)
+      if (!isAdmin && (p.isAvailable === false || (p.stockCartons || 0) < 6)) return false;
 
       const matchSearch = 
         p.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -540,9 +540,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return;
     }
 
-    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    // شرط الـ 25 ألف و 2 أصناف يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
     if (!isEditingInvoice && !isAdminUser) {
-      if (total < 25000 || uniqueProducts.size < 3) {
+      if (total < 25000 || uniqueProducts.size < 2) {
         setMinInvoiceAlertData({ total, count: uniqueProducts.size });
         return;
       }
@@ -607,9 +607,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return;
     }
 
-    // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    // شرط الـ 25 ألف و 2 أصناف يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
     if (!isEditingInvoice && !isAdminUser) {
-      if (total < 25000 || uniqueProducts.size < 3) {
+      if (total < 25000 || uniqueProducts.size < 2) {
         setMinInvoiceAlertData({ total, count: uniqueProducts.size });
         return;
       }
@@ -726,7 +726,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 تنبيه شروط حفظ الفاتورة
               </h3>
               <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-relaxed px-2">
-                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 3 أصناف مختلفة على الأقل.
+                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 2 أصناف مختلفة على الأقل.
               </p>
             </div>
 
@@ -739,8 +739,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">عدد الأصناف المختارة:</span>
-                <span className={`font-black ${minInvoiceAlertData.count < 3 ? 'text-red-500' : 'text-emerald-500'}`}>
-                  {minInvoiceAlertData.count} أصناف (المطلوب: 3 أصناف على الأقل)
+                <span className={`font-black ${minInvoiceAlertData.count < 2 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.count} أصناف (المطلوب: 2 أصناف على الأقل)
                 </span>
               </div>
             </div>
@@ -811,9 +811,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
               </div>
               <p className="text-[11px] sm:text-xs leading-relaxed opacity-90">
                 {currentUser?.isAdmin
-                  ? `بصفتك مسؤول النظام (الأدمن)، تم رفع شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف) بالكامل. يمكنك حفظ أي فاتورة بأي كمية أو مبلغ بحرية تامّة.`
+                  ? `بصفتك مسؤول النظام (الأدمن)، تم رفع شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (2 أصناف) بالكامل. يمكنك حفظ أي فاتورة بأي كمية أو مبلغ بحرية تامّة.`
                   : isEditingInvoice 
-                    ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (3 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
+                    ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (2 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
                     : `هذا الزبون لا يمتلك أي فاتورة مسجلة لليوم الحالي، لذا تُعتبر هذه فاتورة افتتاحية جديدة وتخضع إلزامياً لشرطي الحد الأدنى.`}
               </p>
             </div>
@@ -826,18 +826,18 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                     <span>👑 إعفاء حساب الأدمن (مرفوع الشرط):</span>
                   </div>
                   <p className="text-[11px] leading-relaxed pr-2">
-                    تم رفع وتجاوز شرط الـ 25 ألف و 3 أصناف تلقائياً لحساب الإدارة (الأدمن)، مما يتيح إدخال أي فاتورة بحرية تامة دون قيود.
+                    تم رفع وتجاوز شرط الـ 25 ألف و 2 أصناف تلقائياً لحساب الإدارة (الأدمن)، مما يتيح إدخال أي فاتورة بحرية تامة دون قيود.
                   </p>
                 </div>
               )}
               <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
                 <div className="flex items-center gap-1.5 font-black text-emerald-600 dark:text-emerald-400">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                  <span>1. الفاتورة الافتتاحية الجديدة (تخضع للشرطين):</span>
+                  <span>1. الفاتورة الافتتاحية الجديدة (تخضع للشرطين): لجميع المندوبين</span>
                 </div>
                 <ul className="list-disc list-inside text-slate-600 dark:text-slate-300 pr-2 space-y-1 text-[11px] leading-relaxed">
                   <li><strong>الحد الأدنى للمبلغ:</strong> لا يقل إجمالي قيمة الفاتورة عن <span className="font-black text-emerald-600 dark:text-emerald-400">25,000 د.ع</span>.</li>
-                  <li><strong>الحد الأدنى للأصناف:</strong> يجب أن تحتوي على <span className="font-black text-emerald-600 dark:text-emerald-400">3 أصناف مختلفة</span> على الأقل.</li>
+                  <li><strong>الحد الأدنى للأصناف:</strong> يجب أن تحتوي على <span className="font-black text-emerald-600 dark:text-emerald-400">2 أصناف مختلفة</span> على الأقل.</li>
                   <li className="text-[10px] text-slate-500 dark:text-slate-400">الهدف: ضمان الكفاءة والجدوى البيعية لزيارة الزبون الأولى.</li>
                 </ul>
               </div>
@@ -885,10 +885,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                 <span className="shrink-0 text-sm">{currentUser?.isAdmin ? '👑' : isEditingInvoice ? '✏️' : '🆕'}</span>
                 <span className="truncate">
                   {currentUser?.isAdmin
-                    ? 'إدخال أدمن (مستثنى بالكامل من شرط الـ 25 ألف و 3 أصناف 👑)'
+                    ? 'إدخال أدمن (مستثنى بالكامل من شرط الـ 25 ألف و 2 أصناف 👑)'
                     : isEditingInvoice 
                       ? 'تعديل / ملحق لفاتورة (مستثناة من الشروط)' 
-                      : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 3 أصناف ✅)'}
+                      : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 2 أصناف ✅)'}
                 </span>
               </div>
               <button 
@@ -945,7 +945,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                     ? '👑 إدخال أدمن (مستثنى من الشروط)'
                     : isEditingInvoice 
                       ? '✏️ تعديل / إضافة (مستثناة من الشروط)' 
-                      : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 3 أصناف)'}
+                      : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 2 أصناف)'}
                 </span>
                 <HelpCircle className="w-3.5 h-3.5 opacity-80" />
               </button>

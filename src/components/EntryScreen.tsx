@@ -247,7 +247,7 @@ export const EntryScreen: React.FC = () => {
       return;
     }
 
-    // التحقق الصارم من شروط حفظ الفاتورة بعد التعديل (ألا يقل عن 3 أصناف ولا يقل عن 25,000 د.ع)
+    // التحقق الصارم من شروط حفظ الفاتورة بعد التعديل (ألا يقل عن 2 أصناف ولا يقل عن 25,000 د.ع)
     // استثناء: عند إدخال أو تعديل الفاتورة من قبل الأدمن يتم رفع هذا الشرط بالكامل
     const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
     if (!isAdminUser && oldEntry) {
@@ -281,9 +281,9 @@ export const EntryScreen: React.FC = () => {
         return sum + (price * e.quantity);
       }, 0);
 
-      // شرط الـ 25 ألف و 3 منتجات يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل عند الأدمن
+      // شرط الـ 25 ألف و 2 أصناف يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل عند الأدمن
       const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
-      if (!isAdminUser && (simulatedUniqueProducts < 3 || simulatedTotalPrice < 25000)) {
+      if (!isAdminUser && (simulatedUniqueProducts < 2 || simulatedTotalPrice < 25000)) {
         setMinInvoiceAlertData({
           total: simulatedTotalPrice,
           count: simulatedUniqueProducts,
@@ -737,7 +737,7 @@ export const EntryScreen: React.FC = () => {
     if (invalidFound) return;
 
     // التحقق الصارم من شروط حفظ الفاتورة (للفواتير الجديدة وحتى بعد التعديل أو الإضافة):
-    // 1. لا تحفظ فاتورة فيها عدد المنتجات أقل من 3
+    // 1. لا تحفظ فاتورة فيها عدد المنتجات أقل من 2
     // 2. لا تحفظ فاتورة يقل مجموعها عن 25,000 د.ع
     // استثناء: عند إدخال الفاتورة من قبل الأدمن يتم رفع هذا الشرط بالكامل
     const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
@@ -772,7 +772,7 @@ export const EntryScreen: React.FC = () => {
       const combinedTotalPrice = existingTotal + newItemsTotal;
 
       const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
-      if (!isAdminUser && (totalUniqueProducts < 3 || combinedTotalPrice < 25000)) {
+      if (!isAdminUser && (totalUniqueProducts < 2 || combinedTotalPrice < 25000)) {
         setMinInvoiceAlertData({
           total: combinedTotalPrice,
           count: totalUniqueProducts,
@@ -1603,7 +1603,7 @@ export const EntryScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            // التحقق الصارم مما إذا كان حذف هذا الصنف سيجعل الفاتورة أقل من 3 أصناف أو أقل من 25,000 د.ع (معفى عند الأدمن)
+                            // التحقق الصارم مما إذا كان حذف هذا الصنف سيجعل الفاتورة أقل من 2 أصناف أو أقل من 25,000 د.ع (معفى عند الأدمن)
                             const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
                             if (!isAdminUser) {
                               const remainingEntries = entries.filter(e => e.id !== entry.id);
@@ -1614,7 +1614,7 @@ export const EntryScreen: React.FC = () => {
                                 return sum + (price * e.quantity);
                               }, 0);
 
-                              if (remainingCount < 3 || remainingTotal < 25000) {
+                              if (remainingCount < 2 || remainingTotal < 25000) {
                                 setMinInvoiceAlertData({
                                   total: remainingTotal,
                                   count: remainingCount,
@@ -1682,10 +1682,10 @@ export const EntryScreen: React.FC = () => {
               )}
               <p className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 leading-relaxed px-1">
                 {minInvoiceAlertData.context === 'edit'
-                  ? 'لا يمكن حفظ هذا التعديل لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 3 أصناف أو أقل من 25,000 د.ع).'
+                  ? 'لا يمكن حفظ هذا التعديل لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 2 أصناف أو أقل من 25,000 د.ع).'
                   : minInvoiceAlertData.context === 'deleteItem'
-                  ? 'لا يمكن حذف هذا الصنف لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 3 أصناف أو أقل من 25,000 د.ع). لحذف كامل الفاتورة يرجى استخدام زر مسح/حذف الفاتورة بالكامل بالأعلى.'
-                  : 'لا يمكن حفظ الفاتورة لأنها غير مستوفية لشروط الحفظ الإلزامية. يجب أن تحتوي الفاتورة على 3 أصناف مختلفة على الأقل وبقيمة لا تقل عن 25,000 د.ع.'}
+                  ? 'لا يمكن حذف هذا الصنف لأن الفاتورة ستصبح غير مستوفية لشروط الحفظ الإلزامية (أقل من 2 أصناف أو أقل من 25,000 د.ع). لحذف كامل الفاتورة يرجى استخدام زر مسح/حذف الفاتورة بالكامل بالأعلى.'
+                  : 'لا يمكن حفظ الفاتورة لأنها غير مستوفية لشروط الحفظ الإلزامية. يجب أن تحتوي الفاتورة على 2 أصناف مختلفة على الأقل وبقيمة لا تقل عن 25,000 د.ع.'}
               </p>
             </div>
 
@@ -1698,7 +1698,7 @@ export const EntryScreen: React.FC = () => {
                 <span>شروط حفظ الفاتورة الإلزامية:</span>
               </div>
               <ul className="space-y-1 font-bold text-[11px] pr-2 list-disc list-inside">
-                <li>عدد المنتجات: <span className="font-black">3 أصناف مختلفة على الأقل</span> في الفاتورة الواحدة.</li>
+                <li>عدد المنتجات: <span className="font-black">2 أصناف مختلفة على الأقل</span> في الفاتورة الواحدة.</li>
                 <li>المبلغ الإجمالي: <span className="font-black">25,000 د.ع على الأقل</span>.</li>
               </ul>
             </div>
@@ -1714,15 +1714,15 @@ export const EntryScreen: React.FC = () => {
                 <span className="text-slate-600 dark:text-slate-400 font-bold">عدد الأصناف في الفاتورة:</span>
                 <div className="flex items-center gap-1.5">
                   <span className="font-mono font-black text-xs">
-                    {minInvoiceAlertData.count} / 3 أصناف
+                    {minInvoiceAlertData.count} / 2 أصناف
                   </span>
-                  {minInvoiceAlertData.count >= 3 ? (
+                  {minInvoiceAlertData.count >= 2 ? (
                     <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
                       مستوفي ✅
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-300">
-                      ينقص {3 - minInvoiceAlertData.count} صنف ❌
+                      ينقص {2 - minInvoiceAlertData.count} صنف ❌
                     </span>
                   )}
                 </div>
