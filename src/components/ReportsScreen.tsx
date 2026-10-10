@@ -5,7 +5,7 @@ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
-import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle, Save } from 'lucide-react';
+import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle, Save, Gift, Sparkles } from 'lucide-react';
 import { ReportPreviewModal } from './ReportPreviewModal';
 import {
   ResponsiveContainer,
@@ -1444,6 +1444,16 @@ export const ReportsScreen: React.FC = () => {
   });
   const [isSavingDays, setIsSavingDays] = useState<boolean>(false);
   const [daysSavedSuccess, setDaysSavedSuccess] = useState<boolean>(false);
+
+  // Admin Gifts Report State
+  const [adminGiftStartDate, setAdminGiftStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [adminGiftEndDate, setAdminGiftEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
   const saveRemainingWorkingDays = async () => {
     try {
@@ -5376,6 +5386,140 @@ export const ReportsScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Admin Gifts Dispensed Report Section */}
+      {(() => {
+        const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن');
+        if (!isAdminUser) return null;
+
+        const filteredGifts = salesEntries.filter(e => {
+          if (!e.isGift) return false;
+          const d = e.dateString || (e.timestamp ? new Date(e.timestamp).toISOString().split('T')[0] : '');
+          if (!d) return false;
+          return d >= adminGiftStartDate && d <= adminGiftEndDate;
+        });
+
+        return (
+          <div className={`mt-8 p-4 sm:p-6 rounded-2xl border shadow-xl ${isDarkMode ? 'bg-slate-900/90 border-amber-500/30' : 'bg-white border-amber-300'}`}>
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4 border-b pb-4 border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center border border-amber-500/30 shadow-xs">
+                  <Gift className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
+                    تقرير الهدايا المجانية المصروفة (للأدمن فقط)
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                    عرض جدول تفصيلي بكافة الهدايا المصروفة للزبائن خلال الفترة الزمنية المحددة مع اسم الزبون والمنتج المسبب للهدية.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs font-bold">
+                  <span>من:</span>
+                  <input
+                    type="date"
+                    value={adminGiftStartDate}
+                    onChange={(e) => setAdminGiftStartDate(e.target.value)}
+                    className={`p-2 rounded-xl border font-mono ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 text-xs font-bold">
+                  <span>إلى:</span>
+                  <input
+                    type="date"
+                    value={adminGiftEndDate}
+                    onChange={(e) => setAdminGiftEndDate(e.target.value)}
+                    className={`p-2 rounded-xl border font-mono ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (filteredGifts.length === 0) {
+                      alert('لا توجد هدايا مصروفة في الفترة المحددة.');
+                      return;
+                    }
+                    const rows = filteredGifts.map((g, idx) => ({
+                      'التسلسل': idx + 1,
+                      'تاريخ العملية': g.dateString || (g.timestamp ? new Date(g.timestamp).toLocaleDateString('en-GB') : '---'),
+                      'اسم الزبون': g.customerName || 'بدون اسم',
+                      'كود الزبون': g.customerCode || '---',
+                      'المندوب': g.delegateName || '---',
+                      'المنتج المسبب للهدية': g.productName || '---',
+                      'عدد قطع الهدية': g.quantity || 0,
+                      'نوع الفاتورة': g.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(rows);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'تقرير_الهدايا');
+                    XLSX.writeFile(wb, `admin_gifts_report_${adminGiftStartDate}_to_${adminGiftEndDate}.xlsx`);
+                  }}
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>تصدير تقرير الهدايا إكسل</span>
+                </button>
+              </div>
+            </div>
+
+            {filteredGifts.length === 0 ? (
+              <div className="py-10 text-center flex flex-col items-center justify-center">
+                <Gift className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-2" />
+                <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400">
+                  لا توجد هدايا مصروفة مسجلة في الفترة المحددة ({adminGiftStartDate} إلى {adminGiftEndDate}).
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className={`border-b text-[11px] font-black uppercase tracking-wider ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      <th className="py-2.5 px-3">#</th>
+                      <th className="py-2.5 px-3">تاريخ العملية</th>
+                      <th className="py-2.5 px-3">اسم الزبون / المحل</th>
+                      <th className="py-2.5 px-3">كود الزبون</th>
+                      <th className="py-2.5 px-3">المندوب</th>
+                      <th className="py-2.5 px-3">المنتج المسبب للهدية</th>
+                      <th className="py-2.5 px-3 text-center">كمية الهدية (قطع)</th>
+                      <th className="py-2.5 px-3 text-center">نوع الطلب</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
+                    {filteredGifts.map((gift, idx) => (
+                      <tr key={gift.id || idx} className={`transition-colors ${isDarkMode ? 'hover:bg-slate-800/80 bg-slate-900/40' : 'hover:bg-amber-50/50 bg-white'}`}>
+                        <td className="py-2.5 px-3 font-mono">{idx + 1}</td>
+                        <td className="py-2.5 px-3 font-mono">{gift.dateString || (gift.timestamp ? new Date(gift.timestamp).toLocaleDateString('en-GB') : '---')}</td>
+                        <td className="py-2.5 px-3 font-black text-slate-900 dark:text-slate-100">{gift.customerName || 'بدون اسم'}</td>
+                        <td className="py-2.5 px-3 font-mono">{gift.customerCode || '---'}</td>
+                        <td className="py-2.5 px-3 font-bold">{gift.delegateName || '---'}</td>
+                        <td className="py-2.5 px-3 font-black text-amber-700 dark:text-amber-400">
+                          <div className="flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>{gift.productName}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-white font-black shadow-xs">
+                            🎁 {gift.quantity} قطعة
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${gift.priceMode === 'wholesale' ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300' : 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300'}`}>
+                            {gift.priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
     </div>
     </PullToRefresh>

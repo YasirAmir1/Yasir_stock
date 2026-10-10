@@ -486,15 +486,18 @@ export const OldInvoicesScreen: React.FC = () => {
     let totalCartons = 0;
 
     entries.forEach((e) => {
+      const isGift = Boolean(e.isGift);
       const prod = productsList.find(p => p.productName === e.productName);
       const cartonSize = Number(prod?.cartonQuantity) || 1;
       const isCarton = e.entryUnit === 'carton';
       const pieces = isCarton ? (e.quantity || 0) : (e.enteredQuantity || e.quantity || 0);
-      const rowPrice = prod ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
+      const rowPrice = prod && !isGift ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
       totalPrice += rowPrice;
 
       let quantityText = '';
-      if (cartonSize > 1) {
+      if (isGift) {
+        quantityText = `<div style="font-weight: bold; color: #d97706;">${pieces} قطعة (هدية)</div>`;
+      } else if (cartonSize > 1) {
         const cVal = isCarton ? (e.enteredQuantity || (pieces / cartonSize)) : (pieces / cartonSize);
         totalCartons += cVal;
         const displayCarton = cVal.toFixed(2).endsWith('.00') ? cVal.toFixed(0) : cVal.toFixed(2);
@@ -505,11 +508,16 @@ export const OldInvoicesScreen: React.FC = () => {
       }
 
       rowsHtml += `
-        <tr>
-          <td>${getProductCode(e.productName)}</td>
-          <td class="text-right">${e.productName}</td>
+        <tr style="${isGift ? 'background-color: #fffbeb;' : ''}">
+          <td>${isGift ? '🎁' : getProductCode(e.productName)}</td>
+          <td class="text-right">
+            ${isGift ? '<span style="color: #b45309; font-weight: bold; margin-left: 4px;">[هدية]</span>' : ''}
+            ${e.productName}
+          </td>
           <td>${quantityText}</td>
-          <td class="text-left">${formatWithCommas(rowPrice, true)} د.ع</td>
+          <td class="text-left" style="${isGift ? 'font-weight: bold; color: #b45309;' : ''}">
+            ${isGift ? 'هدية' : `${formatWithCommas(rowPrice, true)} د.ع`}
+          </td>
         </tr>
       `;
     });
@@ -700,11 +708,13 @@ export const OldInvoicesScreen: React.FC = () => {
       grp.entries.push(entry);
       grp.totalWeight += (entry.totalWeightKg || 0);
 
-      const prod = productsList.find(p => p.productName === entry.productName);
-      const unitPrice = prod 
-        ? (mode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
-        : 0;
-      grp.totalAmount += (unitPrice * (entry.quantity || 0));
+      if (!entry.isGift) {
+        const prod = productsList.find(p => p.productName === entry.productName);
+        const unitPrice = prod 
+          ? (mode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
+          : 0;
+        grp.totalAmount += (unitPrice * (entry.quantity || 0));
+      }
     });
 
     // Sort invoices by date descending, then delegate name, then customer name
@@ -721,6 +731,7 @@ export const OldInvoicesScreen: React.FC = () => {
     const data: any[] = [];
     sortedInvoices.forEach(inv => {
       inv.entries.forEach(e => {
+        if (e.isGift) return; // skip gifts
         const prod = productsList.find(p => p.productName === e.productName);
         const unitPrice = prod 
           ? (inv.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
@@ -738,7 +749,8 @@ export const OldInvoicesScreen: React.FC = () => {
           'الكمية (قطع)': e.quantity,
           'الوزن الكلي (كجم)': e.totalWeightKg,
           'سعر البيع (د.ع)': unitPrice,
-          'المبلغ الإجمالي (د.ع)': unitPrice * e.quantity,
+          'المبلغ الإجمالي (د.ع)': (unitPrice * e.quantity),
+          'ملاحظات': 'بيع اعتيادي'
         });
       });
     });
@@ -1139,26 +1151,35 @@ export const OldInvoicesScreen: React.FC = () => {
                 {/* Items List - Exactly matching EntryScreen layout */}
                 <div className="flex flex-col px-2 pb-1 pt-0.5">
                   {entries.map((entry, index) => {
+                    const isGift = Boolean(entry.isGift);
                     const prod = productsList.find(p => p.productName === entry.productName);
                     const cartonQty = Number(prod?.cartonQuantity) || 1;
-                    const itemUnitPrice = prod ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                    const itemUnitPrice = prod && !isGift ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
                     const itemTotalPrice = itemUnitPrice * entry.quantity;
 
                     return (
                       <div
                         key={`old_item_${entry.id || index}`}
                         className={`py-1 px-2 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] transition-colors ${
-                          isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50'
+                          isGift
+                            ? (isDarkMode ? 'bg-amber-950/30 border-amber-800/60' : 'bg-amber-50/70 border-amber-200')
+                            : (isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50')
                         }`}
                       >
                         {/* Product Code, Name, Category */}
                         <div className="flex-1 flex flex-col gap-1 w-full sm:w-auto">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                              isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'
-                            }`} title="كود المنتج">
-                              {getProductCode(entry.productName)}
-                            </span>
+                            {isGift ? (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-xs">
+                                هدية 🎁
+                              </span>
+                            ) : (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'
+                              }`} title="كود المنتج">
+                                {getProductCode(entry.productName)}
+                              </span>
+                            )}
                             <span className={`font-bold text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                               {entry.productName}
                             </span>
@@ -1173,7 +1194,7 @@ export const OldInvoicesScreen: React.FC = () => {
                         {/* Quantities, Weight, and Price */}
                         <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                           <div className="flex items-center gap-1.5">
-                            {entry.quantity >= cartonQty && (
+                            {!isGift && entry.quantity >= cartonQty && (
                               <div className={`text-center font-bold px-2 py-0.5 border rounded-md text-[10px] min-w-[50px] ${
                                 isDarkMode ? 'bg-indigo-900/50 border-indigo-700 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-700'
                               }`} title="الكراتين المدخلة">
@@ -1183,11 +1204,13 @@ export const OldInvoicesScreen: React.FC = () => {
                               </div>
                             )}
                             <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${
-                              isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800'
-                            }`} title="القطع">
-                              {entry.entryUnit === 'carton' 
-                                ? formatWithCommas(entry.quantity) 
-                                : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
+                              isGift
+                                ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 font-black'
+                                : (isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800')
+                            }`} title={isGift ? "قطع الهدية المجانية" : "القطع"}>
+                              {isGift ? `${formatWithCommas(entry.quantity)} قطعة هدية` : (entry.entryUnit === 'carton' 
+                                ? `${formatWithCommas(entry.quantity)} قطعة` 
+                                : `${formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة`)}
                             </div>
                           </div>
                           
@@ -1198,9 +1221,11 @@ export const OldInvoicesScreen: React.FC = () => {
                               وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
                             </div>
                             <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
-                              isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'
-                            }`} title="مبلغ الإدخال">
-                              مبلغ: {formatWithCommas(itemTotalPrice, true)} د.ع
+                              isGift
+                                ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200'
+                                : (isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800')
+                            }`} title={isGift ? "هدية مجانية (بدون مبلغ)" : "مبلغ الإدخال"}>
+                              {isGift ? 'هدية 🎁' : `مبلغ: ${formatWithCommas(itemTotalPrice, true)} د.ع`}
                             </div>
                           </div>
                         </div>

@@ -56,6 +56,25 @@ export interface SalesEntry {
   delegateName: string;
   timestamp: number;
   dateString: string;
+  isGift?: boolean;            // هل السطر هدية مجانية ترويجية
+  giftPromotionId?: string;   // معرف عرض الهدية المرتبط إن وجد
+}
+
+export interface GiftPromotion {
+  id: string;
+  productCode: string;           // كود المنتج
+  productName: string;           // اسم المنتج
+  requirementCondition: string;  // الشرط المراد تحقيقه (نص توضيحي مثل: كل 15 قطعة أو كل 1 كارتون)
+  conditionUnit?: 'piece' | 'carton'; // وحدة الشرط (قطعة أو كارتون)
+  conditionQuantity: number;     // الكمية المطلوبة لتحقيق الشرط (مثلاً 15 قطعة)
+  giftQuantityPieces: number;    // كمية الهدية بالقطع (مثلاً 1 قطعة هدية)
+  customerType?: 'الكل' | 'مفرد' | 'جملة'; // نوع الزبون المشمول بالعرض (مفرد / جملة / الكل)
+  startDate: string;             // تاريخ بدء التنفيذ (YYYY-MM-DD)
+  endDate: string;               // تاريخ انتهاء التنفيذ (YYYY-MM-DD)
+  notes?: string;                // ملاحظات إضافية
+  isActive?: boolean;            // حالة التفعيل (مفعل أم معطل)
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface GridRow {
@@ -81,11 +100,11 @@ export interface CategoryReportItem {
 
 export interface ToastNotification {
   id: string;
-  type: 'milestone_50' | 'milestone_75' | 'milestone_100' | 'info' | 'success' | 'reminder';
+  type: 'milestone_50' | 'milestone_75' | 'milestone_100' | 'info' | 'success' | 'reminder' | 'gift_earned';
   title: string;
   message: string;
-  percentage: number;
-  delegateName: string;
+  percentage?: number;
+  delegateName?: string;
   timestamp: number;
 }
 

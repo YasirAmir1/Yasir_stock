@@ -15,7 +15,8 @@ import {
   DailyEvaluationRecord,
   ProductItem,
   RouteItem,
-  AppTab
+  AppTab,
+  GiftPromotion
 } from '../types';
 
 export const DEFAULT_CATEGORIES_LIST = [
@@ -156,6 +157,10 @@ interface SalesContextType {
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
+  giftPromotions: GiftPromotion[];
+  addGiftPromotion: (gift: Omit<GiftPromotion, 'id' | 'createdAt'>) => Promise<void>;
+  updateGiftPromotion: (id: string, updatedData: Partial<GiftPromotion>) => Promise<void>;
+  deleteGiftPromotion: (id: string) => Promise<void>;
   prefilledEntryData: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null;
   showQuickAdd: boolean;
   setPrefilledEntryData: (data: { customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null) => void;
@@ -511,6 +516,109 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('Error deleting all products:', err);
     }
     setUserMessage('تم حذف جميع المنتجات بنجاح 🗑️✅');
+  };
+
+  // Gift Promotions Management (العروض والهدايا الترويجية)
+  const [giftPromotions, setGiftPromotions] = useState<GiftPromotion[]>(() => {
+    try {
+      const saved = localStorage.getItem('app_gift_promotions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'gift_promotions'),
+      (snapshot) => {
+        const list: GiftPromotion[] = [];
+        if (!snapshot.empty) {
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as GiftPromotion;
+            if (data) {
+              list.push({ ...data, id: docSnap.id });
+            }
+          });
+        }
+        setGiftPromotions(list);
+        try {
+          localStorage.setItem('app_gift_promotions', JSON.stringify(list));
+        } catch {}
+      },
+      (err) => {
+        console.error('Gift promotions listener error:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const addGiftPromotion = async (giftData: Omit<GiftPromotion, 'id' | 'createdAt'>) => {
+    const newId = `gift_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newGift: GiftPromotion = {
+      ...giftData,
+      id: newId,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    setGiftPromotions(prev => {
+      const next = [newGift, ...prev];
+      try {
+        localStorage.setItem('app_gift_promotions', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      const docRef = doc(db, 'gift_promotions', newId);
+      await setDoc(docRef, newGift);
+    } catch (err) {
+      console.error('Error adding gift promotion to Firestore:', err);
+    }
+
+    setUserMessage(`تمت إضافة عرض الهدية للمنتج (${giftData.productName}) بنجاح 🎁✅`);
+  };
+
+  const updateGiftPromotion = async (id: string, updatedData: Partial<GiftPromotion>) => {
+    const updatePayload = { ...updatedData, updatedAt: Date.now() };
+    setGiftPromotions(prev => {
+      const next = prev.map(g => (g.id === id ? { ...g, ...updatePayload } : g));
+      try {
+        localStorage.setItem('app_gift_promotions', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      const docRef = doc(db, 'gift_promotions', id);
+      await setDoc(docRef, updatePayload, { merge: true });
+    } catch (err) {
+      console.error('Error updating gift promotion in Firestore:', err);
+    }
+
+    setUserMessage('تم تحديث بيانات عرض الهدية بنجاح 🎁✨');
+  };
+
+  const deleteGiftPromotion = async (id: string) => {
+    setGiftPromotions(prev => {
+      const next = prev.filter(g => g.id !== id);
+      try {
+        localStorage.setItem('app_gift_promotions', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      const docRef = doc(db, 'gift_promotions', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('Error deleting gift promotion from Firestore:', err);
+    }
+
+    setUserMessage('تم حذف عرض الهدية بنجاح 🗑️🎁');
   };
 
   // Strict Data Retention Policy:
@@ -1071,7 +1179,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           e.delegateName?.trim().toLowerCase() === activeDelegateName?.trim().toLowerCase() &&
           e.customerName?.trim() === data.customerName?.trim() &&
           e.productName === data.productName &&
-          e.priceMode === data.priceMode
+          e.priceMode === data.priceMode &&
+          Boolean(e.isGift) === Boolean(data.isGift)
       );
       
       if (existing) {
@@ -1093,7 +1202,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
            });
         }
       } else {
-        const alreadyNewIndex = newCommittedEntries.findIndex(e => e.productName === data.productName && e.customerName?.trim() === data.customerName?.trim() && e.priceMode === data.priceMode);
+        const alreadyNewIndex = newCommittedEntries.findIndex(e => 
+          e.productName === data.productName && 
+          e.customerName?.trim() === data.customerName?.trim() && 
+          e.priceMode === data.priceMode &&
+          Boolean(e.isGift) === Boolean(data.isGift)
+        );
         if (alreadyNewIndex >= 0) {
            const prevNew = newCommittedEntries[alreadyNewIndex];
            newCommittedEntries[alreadyNewIndex] = {
@@ -2036,6 +2150,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addProduct,
         deleteProduct,
         deleteAllProducts,
+        giftPromotions,
+        addGiftPromotion,
+        updateGiftPromotion,
+        deleteGiftPromotion,
         syncData: syncPendingEntries,
         prefilledEntryData,
         showQuickAdd,

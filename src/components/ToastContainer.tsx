@@ -13,6 +13,7 @@ import {
   Award,
   Crown,
   BellRing,
+  Gift
 } from 'lucide-react';
 
 interface ToastItemProps {
@@ -87,6 +88,16 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onClose, isDarkMode }) => 
       badgeText = 'نجاح';
       break;
 
+    case 'gift_earned':
+      containerStyles = isDarkMode
+        ? 'bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border-2 border-amber-400 text-white shadow-amber-900/60 ring-2 ring-amber-500/30'
+        : 'bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-500 text-slate-900 shadow-amber-200 ring-2 ring-amber-400/40';
+      badgeStyles = 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black';
+      progressBarColor = 'bg-amber-500';
+      icon = <Gift className="w-7 h-7 text-amber-500 animate-bounce" />;
+      badgeText = 'هدية مجانية 🎁';
+      break;
+
     default:
       containerStyles = isDarkMode
         ? 'bg-slate-900 border-2 border-slate-700 text-white'
@@ -135,10 +146,10 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onClose, isDarkMode }) => 
             {toast.message}
           </p>
 
-          {toast.percentage > 0 && (
+          {toast.percentage !== undefined && toast.percentage > 0 && (
             <div className="pt-1 flex items-center gap-2 text-xs font-bold opacity-80">
               <span>نسبة الإنجاز الحالية:</span>
-              <strong className="text-sm font-black underline">{toast.percentage.toFixed(1)}%</strong>
+              <strong className="text-sm font-black underline">{(toast.percentage || 0).toFixed(1)}%</strong>
             </div>
           )}
         </div>

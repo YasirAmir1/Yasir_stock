@@ -30,6 +30,8 @@ export const EntryScreen: React.FC = () => {
     showQuickAdd,
     setShowQuickAdd,
     setActiveTab,
+    giftPromotions = [],
+    addToast,
   } = useSales();
 
   useEffect(() => {
@@ -493,19 +495,24 @@ export const EntryScreen: React.FC = () => {
     let totalPieces = 0;
     
     entries.forEach((e, idx) => {
+      const isGift = Boolean(e.isGift);
       const prod = productsList.find(p => p.productName === e.productName);
-      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      const price = prod && !isGift ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
       const rowPrice = price * e.quantity;
       totalPrice += rowPrice;
       
       const cartonQty = Number(prod?.cartonQuantity) || 1;
       const isCartonOrMore = e.quantity >= cartonQty;
       
-      totalCartons += (e.quantity / cartonQty);
+      if (!isGift) {
+        totalCartons += (e.quantity / cartonQty);
+      }
       totalPieces += e.quantity;
       
       let quantityText = '';
-      if (isCartonOrMore) {
+      if (isGift) {
+        quantityText = `<div style="font-weight: bold; color: #d97706;">${formatWithCommas(e.quantity)} قطعة (هدية)</div>`;
+      } else if (isCartonOrMore) {
         const cartons = (e.quantity / cartonQty).toFixed(2);
         const displayCartons = cartons.endsWith('.00') ? cartons.slice(0, -3) : cartons;
         quantityText = `${formatWithCommas(parseFloat(displayCartons))} كارتون<br><span style="font-size: 10px;">(${formatWithCommas(e.quantity)} قطعة)</span>`;
@@ -514,11 +521,16 @@ export const EntryScreen: React.FC = () => {
       }
 
       rowsHtml += `
-        <tr>
-          <td>${idx + 1}</td>
-          <td class="text-right">${e.productName}</td>
+        <tr style="${isGift ? 'background-color: #fffbeb;' : ''}">
+          <td>${isGift ? '🎁' : (idx + 1)}</td>
+          <td class="text-right">
+            ${isGift ? '<span style="color: #b45309; font-weight: bold; margin-left: 4px;">[هدية]</span>' : ''}
+            ${e.productName}
+          </td>
           <td>${quantityText}</td>
-          <td class="text-left">${formatWithCommas(rowPrice, true)} د.ع</td>
+          <td class="text-left" style="${isGift ? 'font-weight: bold; color: #b45309;' : ''}">
+            ${isGift ? 'هدية' : `${formatWithCommas(rowPrice, true)} د.ع`}
+          </td>
         </tr>
       `;
     });
@@ -673,6 +685,8 @@ export const EntryScreen: React.FC = () => {
       customerAddress?: string;
       priceMode?: 'retail' | 'wholesale';
       invoiceId?: string;
+      isGift?: boolean;
+      giftPromotionId?: string;
     }[] = [];
 
     let invalidFound = false;
@@ -783,6 +797,77 @@ export const EntryScreen: React.FC = () => {
       }
     }
 
+    // Check for earned gift promotions
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const invoiceType = invoicePriceMode === 'wholesale' ? 'جملة' : 'مفرد';
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+
+    itemsToSave.forEach(savedItem => {
+      const prod = productsList.find(p => p.productName === savedItem.productName);
+      if (!prod) return;
+
+      const matchingPromotion = giftPromotions.find(gp => {
+        const matchCode = gp.productCode && prod.productCode && norm(gp.productCode) === norm(prod.productCode);
+        const matchName = gp.productName && prod.productName && norm(gp.productName) === norm(prod.productName);
+        const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+        const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+        return (matchCode || matchName) && isDateActive && matchCustomerType;
+      });
+
+      if (matchingPromotion) {
+        const cartonSize = Number(prod.cartonQuantity) || 1;
+        const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+        const requiredQty = matchingPromotion.conditionQuantity;
+        let qualifiedMultiplier = 0;
+
+        if (requiredUnit === 'carton') {
+          const cartons = savedItem.entryUnit === 'carton' ? (savedItem.enteredQuantity || 0) : Math.floor(savedItem.quantity / cartonSize);
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(cartons / requiredQty);
+          }
+        } else {
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(savedItem.quantity / requiredQty);
+          }
+        }
+
+        if (qualifiedMultiplier > 0) {
+          const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+          const pieceWeightKg = wGrams / 1000;
+          const totalGiftWeight = (totalGiftPieces * wGrams) / 1000;
+
+          itemsToSave.push({
+            productName: prod.productName,
+            categoryName: prod.categoryName,
+            quantity: totalGiftPieces,
+            entryUnit: 'piece',
+            enteredQuantity: totalGiftPieces,
+            pieceWeightKg: pieceWeightKg,
+            totalWeightKg: totalGiftWeight,
+            delegateName: activeDelegateName || 'عام',
+            dateString: today,
+            customerName: trimmedCustomerName,
+            customerCode: String(customerCode || '').trim(),
+            customerAddress: String(customerAddress || '').trim(),
+            priceMode: invoicePriceMode,
+            invoiceId: invoiceId,
+            isGift: true,
+            giftPromotionId: matchingPromotion.id
+          });
+
+          addToast?.({
+            type: 'gift_earned',
+            title: `مبروك! هدية ترويجية (${prod.productName}) 🎁`,
+            message: `لقد أضفت ${savedItem.quantity} قطعة وتأهلت لـ ${totalGiftPieces} قطع هدية مجانية بناءً على شروط (${invoiceType})!`,
+            percentage: 100,
+            delegateName: activeDelegateName || ''
+          });
+        }
+      }
+    });
+
     saveSalesEntries(itemsToSave);
     setErrorMessage(null);
 
@@ -805,7 +890,7 @@ export const EntryScreen: React.FC = () => {
 
 
     const formatEntriesForExport = (entries: typeof safeSavedEntries) => {
-        const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'نوع الفاتورة'];
+        const headers = ['تاريخ الادخال', 'المندوب', 'اسم الزبون', 'كود الزبون', 'اسم المنتج', 'الصنف', 'كود المنتج', 'عدد القطع', 'وزن القطعة (كجم)', 'الوزن الكلي (كجم)', 'سعر البيع (د.ع)', 'المبلغ الإجمالي (د.ع)', 'نوع الفاتورة', 'ملاحظات / هدية'];
 
         const getCustomerSortKey = (entry: typeof safeSavedEntries[0]) => {
             const rawCode = entry.customerCode ? String(entry.customerCode).trim() : '';
@@ -835,9 +920,15 @@ export const EntryScreen: React.FC = () => {
         let lastCustomerKey = '';
 
         sortedEntries.forEach((entry, index) => {
+            if (entry.isGift) return;
             const delegate = (entry.delegateName || 'غير محدد').trim();
             const customerKey = getCustomerSortKey(entry);
             const customerCode = entry.customerCode ? String(entry.customerCode).trim() : 'بدون كود';
+
+            const prod = productsList.find(p => p.productName === entry.productName);
+            const unitPrice = prod 
+                ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0))
+                : 0;
 
             // Add separator row for new delegate
             if (index > 0 && delegate !== lastDelegate) {
@@ -859,7 +950,10 @@ export const EntryScreen: React.FC = () => {
                 entry.quantity.toString(),
                 entry.pieceWeightKg.toString(),
                 entry.totalWeightKg.toString(),
-                entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد'
+                unitPrice.toString(),
+                (unitPrice * entry.quantity).toString(),
+                entry.priceMode === 'wholesale' ? 'جملة' : 'مفرد',
+                'بيع اعتيادي'
             ]);
 
             lastDelegate = delegate;
@@ -867,6 +961,100 @@ export const EntryScreen: React.FC = () => {
         });
 
         return worksheetData;
+    };
+
+    const handleExportInvoicesExcel = () => {
+        if (safeSavedEntries.length === 0) {
+            window.alert('لا توجد فواتير لتصديرها');
+            return;
+        }
+
+        // Group into distinct invoices
+        const allGroups: Record<string, {
+            invoiceKey: string;
+            customerName: string;
+            customerCode: string;
+            customerAddress: string;
+            delegateName: string;
+            dateString: string;
+            timestamp: number;
+            priceMode: 'retail' | 'wholesale';
+            entries: SalesEntry[];
+            totalWeight: number;
+            totalAmount: number;
+        }> = {};
+
+        safeSavedEntries.forEach(entry => {
+            if (entry.isGift) return; // skip gifts
+            const cName = entry.customerName || 'بدون اسم زبون';
+            const cCode = String(entry.customerCode || '').trim();
+            const dDate = entry.dateString || new Date().toISOString().split('T')[0];
+            const del = entry.delegateName || 'غير محدد';
+            const mode = entry.priceMode || 'retail';
+            const invId = entry.invoiceId || '';
+
+            const groupKey = invId ? `${invId}` : `${dDate}_${cCode || cName}_${del}_${mode}`;
+
+            if (!allGroups[groupKey]) {
+                allGroups[groupKey] = {
+                    invoiceKey: invId || groupKey,
+                    customerName: cName,
+                    customerCode: cCode,
+                    customerAddress: entry.customerAddress || '',
+                    delegateName: del,
+                    dateString: dDate,
+                    timestamp: entry.timestamp || Date.now(),
+                    priceMode: mode,
+                    entries: [],
+                    totalWeight: 0,
+                    totalAmount: 0
+                };
+            }
+
+            const grp = allGroups[groupKey];
+            grp.entries.push(entry);
+            grp.totalWeight += (entry.totalWeightKg || 0);
+
+            const prod = productsList.find(p => p.productName === entry.productName);
+            const unitPrice = prod 
+                ? (mode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
+                : 0;
+            grp.totalAmount += (unitPrice * (entry.quantity || 0));
+        });
+
+        const invoiceRows: any[] = [];
+        Object.values(allGroups).forEach(inv => {
+            inv.entries.forEach(e => {
+                if (e.isGift) return; // skip gifts
+                const prod = productsList.find(p => p.productName === e.productName);
+                const unitPrice = prod
+                    ? (inv.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0))
+                    : 0;
+                invoiceRows.push({
+                    'تاريخ الفاتورة': inv.dateString,
+                    'اسم المندوب': inv.delegateName,
+                    'اسم المحل / الزبون': inv.customerName,
+                    'كود الزبون': inv.customerCode || '---',
+                    'عنوان الزبون': inv.customerAddress || '---',
+                    'نوع الفاتورة': inv.priceMode === 'wholesale' ? 'جملة' : 'مفرد',
+                    'اسم المنتج': e.productName,
+                    'الصنف': e.categoryName || '---',
+                    'كود المنتج': getProductCode(e.productName),
+                    'الكمية (قطع)': e.quantity,
+                    'وزن القطعة (كجم)': e.pieceWeightKg || 0,
+                    'الوزن الكلي (كجم)': e.totalWeightKg || 0,
+                    'سعر البيع (د.ع)': unitPrice,
+                    'المبلغ الإجمالي (د.ع)': (unitPrice * e.quantity),
+                    'ملاحظات / حالة السطر': 'بيع اعتيادي'
+                });
+            });
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(invoiceRows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'فواتير_اليوم');
+        const todayStr = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(workbook, `سجل_فواتير_اليوم_الشامل_${todayStr}.xlsx`);
     };
 
     const handleExportCSV = () => {
@@ -1261,12 +1449,13 @@ export const EntryScreen: React.FC = () => {
               </button>
             </div>
 
-            {currentUser?.isAdmin && safeSavedEntries.length > 0 && (
+            {currentUser?.isAdmin && (
               <>
+
                 <button
                     onClick={handleExportCSV}
                     className="px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
-                    title="تصدير البيانات كملف Excel"
+                    title="تصدير الادخالات كملف Excel شامل الهدايا"
                 >
                     <Download className="w-4 h-4" />
                     <span>تصدير الادخالات</span>
@@ -1551,16 +1740,28 @@ export const EntryScreen: React.FC = () => {
                 );
               }
 
+              const isGift = Boolean(entry.isGift);
+
               return (
                 <div
                   key={`saved_${entry.id || 'item'}_${index}`}
-                  className={`py-1 px-2 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] transition-colors ${isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50'}`}
+                  className={`py-1 px-2 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] transition-colors ${
+                    isGift
+                      ? (isDarkMode ? 'bg-amber-950/30 border-amber-800/60' : 'bg-amber-50/70 border-amber-200')
+                      : (isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50')
+                  }`}
                 >
                   <div className="flex-1 flex flex-col gap-1 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`} title="كود المنتج">
-                        {getProductCode(entry.productName)}
-                      </span>
+                      {isGift ? (
+                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-xs">
+                          هدية 🎁
+                        </span>
+                      ) : (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'}`} title="كود المنتج">
+                          {getProductCode(entry.productName)}
+                        </span>
+                      )}
                       <span className={`font-bold text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{entry.productName}</span>
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                         {entry.categoryName}
@@ -1569,13 +1770,17 @@ export const EntryScreen: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                     <div className="flex items-center gap-1.5">
-                      {entry.quantity >= (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1) && (
+                      {!isGift && entry.quantity >= (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1) && (
                         <div className={`text-center font-bold px-2 py-0.5 border rounded-md text-[10px] min-w-[50px] ${isDarkMode ? 'bg-indigo-900/50 border-indigo-700 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-700'}`} title="الكراتين المدخلة">
                           {entry.entryUnit === 'carton' ? formatWithCommas(entry.enteredQuantity || 0) : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / (Number(productsList.find(p => p.productName === entry.productName)?.cartonQuantity) || 1)).toFixed(2)))} كارتون
                         </div>
                       )}
-                      <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800'}`} title="القطع المدخلة">
-                        {entry.entryUnit === 'carton' ? formatWithCommas(entry.quantity) : formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة
+                      <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${
+                        isGift 
+                          ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 font-black' 
+                          : (isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800')
+                      }`} title={isGift ? "عدد قطع الهدية المجانية" : "القطع المدخلة"}>
+                        {isGift ? `${formatWithCommas(entry.quantity)} قطعة هدية` : (entry.entryUnit === 'carton' ? `${formatWithCommas(entry.quantity)} قطعة` : `${formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة`)}
                       </div>
                     </div>
                     
@@ -1583,8 +1788,12 @@ export const EntryScreen: React.FC = () => {
                       <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`} title="وزن الإدخال">
                         وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
                       </div>
-                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800'}`} title="مبلغ الإدخال">
-                        مبلغ: {formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع
+                      <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
+                        isGift 
+                          ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200' 
+                          : (isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800')
+                      }`} title={isGift ? "هدية مجانية (بدون مبلغ)" : "مبلغ الإدخال"}>
+                        {isGift ? 'هدية 🎁' : `مبلغ: ${formatWithCommas((productsList.find(p => p.productName === entry.productName)?.[entry.priceMode === 'wholesale' ? 'wholesalePrice' : 'retailPrice'] || 0) * entry.quantity, true)} د.ع`}
                       </div>
                     </div>
 

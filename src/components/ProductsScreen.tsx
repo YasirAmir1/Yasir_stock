@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
-import { ProductItem } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart } from 'lucide-react';
+import { ProductItem, GiftPromotion } from '../types';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { showConfirm } from '../utils/dialogService';
+import { GiftsManagementTable } from './GiftsManagementTable';
 
 const getAvatarProps = (name: string) => {
   const colors = [
@@ -30,7 +31,30 @@ interface ProductsScreenProps {
 }
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = false }) => {
-  const { routes, currentUser, productsList, importProductsFromExcel, updateProduct, addProduct, deleteProduct, deleteAllProducts, isDarkMode, setUserMessage, saveSalesEntries, selectedDelegate, rawSavedEntries, showQuickAdd, setShowQuickAdd, prefilledEntryData, setPrefilledEntryData } = useSales();
+  const { 
+    routes, 
+    currentUser, 
+    productsList, 
+    importProductsFromExcel, 
+    updateProduct, 
+    addProduct, 
+    deleteProduct, 
+    deleteAllProducts, 
+    isDarkMode, 
+    setUserMessage, 
+    saveSalesEntries, 
+    selectedDelegate, 
+    rawSavedEntries, 
+    showQuickAdd, 
+    setShowQuickAdd, 
+    prefilledEntryData, 
+    setPrefilledEntryData,
+    giftPromotions,
+    addGiftPromotion,
+    updateGiftPromotion,
+    deleteGiftPromotion,
+    addToast
+  } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   
@@ -167,6 +191,17 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
   const isRafat = currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry' || currentUser?.name === 'رأفت جمال';
   const isNewInvoice = !!prefilledEntryData;
+
+  // Gift Promotion Notification Alert State
+  const [giftAlertNotification, setGiftAlertNotification] = useState<{
+    isOpen: boolean;
+    earnedGifts: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[];
+  } | null>(null);
 
   const exportProductCardsPdf = () => {
     import('jspdf').then(({ default: jsPDF }) => {
@@ -548,6 +583,70 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       }
     }
 
+    // Check for earned gift promotions
+    const today = new Date().toISOString().split('T')[0];
+    const earnedGiftsList: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[] = [];
+
+    entries.forEach(([prodId, qtyStr]) => {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) return;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const unit = entryModes[prodId] || 'piece';
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const orderedText = unit === 'carton' 
+        ? `${q} كارتون (${totalPiecesOrdered} قطعة)` 
+        : `${q} قطعة`;
+
+      // Find active gift promotion for this product
+      const norm = (s: string) => (s || '').trim().toLowerCase();
+      const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+      const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+
+      const matchingPromotion = giftPromotions.find(gp => {
+        const matchCode = gp.productCode && prod.productCode && norm(gp.productCode) === norm(prod.productCode);
+        const matchName = gp.productName && prod.productName && norm(gp.productName) === norm(prod.productName);
+        const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+        const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+        return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+      });
+
+      if (matchingPromotion) {
+        const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+        const requiredQty = matchingPromotion.conditionQuantity;
+        let qualifiedMultiplier = 0;
+
+        if (requiredUnit === 'carton') {
+          const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+          }
+        } else {
+          // piece unit
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+          }
+        }
+
+        if (qualifiedMultiplier > 0) {
+          const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          earnedGiftsList.push({
+            productName: prod.productName,
+            orderedText,
+            giftPieces: totalGiftPieces,
+            conditionText: matchingPromotion.requirementCondition
+          });
+        }
+      }
+    });
+
     setSaveSummary({ total, itemCount });
     setShowConfirmDialog(true);
   };
@@ -564,6 +663,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     const entries = Object.entries(selectedQuantities);
     let total = 0;
     const uniqueProducts = new Set<string>();
+
+    const currentInvoiceId = prefilledEntryData?.lastInvoiceToday?.invoiceId || (Date.now().toString() + "_" + Math.random().toString(36).substr(2, 5));
 
     for (const [prodId, qtyStr] of entries) {
       let q = parseInt(qtyStr, 10);
@@ -598,7 +699,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         customerName: trimmedCustomerName,
         customerCode: String(customerCode || '').trim(),
         customerAddress: String(customerAddress || '').trim(),
-        priceMode: priceMode
+        priceMode: priceMode,
+        invoiceId: currentInvoiceId
       });
     }
 
@@ -615,8 +717,105 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       }
     }
 
+    // 2 & 3. Validate earned gifts and append them as separate rows without price/code
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+
+    const earnedGiftsList: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[] = [];
+
+    entries.forEach(([prodId, qtyStr]) => {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) return;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const unit = entryModes[prodId] || 'piece';
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const orderedText = unit === 'carton' 
+        ? `${q} كارتون (${totalPiecesOrdered} قطعة)` 
+        : `${q} قطعة`;
+
+      // Active gift promotion with customerType condition
+      const matchingPromotion = giftPromotions.find(gp => {
+        const matchCode = gp.productCode && prod.productCode && norm(gp.productCode) === norm(prod.productCode);
+        const matchName = gp.productName && prod.productName && norm(gp.productName) === norm(prod.productName);
+        const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+        const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+        return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+      });
+
+      if (matchingPromotion) {
+        const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+        const requiredQty = matchingPromotion.conditionQuantity;
+        let qualifiedMultiplier = 0;
+
+        if (requiredUnit === 'carton') {
+          const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+          }
+        } else {
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+          }
+        }
+
+        if (qualifiedMultiplier > 0) {
+          const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          earnedGiftsList.push({
+            productName: prod.productName,
+            orderedText,
+            giftPieces: totalGiftPieces,
+            conditionText: matchingPromotion.requirementCondition
+          });
+
+          // Append earned gift pieces as separate row in customer's invoice
+          const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+          const pieceWeightKg = wGrams / 1000;
+          const totalGiftWeight = (totalGiftPieces * wGrams) / 1000;
+
+          itemsToSave.push({
+            productName: prod.productName,
+            categoryName: prod.categoryName,
+            quantity: totalGiftPieces,
+            entryUnit: 'piece' as const,
+            enteredQuantity: totalGiftPieces,
+            pieceWeightKg: pieceWeightKg,
+            totalWeightKg: totalGiftWeight,
+            delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
+            dateString: today,
+            customerName: trimmedCustomerName,
+            customerCode: String(customerCode || '').trim(),
+            customerAddress: String(customerAddress || '').trim(),
+            priceMode: priceMode,
+            invoiceId: currentInvoiceId,
+            isGift: true,
+            giftPromotionId: matchingPromotion.id
+          });
+        }
+      }
+    });
+
     saveSalesEntries(itemsToSave);
-    setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+
+    if (earnedGiftsList.length > 0) {
+      setGiftAlertNotification({
+        isOpen: true,
+        earnedGifts: earnedGiftsList
+      });
+      setUserMessage(`تم حفظ الفاتورة بنجاح مع إضافة ${earnedGiftsList.reduce((s, g) => s + g.giftPieces, 0)} قطعة هدية مجانية 🎁✅`);
+    } else {
+      setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+    }
+
     setSelectedQuantities({});
     setCustomerName('');
     setCustomerCode('');
@@ -638,9 +837,72 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     }
   };
 
+  // Check and trigger gift toast notification when a product is added or quantity is updated
+  const triggerGiftToastIfEligible = (prodId: string, qtyStr: string, unit: 'piece' | 'carton') => {
+    const q = parseInt(qtyStr, 10);
+    if (isNaN(q) || q <= 0) return;
+    const prod = productsList.find(p => p.id === prodId);
+    if (!prod) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+    const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+
+    const matchingPromotion = giftPromotions.find(gp => {
+      const matchCode = gp.productCode && prod.productCode && norm(gp.productCode) === norm(prod.productCode);
+      const matchName = gp.productName && prod.productName && norm(gp.productName) === norm(prod.productName);
+      const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+      const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+      return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+    });
+
+    if (matchingPromotion) {
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+      const requiredQty = matchingPromotion.conditionQuantity;
+      let qualifiedMultiplier = 0;
+
+      if (requiredUnit === 'carton') {
+        const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+        if (requiredQty > 0) {
+          qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+        }
+      } else {
+        if (requiredQty > 0) {
+          qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+        }
+      }
+
+      if (qualifiedMultiplier > 0) {
+        const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+        const orderedDesc = unit === 'carton' ? `${q} كارتون (${totalPiecesOrdered} قطعة)` : `${q} قطعة`;
+        addToast({
+          type: 'gift_earned',
+          title: `مبروك! هدية ترويجية (${prod.productName}) 🎁`,
+          message: `لقد طلبت ${orderedDesc} وتأهلت لـ ${totalGiftPieces} قطع هدية مجانية!`,
+          percentage: 100,
+          delegateName: currentUser?.name || ''
+        });
+      }
+    }
+  };
+
   return (
     <div className={`max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300 ${showQuickAdd ? 'pb-32 sm:pb-24' : ''}`}>
       
+      {/* 1. Gifts Management Table at the Top of Products Page */}
+      <GiftsManagementTable
+        giftPromotions={giftPromotions}
+        productsList={productsList}
+        isAdmin={Boolean(isAdmin)}
+        isDarkMode={isDarkMode}
+        onAddGift={addGiftPromotion}
+        onUpdateGift={updateGiftPromotion}
+        onDeleteGift={deleteGiftPromotion}
+      />
+
       {/* Header Container */}
       {isAdmin && (
         <div className="bg-slate-100/90 dark:bg-emerald-950/90 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 shadow-sm space-y-3">
@@ -698,6 +960,77 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Representative Gift Qualification Alert Notification Modal */}
+      {giftAlertNotification && giftAlertNotification.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[140] p-4 animate-in fade-in zoom-in-95 duration-200"
+          onClick={() => setGiftAlertNotification(null)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-amber-600/50 text-white' : 'bg-white border-amber-400 text-slate-900'
+            }`}
+          >
+            {/* Animated Icon */}
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 text-white flex items-center justify-center shadow-lg shadow-amber-500/30 animate-pulse">
+              <Gift className="w-9 h-9" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-700 inline-block mb-1">
+                تهانينا! تأهلت الفاتورة لهدايا مجانية 🎉
+              </span>
+              <h3 className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400">
+                إشعار استحقاق الهدايا الترويجية
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                تمت إضافة قطع الهدية تلقائياً كسطر مستقل في فاتورة الزبون!
+              </p>
+            </div>
+
+            {/* List of Earned Gifts */}
+            <div className="space-y-2.5 max-h-60 overflow-y-auto text-right">
+              {giftAlertNotification.earnedGifts.map((gift, idx) => (
+                <div 
+                  key={idx}
+                  className={`p-3.5 rounded-xl border flex flex-col gap-1.5 ${
+                    isDarkMode ? 'bg-amber-950/30 border-amber-800/60' : 'bg-amber-50/80 border-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-sm text-slate-900 dark:text-white">
+                      {gift.productName}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-amber-500 text-white shadow-xs">
+                      +{gift.giftPieces} قطع هدية 🎁
+                    </span>
+                  </div>
+
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    لقد طلبت {gift.orderedText} وتأهلت لـ {gift.giftPieces} قطع هدية مجانية!
+                  </p>
+
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                    شرط العرض: {gift.conditionText}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setGiftAlertNotification(null)}
+                className="w-full py-3 px-4 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl font-black text-sm shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+              >
+                رائع، تم تأكيد وإضافة الهدايا ✅
+              </button>
             </div>
           </div>
         </div>
@@ -1143,7 +1476,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'}`
                   } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''} sm:hover:shadow-md sm:cursor-pointer`}
                 >
-                  <div className="flex items-start justify-between gap-1">
                     {/* Category Label and Stock */}
                     <div className="flex items-center gap-1 shrink-0">
                       {isEditing ? (
@@ -1169,59 +1501,63 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                         </div>
                       )}
                     </div>
-                    {/* Actions */}
-                    {isAdmin && !isRafat && (
-                      <div className="shrink-0">
-                        {isEditing ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => saveEditing(prod.id)}
-                              title="حفظ"
-                              className="p-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow save-btn transition-all"
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={cancelEditing}
-                              title="إلغاء"
-                              className="p-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow transition-all"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={async () => {
-                                if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-                                  deleteProduct(prod.id);
-                                }
-                              }}
-                              title="حذف المنتج"
-                              className={`p-1 rounded-lg transition-all ${
-                                isDarkMode
-                                  ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700'
-                                  : 'bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-300'
-                              }`}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={() => startEditing(prod)}
-                              title="تعديل تفاصيل المنتج"
-                              className={`p-1 rounded-lg transition-all ${
-                                isDarkMode
-                                  ? 'bg-slate-800 hover:bg-emerald-950 text-slate-400 hover:text-emerald-400 border border-slate-700'
-                                  : 'bg-slate-100 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700 border border-slate-300'
-                              }`}
-                            >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+
+                  {/* Actions / Edit buttons below category box */}
+                  {isAdmin && !isRafat && (
+                    <div className="flex items-center justify-end my-1">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1 w-full justify-end">
+                          <button
+                            onClick={() => saveEditing(prod.id)}
+                            title="حفظ"
+                            className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] rounded shadow save-btn transition-all flex items-center gap-1 font-bold"
+                          >
+                            <Check className="w-3 h-3" /> حفظ
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            title="إلغاء"
+                            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] rounded shadow transition-all flex items-center gap-1 font-bold"
+                          >
+                            <X className="w-3 h-3" /> إلغاء
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditing(prod);
+                            }}
+                            title="تعديل تفاصيل المنتج"
+                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 transition-all ${
+                              isDarkMode
+                                ? 'bg-slate-800 hover:bg-emerald-950 text-slate-300 hover:text-emerald-300 border border-slate-700'
+                                : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-300'
+                            }`}
+                          >
+                            <Edit3 className="w-3 h-3 text-emerald-500" /> تعديل
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+                                deleteProduct(prod.id);
+                              }
+                            }}
+                            title="حذف المنتج"
+                            className={`p-1 rounded transition-all ${
+                              isDarkMode
+                                ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700'
+                                : 'bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-300'
+                            }`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Product Code & Stock Cartons */}
                   <div className="text-right flex items-center justify-between">
@@ -1379,7 +1715,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setEntryModes(prev => ({...prev, [prod.id]: prev[prod.id] === 'carton' ? 'piece' : 'carton'}));
+                                const nextMode = entryModes[prod.id] === 'carton' ? 'piece' : 'carton';
+                                setEntryModes(prev => ({...prev, [prod.id]: nextMode}));
+                                if (selectedQuantities[prod.id]) {
+                                  triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], nextMode);
+                                }
                               }}
                               className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
                                 entryModes[prod.id] === 'carton'
@@ -1399,6 +1739,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.stopPropagation();
+                                  triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
                                   setAddingQuantityId(null);
                                 }
                               }}
@@ -1407,15 +1748,16 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                             />
                           </div>
 
-                          {/* زر الصح - تم تصغيره قليلاً ليتناسب مع تكبير مربع الرقم */}
+                          {/* زر الصح - تأكيد الإدخال وإظهار تنبيه الهدية إن كان مؤهلاً */}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
                               setAddingQuantityId(null);
                             }}
-                            className="col-span-2 w-full h-full min-h-[58px] flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-md transition-all shadow-md"
-                            title="تأكيد"
+                            className="col-span-2 w-full h-full min-h-[58px] flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-md transition-all shadow-md cursor-pointer"
+                            title="تأكيد إضافة المنتج للطلب"
                           >
                             <Check className="w-5 h-5 stroke-[2.5]" />
                           </button>
