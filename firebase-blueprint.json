@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "delegate_target": {
+      "title": "Delegate Target",
+      "description": "Daily target weight for delegate per category",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "dailyTargetWeightKg": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["delegateName", "categoryName", "dailyTargetWeightKg"]
+    },
+    "sales_entry": {
+      "title": "Sales Entry",
+      "description": "Sales entry made by delegates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "category": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "pieceWeight": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "timestamp": { "type": "string" },
+        "dateStr": { "type": "string" }
+      },
+      "required": ["id", "delegateName", "category", "totalWeightKg"]
+    },
+    "inventory_item": {
+      "title": "Inventory Item",
+      "description": "Inventory stock items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "unitsInCarton": { "type": "string" },
+        "productName": { "type": "string" },
+        "piecesPerCarton": { "type": "string" },
+        "todayInventoryCartons": { "type": "string" },
+        "inventoryDate": { "type": "string" }
+      },
+      "required": ["id", "categoryName", "productName"]
+    },
+    "daily_evaluation": {
+      "title": "Daily Evaluation Record",
+      "description": "Saved daily evaluation snapshot for delegates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "dateString": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "totalScore": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "totalPieces": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "dateString", "delegateName", "totalScore"]
+    },
+    "damaged_product": {
+      "title": "Damaged Product (QC)",
+      "description": "Reports of damaged or defected products submitted by representatives for QC review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerType": { "type": "string", "enum": ["مفرد", "جملة"] },
+        "productName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "purchaseDate": { "type": "string" },
+        "purchaseQuantity": { "type": "number" },
+        "defectReason": { "type": "string" },
+        "images": { "type": "array" },
+        "status": { "type": "string", "enum": ["تم ارسال ايميل به", "تم تعويضه", "لم يتم تعويضه لحد الان", "تم رفض التعويض"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "customerCode", "customerName", "productName", "delegateName", "defectReason", "status"]
+    },
+    "app_setting": {
+      "title": "App Setting",
+      "description": "General application configuration such as working days",
+      "type": "object",
+      "properties": {
+        "days": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "monthly_delegate_return": {
+      "title": "Monthly Delegate Return",
+      "description": "Monthly returns records per representative with shop count and returned weight in kg",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "shopsCount": { "type": "number" },
+        "monthlyReturnedWeightKg": { "type": "number" },
+        "monthString": { "type": "string" }
+      },
+      "required": ["id", "delegateName", "shopsCount", "monthlyReturnedWeightKg"]
+    }
+  },
+  "firestore": {
+    "/damaged_products/{productId}": {
+      "schema": "damaged_product",
+      "description": "Damaged products reported by representatives and QC status",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/delegate_targets/{targetId}": {
+      "schema": "delegate_target",
+      "description": "Sync target data for delegates and admin",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/sales_entries/{entryId}": {
+      "schema": "sales_entry",
+      "description": "Sync sales entries across devices",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/inventory_items/{itemId}": {
+      "schema": "inventory_item",
+      "description": "Sync daily inventory stock items",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/daily_evaluations/{evalId}": {
+      "schema": "daily_evaluation",
+      "description": "Saved daily evaluation records",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/app_settings/{settingId}": {
+      "schema": "app_setting",
+      "description": "General application settings such as remaining working days configuration",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/monthly_delegate_returns/{returnId}": {
+      "schema": "monthly_delegate_return",
+      "description": "Monthly delegate returns records",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+--- src/context/SalesContext.tsx
++++ src/context/SalesContext.tsx
+@@ -148,6 +148,9 @@
+   deleteProduct: (id: string) => Promise<void>;
+   deleteAllProducts: () => Promise<void>;
+   syncData: () => Promise<void>;
++  
++  unreadDelegateItemsCount: number;
++  markNotificationAsRead: (id: string) => Promise<void>;
++  markTaskAsRead: () => Promise<void>;
+ }
+ 
+ const SalesContext = createContext<SalesContextType | undefined>(undefined);

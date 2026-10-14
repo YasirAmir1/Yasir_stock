@@ -1,0 +1,50 @@
+import React from 'react';
+import { FileText, BarChart2, Package, Award, MapPin, History, RotateCcw, Layers } from 'lucide-react';
+import { AppTab } from '../types';
+
+interface BottomNavProps {
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
+  isDarkMode: boolean;
+  setShowQuickAdd?: (show: boolean) => void;
+  isAdmin?: boolean;
+  canAccessItemTracking?: boolean;
+}
+
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, isDarkMode, setShowQuickAdd, isAdmin, canAccessItemTracking }) => {
+  const tabs = [
+    { id: 'entry', label: 'الفواتير', icon: FileText },
+    ...(isAdmin ? [{ id: 'old_invoices', label: 'القديمة', icon: History }] : []),
+    { id: 'routes', label: 'المسارات', icon: MapPin },
+    { id: 'reports', label: 'التقارير', icon: BarChart2 },
+    ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
+    { id: 'evaluations', label: 'التقييمات', icon: Award },
+    { id: 'products', label: 'المنتجات', icon: Package },
+    { id: 'returns', label: 'المرتجعات', icon: RotateCcw },
+  ];
+
+  return (
+    <div className={`fixed bottom-0 left-0 right-0 z-50 sm:hidden border-t ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+      <div className="flex justify-around items-center py-2 pb-3">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                if (tab.id === 'products' && setShowQuickAdd) setShowQuickAdd(false);
+                setActiveTab(tab.id as AppTab);
+              }}
+              className={`flex flex-col items-center justify-center p-1 text-[10px] font-bold transition-colors ${isActive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-700') : (isDarkMode ? 'text-slate-500' : 'text-slate-500')}`}
+            >
+              <Icon className="w-5 h-5 mb-0.5" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
