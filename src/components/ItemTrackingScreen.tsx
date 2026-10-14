@@ -126,8 +126,41 @@ export const ItemTrackingScreen: React.FC = () => {
   const printContainerRef = useRef<HTMLDivElement>(null);
   const tikritSectionRef = useRef<HTMLDivElement>(null);
   const sectionARef = useRef<HTMLDivElement>(null);
+  const sectionBRef = useRef<HTMLDivElement>(null);
   const [isCapturingTikritImage, setIsCapturingTikritImage] = useState(false);
   const [isCapturingSectionAImage, setIsCapturingSectionAImage] = useState(false);
+  const [isCapturingSectionBImage, setIsCapturingSectionBImage] = useState(false);
+
+  const handleDownloadSectionBImage = async () => {
+    if (!sectionBRef.current) return;
+    try {
+      setIsCapturingSectionBImage(true);
+      const canvas = await html2canvas(sectionBRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+        logging: false
+      });
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
+      const link = document.createElement('a');
+      link.download = `متابعة_الصلصات_الشهرية_${selectedDate}.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      addToast({
+        title: 'تم حفظ صورة التقرير الشهري',
+        message: 'تم حفظ صورة تقرير متابعة الصلصات الشهرية كصورة عالية الدقة بنجاح 🖼️',
+        type: 'success'
+      });
+    } catch (err) {
+      console.error('Error generating Section B image:', err);
+      showAlert('حدث خطأ أثناء حفظ صورة التقرير الشهري.', 'خطأ', 'danger');
+    } finally {
+      setIsCapturingSectionBImage(false);
+    }
+  };
 
   const handleDownloadSectionAImage = async () => {
     if (!sectionARef.current) return;
@@ -1010,9 +1043,12 @@ export const ItemTrackingScreen: React.FC = () => {
         {/* SECTION B: MONTHLY TRACKING FOR SAUCES (صلصات)       */}
         {/* ==================================================== */}
         {(activeSection === 'all' || activeSection === 'monthly') && (
-          <div className={`rounded-2xl border shadow-xl overflow-hidden transition-all ${
-            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div 
+            ref={sectionBRef}
+            className={`rounded-2xl border shadow-xl overflow-hidden transition-all ${
+              isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
             {/* Section B Header */}
             <div className={`p-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
               isDarkMode ? 'bg-slate-950/90 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
@@ -1036,11 +1072,26 @@ export const ItemTrackingScreen: React.FC = () => {
                 </div>
               </div>
 
-              {/* Working Days Left Badge */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold self-start sm:self-auto">
-                <Clock className="w-4 h-4 shrink-0" />
-                <span>أيام العمل المتبقية:</span>
-                <span className="font-black text-sm">{remainingWorkingDays} يوم</span>
+              {/* Controls (Download Image + Working Days Left Badge) */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {!isCapturingSectionBImage && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadSectionBImage}
+                    disabled={isCapturingSectionBImage}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl shadow transition-all disabled:opacity-50 cursor-pointer"
+                    title="تحميل التقرير الشهري كصورة عالية الدقة"
+                  >
+                    <Image className="w-4 h-4" />
+                    <span>{isCapturingSectionBImage ? 'جاري الحفظ...' : 'تحميل صورة التقرير 🖼️'}</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold self-start sm:self-auto">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>أيام العمل المتبقية:</span>
+                  <span className="font-black text-sm">{remainingWorkingDays} يوم</span>
+                </div>
               </div>
             </div>
 
