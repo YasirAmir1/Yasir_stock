@@ -686,16 +686,18 @@ export const ItemTrackingScreen: React.FC = () => {
             <span>{isExportingExcel ? 'جاري التصدير...' : 'تصدير إكسل'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleDownloadImage}
-            disabled={isCapturingImage}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl shadow transition-all disabled:opacity-50 cursor-pointer"
-            title="تحميل التقرير كصورة عالية الدقة"
-          >
-            <Image className="w-4 h-4" />
-            <span>{isCapturingImage ? 'جاري الحفظ...' : 'حفظ كصورة'}</span>
-          </button>
+          {!isCapturingImage && (
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={isCapturingImage}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl shadow transition-all disabled:opacity-50 cursor-pointer"
+              title="تحميل التقرير كصورة عالية الدقة"
+            >
+              <Image className="w-4 h-4" />
+              <span>{isCapturingImage ? 'جاري الحفظ...' : 'حفظ كصورة'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -795,16 +797,18 @@ export const ItemTrackingScreen: React.FC = () => {
 
               {/* Controls (Date + Download Image) */}
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleDownloadSectionAImage}
-                  disabled={isCapturingSectionAImage}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl shadow transition-all disabled:opacity-50 cursor-pointer"
-                  title="تحميل التقرير اليومي كصورة عالية الدقة"
-                >
-                  <Image className="w-4 h-4" />
-                  <span>{isCapturingSectionAImage ? 'جاري الحفظ...' : 'تحميل صورة التقرير 🖼️'}</span>
-                </button>
+                {!isCapturingSectionAImage && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadSectionAImage}
+                    disabled={isCapturingSectionAImage}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl shadow transition-all disabled:opacity-50 cursor-pointer"
+                    title="تحميل التقرير اليومي كصورة عالية الدقة"
+                  >
+                    <Image className="w-4 h-4" />
+                    <span>{isCapturingSectionAImage ? 'جاري الحفظ...' : 'تحميل صورة التقرير 🖼️'}</span>
+                  </button>
+                )}
 
                 <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 shadow-xs">
                   <Calendar className="w-4 h-4 text-amber-500" />
