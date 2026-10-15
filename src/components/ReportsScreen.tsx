@@ -6,7 +6,6 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, FileSpreadsheet, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle, Save, Gift, Sparkles } from 'lucide-react';
-import { ReportPreviewModal } from './ReportPreviewModal';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -181,7 +180,6 @@ const DailyAdminReport: React.FC<{
   const entriesToday = salesEntries.filter(e => e.dateString === today);
   const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
-  const [previewModal, setPreviewModal] = useState<'main' | 'products' | null>(null);
   const [reportActionModal, setReportActionModal] = useState<{
     isOpen: boolean;
     target: 'main' | 'products';
@@ -815,30 +813,6 @@ const DailyAdminReport: React.FC<{
 
   return (
     <div className="space-y-3 sm:space-y-4 px-0 sm:px-2 py-1.5 sm:py-4 w-full max-w-5xl mx-auto">
-        <ReportPreviewModal
-          isOpen={!!previewModal}
-          onClose={() => setPreviewModal(null)}
-          onConfirm={() => {
-            if (previewModal === 'main') handleDownload('download');
-            else handleDownloadProducts('download');
-            setPreviewModal(null);
-          }}
-          title={previewModal === 'main' ? 'معاينة تقرير المبيعات' : 'معاينة تقرير التجميد'}
-          isProcessing={!!isDownloading}
-        >
-          {previewModal === 'main' ? (
-             <div className="text-slate-900 dark:text-slate-100 font-bold p-4">
-                {/* Simplified preview of the main tables */}
-                <p>تم تجهيز تقرير المبيعات للمعاينة.</p>
-                <p>إجمالي الفواتير: {allSales.reduce((sum, s) => sum + s.count, 0)}</p>
-                <p>إجمالي المبيعات: {formatWithCommas(totalRetail.amount + totalWholesale.amount, true)}</p>
-             </div>
-          ) : (
-             <div className="text-slate-900 dark:text-slate-100 font-bold p-4">
-                <p>تم تجهيز تقرير التجميد للمعاينة.</p>
-             </div>
-          )}
-        </ReportPreviewModal>
         <div 
           ref={threeTablesCaptureRef} 
           id="daily-three-reports-container"
@@ -858,7 +832,11 @@ const DailyAdminReport: React.FC<{
                 </div>
                 <div className="no-export w-full sm:w-auto flex justify-end">
                     <button 
-                      onClick={() => setPreviewModal('main')}
+                      onClick={() => setReportActionModal({
+                        isOpen: true,
+                        target: 'main',
+                        title: '📊 تقرير مبيعات اليوم الشامل (مفرد + جملة + الكل)'
+                      })}
                       disabled={isDownloading === 'main'} 
                       className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 sm:py-2 sm:px-4 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60" 
                       title="خيارات تصدير ومشاركة تقرير المبيعات"
@@ -1480,7 +1458,8 @@ export const ReportsScreen: React.FC = () => {
   };
 
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
-  const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string }[]>([]);
+  const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string, systemType?: string }[]>([]);
+  const [savingStatusMap, setSavingStatusMap] = useState<Record<string, boolean>>({});
   const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
 
   // Auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
@@ -2239,6 +2218,7 @@ export const ReportsScreen: React.FC = () => {
             delegate: del,
             date: today,
             completedAt: new Date().toISOString(),
+            systemType: 'APP',
           }, { merge: true });
         } else {
           await deleteDoc(docRef);
@@ -2257,12 +2237,16 @@ export const ReportsScreen: React.FC = () => {
     const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
     const unsub = onSnapshot(q, (snap) => {
       const completed: Record<string, boolean> = {};
-      const list: { delegate: string, completedAt: string }[] = [];
+      const list: { delegate: string, completedAt: string, systemType?: string }[] = [];
       snap.forEach(d => {
         completed[d.id] = true;
         const data = d.data();
         if (data.delegate && data.completedAt) {
-          list.push({ delegate: data.delegate, completedAt: data.completedAt });
+          list.push({
+            delegate: data.delegate,
+            completedAt: data.completedAt,
+            systemType: data.systemType || 'APP',
+          });
         }
       });
       list.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
@@ -2271,6 +2255,28 @@ export const ReportsScreen: React.FC = () => {
     });
     return () => unsub();
   }, []);
+
+  const handleUpdateSystemType = async (delName: string, newType: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const docRef = doc(db, 'daily_sales_completion', delName);
+      await setDoc(docRef, {
+        delegate: delName,
+        date: today,
+        completedAt: new Date().toISOString(),
+        systemType: newType,
+      }, { merge: true });
+
+      setSavingStatusMap(prev => ({ ...prev, [delName]: true }));
+      setTimeout(() => {
+        setSavingStatusMap(prev => ({ ...prev, [delName]: false }));
+      }, 1500);
+      setUserMessage(`تم حفظ نظام ${newType} للمندوب ${delName} بنجاح ✅`);
+    } catch (err) {
+      console.error('Error updating system type:', err);
+      setUserMessage('حدث خطأ أثناء حفظ نوع النظام.');
+    }
+  };
 
   // Active representative for extra targets (Delegate view or Admin selection)
   const activeExtraRep = currentUser.isAdmin
@@ -3310,24 +3316,23 @@ export const ReportsScreen: React.FC = () => {
   // - After official closing time: ALL representatives across the entire system with complete details!
   //   (Earliest manual completers maintain priority 1, 2, 3..., followed by all remaining delegates)
   const priorityTableDelegates = useMemo(() => {
-    // 1. Before official closing time: Only delegates who completed
+    const completedMap = new Map<string, { completedAt: string; systemType: string }>();
+    completedDelegatesList.forEach((item) => {
+      completedMap.set(item.delegate.trim().toLowerCase(), {
+        completedAt: item.completedAt,
+        systemType: item.systemType || 'APP',
+      });
+    });
+
     if (!isPastClosing) {
       return completedDelegatesList.map((item, idx) => ({
         delegate: item.delegate,
         completedAt: item.completedAt,
+        systemType: item.systemType || 'APP',
         hasManuallyCompleted: true,
         displayRank: idx + 1,
       }));
     }
-
-    // 2. Once official closing time is reached: Display ALL representatives in the system!
-    const completedMap = new Map<string, { completedAt: string; priorityOrder: number }>();
-    completedDelegatesList.forEach((item, idx) => {
-      completedMap.set(item.delegate.trim().toLowerCase(), {
-        completedAt: item.completedAt,
-        priorityOrder: idx + 1,
-      });
-    });
 
     // Gather all distinct delegate names in system
     const allNamesSet = new Set<string>();
@@ -3340,6 +3345,7 @@ export const ReportsScreen: React.FC = () => {
     const completedItems: Array<{
       delegate: string;
       completedAt: string;
+      systemType: string;
       hasManuallyCompleted: boolean;
       totalWeight: number;
     }> = [];
@@ -3347,18 +3353,17 @@ export const ReportsScreen: React.FC = () => {
     const remainingItems: Array<{
       delegate: string;
       completedAt?: string;
+      systemType: string;
       hasManuallyCompleted: boolean;
       totalWeight: number;
     }> = [];
 
     allDelegates.forEach((delName) => {
       const lower = delName.toLowerCase();
-      // Calculate today's sales weight for sorting remaining items
       const delEntries = todaysEntries.filter((e) => isDelMatch(e.delegateName, delName));
       const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
 
-      // Check if found in completedMap
-      let foundCompleted: { completedAt: string; priorityOrder: number } | undefined;
+      let foundCompleted: { completedAt: string; systemType: string } | undefined;
       for (const [key, val] of completedMap.entries()) {
         if (isDelMatch(key, lower)) {
           foundCompleted = val;
@@ -3370,25 +3375,23 @@ export const ReportsScreen: React.FC = () => {
         completedItems.push({
           delegate: delName,
           completedAt: foundCompleted.completedAt,
+          systemType: foundCompleted.systemType,
           hasManuallyCompleted: true,
           totalWeight,
         });
       } else {
         remainingItems.push({
           delegate: delName,
+          systemType: 'APP',
           hasManuallyCompleted: false,
           totalWeight,
         });
       }
     });
 
-    // Chronological order for delegates who completed manually
     completedItems.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
-
-    // Sort remaining delegates by total weight descending
     remainingItems.sort((a, b) => b.totalWeight - a.totalWeight);
 
-    // Combine completed delegates first, then remaining delegates
     const combined = [...completedItems, ...remainingItems];
 
     return combined.map((item, idx) => ({
@@ -3429,7 +3432,7 @@ export const ReportsScreen: React.FC = () => {
               <table className="w-full min-w-[540px] text-xs text-center border-collapse">
                 <thead>
                   <tr className="border-b border-slate-700 text-slate-300">
-                    <th className="p-2">التسلسل</th>
+                    <th className="p-2">نظام (SAP / APP)</th>
                     <th className="p-2">اسم المندوب</th>
                     <th className="p-2">عدد الفواتير الكلية</th>
                     <th className="p-2">الهدف اليومي للمندوب</th>
@@ -3460,7 +3463,38 @@ export const ReportsScreen: React.FC = () => {
 
                     return (
                       <tr key={delName} className="hover:bg-slate-800/50">
-                        <td className="p-2 font-bold text-amber-400">{item.displayRank || (idx + 1)}</td>
+                        <td 
+                          className="p-2 text-center cursor-pointer"
+                          onClick={(e) => {
+                            const selectEl = e.currentTarget.querySelector('select');
+                            if (selectEl) selectEl.focus();
+                          }}
+                        >
+                          <div className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-xl border transition-all ${
+                            savingStatusMap[delName]
+                              ? 'border-emerald-400 bg-emerald-500/30 scale-105 animate-pulse shadow-lg'
+                              : isDarkMode
+                              ? 'bg-slate-800 border-slate-700'
+                              : 'bg-slate-100 border-slate-300'
+                          }`}>
+                            <select
+                              value={item.systemType || 'SAP'}
+                              onChange={(e) => handleUpdateSystemType(delName, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`bg-transparent font-black text-xs cursor-pointer focus:outline-none ${
+                                item.systemType === 'APP'
+                                  ? 'text-blue-400'
+                                  : 'text-amber-400'
+                              }`}
+                            >
+                              <option value="SAP" className="bg-slate-900 text-amber-400 font-bold">SAP</option>
+                              <option value="APP" className="bg-slate-900 text-blue-400 font-bold">APP</option>
+                            </select>
+                            {savingStatusMap[delName] && (
+                              <span className="text-[10px] text-emerald-300 font-bold">✓</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-2 font-bold text-white">
                           <div className="flex flex-col items-center justify-center">
                             <span>{delName}</span>

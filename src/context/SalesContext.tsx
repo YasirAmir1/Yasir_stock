@@ -50,6 +50,7 @@ export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'rafatdata', password: '10001', delegateName: 'رأفت جمال', monthlyTargetKg: 0, isAdmin: true, role: 'dataEntry' },
+  { username: 'mohammedsauce', password: 'm12343', delegateName: 'محمد الصلصات', monthlyTargetKg: 0, isAdmin: false, role: 'sauceOnly' },
 ];
 
 const DELEGATE_NAME_MAP: Record<string, string> = {
@@ -238,7 +239,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [routes, setRoutes] = useState<RouteItem[]>([]);
-  const [activeTab, setActiveTab] = useState<AppTab>('reports');
+  const [activeTab, setActiveTab] = useState<AppTab>(() => {
+    try {
+      const savedUser = localStorage.getItem('app_current_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        if (u?.username?.toLowerCase() === 'mohammedsauce' || u?.role === 'sauceOnly') {
+          return 'products';
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return 'reports';
+  });
 
   useEffect(() => {
     const q = query(collection(db, 'routes'));
@@ -262,6 +276,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true })
       .catch((err) => console.error('Failed to seed rafatdata to Firestore:', err));
+
+    // Seed and guarantee mohammedsauce exists in Firestore as sauceOnly view account
+    const mohammedSeed: DelegateAccount = {
+      username: 'mohammedsauce',
+      password: 'm12343',
+      delegateName: 'محمد الصلصات',
+      monthlyTargetKg: 0,
+      isAdmin: false,
+      role: 'sauceOnly',
+    };
+    setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true })
+      .catch((err) => console.error('Failed to seed mohammedsauce to Firestore:', err));
   }, []);
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
@@ -1297,14 +1323,23 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     delegateAccounts.forEach((a) => {
       if (a.username.toLowerCase() === 'yasir') return;
+      const isSauce =
+        a.username?.toLowerCase() === 'mohammedsauce' ||
+        a.role === 'sauceOnly' ||
+        a.delegateName === 'محمد الصلصات';
+
       accs.push({
         name: a.delegateName,
-        roleName: a.isAdmin ? (a.role === 'dataEntry' ? 'مدخل بيانات / مدير' : 'مدير النظام') : 'مندوب مبيعات',
-        isAdmin: a.isAdmin,
-        role: a.role,
+        roleName: isSauce
+          ? 'حساب مشاهدة'
+          : a.isAdmin
+          ? (a.role === 'dataEntry' ? 'مدخل بيانات / مدير' : 'مدير النظام')
+          : 'مندوب مبيعات',
+        isAdmin: isSauce ? false : a.isAdmin,
+        role: isSauce ? 'sauceOnly' : a.role,
         username: a.username,
-        monthlyTargetKg: a.monthlyTargetKg,
-        delegateCode: a.delegateCode,
+        monthlyTargetKg: isSauce ? 0 : a.monthlyTargetKg,
+        delegateCode: isSauce ? undefined : a.delegateCode,
       });
     });
 
@@ -1323,7 +1358,22 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [delegateAccounts]);
 
   const delegatesList = useMemo(() => {
-    return Array.from(new Set(availableAccounts.filter((a) => !a.isAdmin).map((a) => a.name)));
+    return Array.from(
+      new Set(
+        availableAccounts
+          .filter(
+            (a) =>
+              !a.isAdmin &&
+              a.role !== 'dataEntry' &&
+              a.role !== 'sauceOnly' &&
+              a.role !== 'viewer' &&
+              a.username?.toLowerCase() !== 'mohammedsauce' &&
+              a.name !== 'محمد الصلصات' &&
+              !a.name?.toLowerCase().includes('sauce')
+          )
+          .map((a) => a.name)
+      )
+    );
   }, [availableAccounts]);
 
   const rawSavedEntries = useMemo(() => {
@@ -1402,14 +1452,28 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [currentUser, selectedDelegate, rawSavedEntries, delegateTargets, delegatesList]);
 
   const loginAccount = (account: UserAccount) => {
+    const isSauce =
+      account.username?.toLowerCase() === 'mohammedsauce' ||
+      account.role === 'sauceOnly' ||
+      account.name === 'محمد الصلصات' ||
+      account.delegateName === 'محمد الصلصات';
+
     const normalizedAccount: UserAccount = {
       ...account,
       name: mapDelegateName(account.name),
+      roleName: isSauce ? 'حساب مشاهدة' : account.roleName,
+      isAdmin: isSauce ? false : account.isAdmin,
+      role: isSauce ? 'sauceOnly' : account.role,
+      monthlyTargetKg: isSauce ? 0 : (account.monthlyTargetKg || 0),
+      delegateCode: isSauce ? undefined : account.delegateCode,
     };
     setCurrentUser(normalizedAccount);
     const now = Date.now();
     setLoginTimestamp(now);
-    if (!normalizedAccount.isAdmin) {
+    if (isSauce) {
+      setSelectedDelegate('محمد الصلصات');
+      setActiveTab('products');
+    } else if (!normalizedAccount.isAdmin) {
       setSelectedDelegate(normalizedAccount.name);
     } else {
       setSelectedDelegate('الكل');
@@ -1485,6 +1549,23 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setDoc(doc(db, 'delegate_accounts', 'rafatdata'), matched, { merge: true }).catch(console.error);
     }
 
+    // 4.5. Explicit fallback for mohammedsauce / محمد الصلصات (m12343)
+    if (
+      !matched &&
+      (u === 'mohammedsauce' || u === 'محمد الصلصات') &&
+      p === 'm12343'
+    ) {
+      matched = {
+        username: 'mohammedsauce',
+        password: 'm12343',
+        delegateName: 'محمد الصلصات',
+        monthlyTargetKg: 0,
+        isAdmin: false,
+        role: 'sauceOnly',
+      };
+      setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), matched, { merge: true }).catch(console.error);
+    }
+
     // 5. Explicit fallback for YASIR (377377)
     if (!matched && u === 'yasir' && p === '377377') {
       matched = {
@@ -1503,16 +1584,24 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           .catch((e) => console.error('Failed to sync account to Firestore:', e));
       }
 
+      const isSauce =
+        matched.username?.toLowerCase() === 'mohammedsauce' ||
+        matched.role === 'sauceOnly' ||
+        matched.delegateName === 'محمد الصلصات' ||
+        matched.name === 'محمد الصلصات';
+
       const userAcc: UserAccount = {
         name: matched.delegateName || matched.name,
-        roleName: matched.isAdmin
+        roleName: isSauce
+          ? 'حساب مشاهدة'
+          : matched.isAdmin
           ? (matched.role === 'dataEntry' ? 'مدخل بيانات / مدير' : 'مدير النظام')
           : 'مندوب مبيعات',
-        isAdmin: !!matched.isAdmin,
-        role: matched.role,
+        isAdmin: isSauce ? false : !!matched.isAdmin,
+        role: isSauce ? 'sauceOnly' : matched.role,
         username: matched.username,
-        monthlyTargetKg: matched.monthlyTargetKg || 0,
-        delegateCode: matched.delegateCode,
+        monthlyTargetKg: isSauce ? 0 : (matched.monthlyTargetKg || 0),
+        delegateCode: isSauce ? undefined : matched.delegateCode,
       };
       loginAccount(userAcc);
       return { success: true };

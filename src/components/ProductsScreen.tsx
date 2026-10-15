@@ -88,6 +88,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
   const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+  const isSauceUser = Boolean(
+    currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+    currentUser?.role === 'sauceOnly' ||
+    currentUser?.role === 'viewer' ||
+    currentUser?.name === 'محمد الصلصات' ||
+    currentUser?.delegateName === 'محمد الصلصات' ||
+    currentUser?.username?.toLowerCase() === 'محمد الصلصات'
+  );
 
   // ... (rest of the component)
 
@@ -288,15 +296,21 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   };
 
   const categoriesList = useMemo(() => {
+    if (isSauceUser) return ['صلصات'];
     const cats = new Set<string>();
     productsList.forEach(p => {
       if (p.categoryName) cats.add(p.categoryName);
     });
     return ['الكل', ...Array.from(cats)];
-  }, [productsList]);
+  }, [productsList, isSauceUser]);
 
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
+      // If user is mohammedsauce, strictly limit to category "صلصات"
+      if (isSauceUser && p.categoryName?.trim() !== 'صلصات') {
+        return false;
+      }
+
       // Hide unavailable products and low stock products (< 6 cartons) for non-admins (مندوبين)
       if (!isAdmin && (p.isAvailable === false || (p.stockCartons || 0) < 6)) return false;
 
@@ -306,7 +320,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
         (p.productCode || '').toLowerCase().includes(term) ||
         (p.categoryName || '').toLowerCase().includes(term);
       
-      const matchCat = selectedCategoryFilter === 'الكل' || p.categoryName === selectedCategoryFilter;
+      const matchCat = isSauceUser ? true : (selectedCategoryFilter === 'الكل' || p.categoryName === selectedCategoryFilter);
       return matchSearch && matchCat;
     });
 
@@ -910,16 +924,38 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   return (
     <div className={`max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300 ${showQuickAdd ? 'pb-32 sm:pb-24' : ''}`}>
       
-      {/* 1. Gifts Management Table at the Top of Products Page */}
-      <GiftsManagementTable
-        giftPromotions={giftPromotions}
-        productsList={productsList}
-        isAdmin={Boolean(isAdmin)}
-        isDarkMode={isDarkMode}
-        onAddGift={addGiftPromotion}
-        onUpdateGift={updateGiftPromotion}
-        onDeleteGift={deleteGiftPromotion}
-      />
+      {/* 1. Gifts Management Table at the Top of Products Page - Hidden for mohammedsauce */}
+      {!isSauceUser && (
+        <GiftsManagementTable
+          giftPromotions={giftPromotions}
+          productsList={productsList}
+          isAdmin={Boolean(isAdmin)}
+          isDarkMode={isDarkMode}
+          onAddGift={addGiftPromotion}
+          onUpdateGift={updateGiftPromotion}
+          onDeleteGift={deleteGiftPromotion}
+        />
+      )}
+
+      {/* Sauce User Dedicated Header Card */}
+      {isSauceUser && (
+        <div className={`p-4 rounded-2xl border shadow-md flex items-center justify-between gap-3 ${
+          isDarkMode ? 'bg-slate-900 border-amber-500/30 text-white' : 'bg-amber-50 border-amber-300 text-amber-950'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center font-black text-xl shadow-inner">
+              🥫
+            </div>
+            <div>
+              <h2 className="text-base font-black">منتجات الصلصات المتوفرة</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">متابعة وعرض أصناف الصلصات في المستودع والمخزن</p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-amber-500 text-slate-950 font-black text-xs rounded-full shadow-sm">
+            حساب الصلصات
+          </span>
+        </div>
+      )}
 
       {/* Header Container */}
       {isAdmin && (
@@ -1270,7 +1306,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       )}
 
       {/* Quick Add Customer Info Box */}
-      {showQuickAdd && (
+      {showQuickAdd && !isSauceUser && (
         <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
           <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1403,7 +1439,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
           {/* Price toggle moved up */}
           <div className="hidden"></div>
           
-          {categoriesList.length > 2 && (
+          {categoriesList.length > 2 && !isSauceUser && (
             <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button 
@@ -1751,38 +1787,40 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                     </div>
                   </div>
                   
-                  {/* Price Section */}
-                  <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                  }`}>
-                    <div className="flex flex-col items-center justify-center text-center">
-                      <span className="text-[9px] font-bold text-slate-400 mb-0.5">سعر ({priceMode === 'retail' ? 'مفرد' : 'جملة'})</span>
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={priceMode === 'retail' ? editRetailPrice : editWholesalePrice}
-                          onChange={(e) => priceMode === 'retail' ? setEditRetailPrice(e.target.value) : setEditWholesalePrice(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
-                        />
-                      ) : (
-                        <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
-                          {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
-                        </span>
-                      )}
-                    </div>
-                    
+                  {/* Price Section - Hidden for mohammedsauce */}
+                  {!isSauceUser && (
+                    <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}>
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] font-bold text-slate-400 mb-0.5">سعر ({priceMode === 'retail' ? 'مفرد' : 'جملة'})</span>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={priceMode === 'retail' ? editRetailPrice : editWholesalePrice}
+                            onChange={(e) => priceMode === 'retail' ? setEditRetailPrice(e.target.value) : setEditWholesalePrice(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
+                          />
+                        ) : (
+                          <span className={`font-black text-emerald-600 dark:text-emerald-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
+                            {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                          </span>
+                        )}
+                      </div>
+                      
                       <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
                         <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
                         <span className={`font-black text-indigo-600 dark:text-indigo-400 ${largeFont ? 'text-lg sm:text-xl' : 'text-xs sm:text-[15px]'}`}>
                           {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 2})}
                         </span>
                       </div>
-                  </div>
+                    </div>
+                  )}
                   
-                  {/* Quick Add Section */}
-                  {!isEditing && showQuickAdd && (
+                  {/* Quick Add Section - Hidden for mohammedsauce */}
+                  {!isEditing && showQuickAdd && !isSauceUser && (
                     <div className="mt-0.5 flex items-center gap-2">
                       {addingQuantityId === prod.id ? (
                         <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">

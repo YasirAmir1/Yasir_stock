@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SalesProvider, useSales } from './context/SalesContext';
 import { EntryScreen } from './components/EntryScreen';
 import { ReportsScreen } from './components/ReportsScreen';
@@ -7,6 +7,7 @@ import { EvaluationsScreen } from './components/EvaluationsScreen';
 import { ProductsScreen } from './components/ProductsScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { CalculatorModal } from './components/CalculatorModal';
+import { WeatherWidget } from './components/WeatherWidget';
 import { LowAchievementWidget } from './components/LowAchievementWidget';
 import { AccountSwitcherModal } from './components/AccountSwitcherModal';
 import { ToastContainer } from './components/ToastContainer';
@@ -71,12 +72,14 @@ const MainAppContent: React.FC = () => {
   const [showTooltip, setShowTooltip] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // Role Access Control for Item Tracking (متابعة الأصناف): Admin & Data Entry Only
+  // Role Access Control for Item Tracking (متابعة الأصناف): Admin, Data Entry, and mohammedsauce
   const isAllowedItemTracking = Boolean(
     currentUser?.isAdmin ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'dataEntry' ||
+    currentUser?.role === 'sauceOnly' ||
     currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
     currentUser?.roleName?.includes('مدخل') ||
     currentUser?.roleName?.includes('أدمن') ||
     currentUser?.roleName?.includes('ادمن') ||
@@ -84,6 +87,22 @@ const MainAppContent: React.FC = () => {
     currentUser?.name === 'رأفت جمال' ||
     currentUser?.delegateName === 'رأفت جمال'
   );
+
+  const isSauceUser = Boolean(
+    currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+    currentUser?.role === 'sauceOnly' ||
+    currentUser?.role === 'viewer' ||
+    currentUser?.name === 'محمد الصلصات' ||
+    currentUser?.delegateName === 'محمد الصلصات' ||
+    currentUser?.username?.toLowerCase() === 'محمد الصلصات'
+  );
+
+  // Strictly enforce that mohammedsauce is always on products or item_tracking
+  useEffect(() => {
+    if (isSauceUser && activeTab !== 'products' && activeTab !== 'item_tracking') {
+      setActiveTab('products');
+    }
+  }, [isSauceUser, activeTab, setActiveTab]);
 
   const handleTabChange = (tab: string) => {
     setIsLoading(true);
@@ -167,22 +186,22 @@ const MainAppContent: React.FC = () => {
               : 'bg-white/95 border-emerald-600/20 shadow-md text-slate-900'
           }`}
         >
-          <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap">
-            {/* Top row for Mobile (Logo + Delegate Name) & Logo for Desktop */}
-            <div className="flex items-center justify-between w-full sm:w-auto shrink-0">
+          <div className="header-container max-w-5xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2.5 flex-wrap rounded-2xl">
+            {/* Top row for Mobile (Logo + Delegate Name with Connection & Weather) & Logo for Desktop */}
+            <div className="flex items-center justify-between w-full sm:w-auto shrink-0 gap-1.5">
               {/* Brand Logo & App Title */}
-              <div className="flex items-center gap-2.5 shrink-0">
-                <AppLogo size="md" />
+              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+                <AppLogo size="sm" />
                 <div className="flex flex-col">
                   <h1
-                    className={`font-black text-base sm:text-lg tracking-tight leading-none ${
+                    className={`font-black text-xs sm:text-lg tracking-tight leading-none ${
                       isDarkMode ? 'text-white' : 'text-slate-900'
                     }`}
                   >
                     Tikrit Sales
                   </h1>
                   <span
-                    className={`text-[10px] sm:text-xs font-bold mt-0.5 ${
+                    className={`text-[8.5px] sm:text-xs font-bold mt-0.5 ${
                       isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                     }`}
                   >
@@ -191,45 +210,55 @@ const MainAppContent: React.FC = () => {
                 </div>
               </div>
               
-              {/* User Info Card (Mobile Only) */}
-              <div
-                className={`sm:hidden px-2.5 py-1 rounded-xl border flex ${
-                  currentUser?.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
-                } ${
-                  isDarkMode
-                    ? 'bg-slate-800/80 border-slate-700 text-slate-200'
-                    : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
-                }`}
-              >
-                <div className={`flex flex-col ${currentUser?.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
-                    <span className="font-extrabold text-xs leading-tight">
-                        {currentUser?.name || 'مستخدم'}
-                    </span>
-                    {!currentUser?.isAdmin && (
-                      <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                          {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
+              {/* Mobile Delegate, Weather, and Real-Time Connection Indicator Group */}
+              <div className="sm:hidden flex items-center gap-1 sm:gap-1.5 shrink-0">
+                {/* Visual Connection Status Indicator & Weather Widget */}
+                <WeatherWidget isDarkMode={isDarkMode} compact={true} />
+
+                {/* User Info Card (Mobile Only) */}
+                <div
+                  className={`px-2 py-1 rounded-xl border flex ${
+                    currentUser?.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
+                  } ${
+                    isDarkMode
+                      ? 'bg-slate-800/80 border-slate-700 text-slate-200'
+                      : 'bg-emerald-50/80 border-emerald-200 text-slate-900'
+                  }`}
+                >
+                  <div className={`flex flex-col ${currentUser?.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
+                      <span className="font-extrabold text-[11px] leading-tight">
+                          {currentUser?.name || 'مستخدم'}
                       </span>
-                    )}
+                      {isSauceUser ? (
+                        <span className="text-[8.5px] font-black text-amber-500">
+                          حساب مشاهدة
+                        </span>
+                      ) : !currentUser?.isAdmin && (
+                        <span className={`text-[8.5px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                            {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
+                        </span>
+                      )}
+                  </div>
+                  {!currentUser?.isAdmin && !isSauceUser && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
+                      <div className="relative">
+                          <button 
+                              onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
+                              className="w-4 h-4 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[8px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                          >
+                              {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || '').slice(-2)}
+                          </button>
+                          {showTooltip && (
+                              <div className="absolute top-7 left-0 z-50 w-44 p-2.5 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                                  <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                      آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                  </p>
+                                  <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
+                              </div>
+                          )}
+                      </div>
+                  )}
                 </div>
-                {!currentUser?.isAdmin && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
-                    <div className="relative">
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
-                            className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[9px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
-                        >
-                            {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || '').slice(-2)}
-                        </button>
-                        {showTooltip && (
-                            <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                                <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                    آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
-                                </p>
-                                <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
-                            </div>
-                        )}
-                    </div>
-                )}
               </div>
             </div>
 
@@ -249,13 +278,17 @@ const MainAppContent: React.FC = () => {
                     <span className="font-extrabold text-xs sm:text-sm leading-tight">
                         {currentUser?.name || 'مستخدم'}
                     </span>
-                    {!currentUser?.isAdmin && (
+                    {isSauceUser ? (
+                      <span className="text-[9px] font-black text-amber-500">
+                        حساب مشاهدة
+                      </span>
+                    ) : !currentUser?.isAdmin && (
                       <span className={`text-[9px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
                           {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
                       </span>
                     )}
                 </div>
-                {!currentUser?.isAdmin && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
+                {!currentUser?.isAdmin && !isSauceUser && (delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode) && (
                     <div className="relative">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
@@ -276,70 +309,78 @@ const MainAppContent: React.FC = () => {
                 )}
               </div>
 
-              {/* Notification Button (Available for Admin, Data Entry, and Delegates) - Ultra compact on mobile */}
-              <button
-                onClick={() => setShowDelegateModal(true)}
-                className={`py-1 px-1 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl border font-black text-[7.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[32px] sm:min-w-[60px] shrink-0 cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
-                    : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
-                }`}
-                title="لوحة الإشعارات والتنبيهات"
-              >
-                <div className="relative flex items-center justify-center">
-                  <Bell className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} />
-                </div>
-                <span className="text-[7.5px] sm:text-[11px] leading-tight">اشعارات</span>
-              </button>
+              {/* Notification Button (Available for Admin, Data Entry, and Delegates - Hidden for mohammedsauce) */}
+              {!isSauceUser && (
+                <button
+                  onClick={() => setShowDelegateModal(true)}
+                  className={`py-1 px-1 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl border font-black text-[7.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[32px] sm:min-w-[60px] shrink-0 cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
+                      : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
+                  }`}
+                  title="لوحة الإشعارات والتنبيهات"
+                >
+                  <div className="relative flex items-center justify-center">
+                    <Bell className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} />
+                  </div>
+                  <span className="text-[7.5px] sm:text-[11px] leading-tight">اشعارات</span>
+                </button>
+              )}
 
               {/* Calculator Button */}
               <button
                 onClick={() => setShowCalculatorModal(true)}
-                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                className={`p-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[38px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
                 }`}
                 title="فتح الحاسبة السريعة"
               >
-                <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="text-[9px] sm:text-[11px] leading-tight">الحاسبة</span>
+                <Calculator className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-[8px] sm:text-[11px] leading-tight">الحاسبة</span>
               </button>
+
+              {/* Weather Widget (Tikrit) - Desktop Only (on mobile it is positioned beside delegate name) */}
+              <div className="hidden sm:flex">
+                <WeatherWidget isDarkMode={isDarkMode} />
+              </div>
               
               {/* Date Display */}
-              <div className={`p-1.5 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[65px] sm:min-w-[80px] ${
+              <div className={`p-1 sm:px-2 sm:py-1.5 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[55px] sm:min-w-[80px] ${
                 isDarkMode
                   ? 'bg-slate-800 text-emerald-300 border-slate-700'
                   : 'bg-emerald-50 text-emerald-950 border-emerald-200'
               }`}>
-                <span className="text-[9px] sm:text-[11px] leading-tight font-bold">{getFormattedWeekday()}</span>
-                <span className="text-[9px] sm:text-[11px] leading-tight" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
+                <span className="text-[8px] sm:text-[11px] leading-tight font-bold">{getFormattedWeekday()}</span>
+                <span className="text-[8px] sm:text-[11px] leading-tight" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
               </div>
 
               {/* Font Size Toggle Button */}
               {activeTab === 'products' && (
                 <button
                   onClick={() => setLargeFont(!largeFont)}
-                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                  className={`p-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[38px] sm:min-w-[60px] ${
                     largeFont
                       ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
                       : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
                   }`}
                   title="تكبير الخط"
                 >
-                  <Type className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
-                  <span className="text-[9px] sm:text-[11px] leading-tight">الخط</span>
+                  <Type className={`w-3.5 h-3.5 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
+                  <span className="text-[8px] sm:text-[11px] leading-tight">الخط</span>
                 </button>
               )}
 
-              {/* Admin Button (Placed between Calculator and Theme Toggle - Hidden for Rafat / Data Entry) */}
+              {/* Admin Button (Placed between Calculator and Theme Toggle - Hidden for Rafat, Data Entry, and mohammedsauce) */}
               {(currentUser.isAdmin || currentUser.name === 'الأدمن') &&
                 currentUser.username?.toLowerCase() !== 'rafatdata' &&
-                currentUser.role !== 'dataEntry' && (
+                currentUser.role !== 'dataEntry' &&
+                !isSauceUser && (
                 <button
                   onClick={() => setActiveTab('admin')}
-                  className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                  className={`p-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[38px] sm:min-w-[60px] ${
                     activeTab === 'admin'
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
                       : isDarkMode
@@ -348,15 +389,15 @@ const MainAppContent: React.FC = () => {
                   }`}
                   title="صفحة الادمن"
                 >
-                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
-                  <span className="text-[9px] sm:text-[11px] leading-tight">أدمن</span>
+                  <Shield className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
+                  <span className="text-[8px] sm:text-[11px] leading-tight">أدمن</span>
                 </button>
               )}
 
               {/* Theme Toggle Button */}
               <button
                 onClick={toggleDarkMode}
-                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                className={`p-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[38px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-slate-800 text-amber-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
@@ -365,13 +406,13 @@ const MainAppContent: React.FC = () => {
               >
                 {isDarkMode ? (
                   <>
-                    <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
-                    <span className="text-[9px] sm:text-[11px] leading-tight">فاتح</span>
+                    <Sun className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
+                    <span className="text-[8px] sm:text-[11px] leading-tight">فاتح</span>
                   </>
                 ) : (
                   <>
-                    <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
-                    <span className="text-[9px] sm:text-[11px] leading-tight">داكن</span>
+                    <Moon className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
+                    <span className="text-[8px] sm:text-[11px] leading-tight">داكن</span>
                   </>
                 )}
               </button>
@@ -379,15 +420,15 @@ const MainAppContent: React.FC = () => {
               {/* Logout Button */}
               <button
                 onClick={() => setShowLogoutModal(true)}
-                className={`p-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[45px] sm:min-w-[60px] ${
+                className={`p-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[9px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all shadow-sm active:scale-95 min-w-[38px] sm:min-w-[60px] ${
                   isDarkMode
                     ? 'bg-red-950/80 text-red-300 hover:bg-red-900 border-red-800/80'
                     : 'bg-red-600 text-white hover:bg-red-700 border-red-600'
                 }`}
                 title="تسجيل الخروج والعودة لشاشة الدخول"
               >
-                <LogOut className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-                <span className="text-[9px] sm:text-[11px] leading-tight">خروج</span>
+                <LogOut className="w-3.5 h-3.5 sm:w-5 sm:h-5 shrink-0" />
+                <span className="text-[8px] sm:text-[11px] leading-tight">خروج</span>
               </button>
             </div>
           </div>
@@ -447,24 +488,26 @@ const MainAppContent: React.FC = () => {
           }`}
         >
           <div className="max-w-5xl mx-auto px-1 sm:px-4 flex flex-wrap">
+          {!isSauceUser && (
             <button
-            onClick={() => handleTabChange('entry')}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-              activeTab === 'entry'
-                ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
-                : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-          >
-            <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span>الفواتير</span>
-          </button>
+              onClick={() => handleTabChange('entry')}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+                activeTab === 'entry'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span>الفواتير</span>
+            </button>
+          )}
 
           {/* OLD INVOICES TAB (الفواتير القديمة) - DIRECTLY ADJACENT TO ENTRY - STRICTLY ADMIN ONLY */}
-          {currentUser?.isAdmin && (
+          {currentUser?.isAdmin && !isSauceUser && (
             <button
               onClick={() => handleTabChange('old_invoices')}
               className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
@@ -482,39 +525,43 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
-          <button
-            onClick={() => handleTabChange('routes')}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-              activeTab === 'routes'
-                ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
-                : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-          >
-            <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
-            <span>المسارات</span>
-          </button>
+          {!isSauceUser && (
+            <button
+              onClick={() => handleTabChange('routes')}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+                activeTab === 'routes'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <span>المسارات</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('reports')}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-              activeTab === 'reports'
-                ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
-                : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-          >
-            <BarChart2 className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span>التقارير</span>
-          </button>
+          {!isSauceUser && (
+            <button
+              onClick={() => handleTabChange('reports')}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+                activeTab === 'reports'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <BarChart2 className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span>التقارير</span>
+            </button>
+          )}
 
-          {/* ITEM TRACKING TAB (متابعة الأصناف) - ADMIN & DATA ENTRY EXCLUSIVELY */}
+          {/* ITEM TRACKING TAB (متابعة الأصناف) - ADMIN, DATA ENTRY & MOHAMMEDSAUCE */}
           {isAllowedItemTracking && (
             <button
               onClick={() => handleTabChange('item_tracking')}
@@ -534,21 +581,23 @@ const MainAppContent: React.FC = () => {
           )}
 
           {/* EVALUATIONS TAB (تقييمات) */}
-          <button
-            onClick={() => handleTabChange('evaluations')}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-              activeTab === 'evaluations'
-                ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
-                : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-          >
-            <Award className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400" />
-            <span>التقييمات</span>
-          </button>
+          {!isSauceUser && (
+            <button
+              onClick={() => handleTabChange('evaluations')}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+                activeTab === 'evaluations'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <Award className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400" />
+              <span>التقييمات</span>
+            </button>
+          )}
 
           {/* PRODUCTS TAB (المنتجات) */}
           <button
@@ -571,31 +620,33 @@ const MainAppContent: React.FC = () => {
           </button>
 
           {/* RETURNS TAB (المرتجعات) */}
-          <button
-            onClick={() => {
-              setShowQuickAdd(false);
-              handleTabChange('returns');
-            }}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-              activeTab === 'returns'
-                ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
-                : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-          >
-            <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
-            <span>المرتجعات</span>
-          </button>
+          {!isSauceUser && (
+            <button
+              onClick={() => {
+                setShowQuickAdd(false);
+                handleTabChange('returns');
+              }}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+                activeTab === 'returns'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
+                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <span>المرتجعات</span>
+            </button>
+          )}
 
           </div>
         </div>
       </header>
 
       {/* Products Under 50% Widget - Visible in Reports Tab Only */}
-      {activeTab === 'reports' && <LowAchievementWidget />}
+      {!isSauceUser && activeTab === 'reports' && <LowAchievementWidget />}
 
       {/* Global Message Toast */}
       {userMessage && (
@@ -617,22 +668,34 @@ const MainAppContent: React.FC = () => {
         </div>
       )}
 
-      {/* Main Screen Body */}
+      {/* Main Screen Body - Strict Protection */}
       <main className="flex-1 pb-20 sm:pb-12 pt-2">
-        {activeTab === 'entry' && <EntryScreen />}
-        {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
-        {activeTab === 'routes' && <RoutesScreen />}
-        {activeTab === 'reports' && <ReportsScreen />}
-        {activeTab === 'evaluations' && <EvaluationsScreen />}
-        {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
-        {activeTab === 'returns' && <ReturnsScreen />}
-        {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
-        {activeTab === 'admin' && (
-          currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
-            <AdminScreen />
-          ) : (
-            <EntryScreen />
-          )
+        {isSauceUser ? (
+          <>
+            {activeTab === 'item_tracking' ? (
+              <ItemTrackingScreen />
+            ) : (
+              <ProductsScreen largeFont={largeFont} />
+            )}
+          </>
+        ) : (
+          <>
+            {activeTab === 'entry' && <EntryScreen />}
+            {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
+            {activeTab === 'routes' && <RoutesScreen />}
+            {activeTab === 'reports' && <ReportsScreen />}
+            {activeTab === 'evaluations' && <EvaluationsScreen />}
+            {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
+            {activeTab === 'returns' && <ReturnsScreen />}
+            {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
+            {activeTab === 'admin' && (
+              currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
+                <AdminScreen />
+              ) : (
+                <EntryScreen />
+              )
+            )}
+          </>
         )}
       </main>
 
@@ -644,6 +707,7 @@ const MainAppContent: React.FC = () => {
         setShowQuickAdd={setShowQuickAdd} 
         isAdmin={currentUser?.isAdmin}
         canAccessItemTracking={isAllowedItemTracking}
+        isSauceUser={isSauceUser}
       />
 
       {/* Footer */}

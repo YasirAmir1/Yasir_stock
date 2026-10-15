@@ -450,12 +450,23 @@ export const AdminScreen: React.FC = () => {
   const [rafatUsernameInput, setRafatUsernameInput] = useState(rafatCurrentAcc?.username || 'rafatdata');
   const [rafatPasswordInput, setRafatPasswordInput] = useState(rafatCurrentAcc?.password || '10001');
 
+  const mohammedCurrentAcc = delegateAccounts.find(d => d.username?.toLowerCase() === 'mohammedsauce' || d.role === 'sauceOnly');
+  const [mohammedUsernameInput, setMohammedUsernameInput] = useState(mohammedCurrentAcc?.username || 'mohammedsauce');
+  const [mohammedPasswordInput, setMohammedPasswordInput] = useState(mohammedCurrentAcc?.password || 'm12343');
+
   useEffect(() => {
     if (rafatCurrentAcc) {
       setRafatUsernameInput(rafatCurrentAcc.username);
       setRafatPasswordInput(rafatCurrentAcc.password);
     }
   }, [rafatCurrentAcc?.username, rafatCurrentAcc?.password]);
+
+  useEffect(() => {
+    if (mohammedCurrentAcc) {
+      setMohammedUsernameInput(mohammedCurrentAcc.username);
+      setMohammedPasswordInput(mohammedCurrentAcc.password);
+    }
+  }, [mohammedCurrentAcc?.username, mohammedCurrentAcc?.password]);
 
   // Lock status for currently selected delegate
   const lockStatus = selectedAdminDelegate === 'الكل'
@@ -1581,6 +1592,65 @@ export const AdminScreen: React.FC = () => {
           <div className="mt-3 p-3 bg-slate-800 rounded-xl text-[10px] text-slate-400 space-y-1 border border-slate-700">
               <p>اسم المستخدم: <span className="text-white font-bold">{rafatUsernameInput}</span></p>
               <p>كلمة المرور: <span className="text-white font-bold">{rafatPasswordInput}</span></p>
+          </div>
+        </div>
+
+        {/* Mohammed Sauce User Account Management */}
+        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3 mt-4">
+          <label className="text-xs font-bold text-emerald-300">التحكم بحساب المستخدم الجديد (mohammedsauce):</label>
+          <div className="flex gap-2">
+            <input 
+              type="text" placeholder="اسم المستخدم" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+              value={mohammedUsernameInput} onChange={e => setMohammedUsernameInput(e.target.value)}
+            />
+            <input 
+              type="text" placeholder="كلمة المرور" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
+              value={mohammedPasswordInput} onChange={e => setMohammedPasswordInput(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={() => {
+              const u = mohammedUsernameInput.trim().toLowerCase();
+              const p = mohammedPasswordInput.trim();
+              if (!u || !p) {
+                alert('يرجى ملء اسم المستخدم وكلمة المرور للمستخدم mohammedsauce');
+                return;
+              }
+
+              const mohammedAcc = delegateAccounts.find(d => d.username?.toLowerCase() === 'mohammedsauce' || d.role === 'sauceOnly') || {
+                username: 'mohammedsauce',
+                password: 'm12343',
+                delegateName: 'محمد الصلصات',
+                monthlyTargetKg: 0,
+                isAdmin: false,
+                role: 'sauceOnly' as const,
+              };
+
+              const updatedMohammed = { 
+                ...mohammedAcc, 
+                username: u, 
+                password: p,
+                delegateName: 'محمد الصلصات',
+                isAdmin: false,
+                role: 'sauceOnly' as const,
+              };
+              saveDelegateAccount(updatedMohammed);
+              
+              if (mohammedAcc.username && mohammedAcc.username.toLowerCase() !== u) {
+                deleteDelegateAccount(mohammedAcc.username);
+              }
+
+              setSaveFeedbackMessage('تم تحديث بيانات المستخدم mohammedsauce بنجاح.');
+              setTimeout(() => setSaveFeedbackMessage(null), 3000);
+            }}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg cursor-pointer"
+          >
+            حفظ بيانات المستخدم mohammedsauce
+          </button>
+          <div className="mt-3 p-3 bg-slate-800 rounded-xl text-[10px] text-slate-400 space-y-1 border border-slate-700">
+              <p>اسم المستخدم: <span className="text-white font-bold">{mohammedUsernameInput}</span></p>
+              <p>كلمة المرور: <span className="text-white font-bold">{mohammedPasswordInput}</span></p>
+              <p className="text-amber-400">الصلاحيات: مخصص لصفحة المنتجات (الصلصات فقط) وصفحة متابعة الأصناف.</p>
           </div>
         </div>
       </div>

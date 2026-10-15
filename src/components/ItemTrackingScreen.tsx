@@ -83,6 +83,15 @@ export const ItemTrackingScreen: React.FC = () => {
     currentUser?.delegateName === 'رأفت جمال'
   );
 
+  const isSauceUser = Boolean(
+    currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+    currentUser?.role === 'sauceOnly' ||
+    currentUser?.role === 'viewer' ||
+    currentUser?.name === 'محمد الصلصات' ||
+    currentUser?.delegateName === 'محمد الصلصات' ||
+    currentUser?.username?.toLowerCase() === 'محمد الصلصات'
+  );
+
   const isAdminOrDataEntry = Boolean(
     currentUser?.isAdmin ||
     currentUser?.role === 'admin' ||
@@ -90,7 +99,8 @@ export const ItemTrackingScreen: React.FC = () => {
     currentUser?.roleName?.includes('ادمن') ||
     currentUser?.name === 'الأدمن' ||
     currentUser?.username?.toLowerCase() === 'yasir' ||
-    isDataEntry
+    isDataEntry ||
+    isSauceUser
   );
 
   // Active Section: 'all' (Both sections) | 'daily' (Section A) | 'monthly' (Section B)

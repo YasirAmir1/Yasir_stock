@@ -3,7 +3,7 @@ export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'reports' | 'evaluati
 export interface UserAccount {
   name: string;
   roleName: string;
-  role?: 'admin' | 'delegate' | 'dataEntry';
+  role?: 'admin' | 'delegate' | 'dataEntry' | 'sauceOnly' | 'viewer';
   isAdmin: boolean;
   username: string;
   monthlyTargetKg: number;
@@ -34,7 +34,7 @@ export interface DelegateAccount {
   delegateCode?: string; // Add this
   monthlyTargetKg: number;
   isAdmin: boolean;
-  role?: 'admin' | 'delegate' | 'dataEntry';
+  role?: 'admin' | 'delegate' | 'dataEntry' | 'sauceOnly' | 'viewer';
   targetSetTimestamp?: number;
 }
 
