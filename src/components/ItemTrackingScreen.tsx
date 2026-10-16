@@ -1409,8 +1409,9 @@ export const ItemTrackingScreen: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-center font-bold">100%</td>
                     <td className="py-3 px-3 text-center">
-                      <span className="px-2.5 py-1 rounded-full text-xs font-black bg-indigo-500 text-white shadow-xs">
-                        {monthlySauceData.totals.monthlyAchievedCount} من {monthlySauceData.allDelegates.length} محققين
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md border border-emerald-400/40">
+                        <Award className="w-4 h-4 text-amber-300" />
+                        <span>{monthlySauceData.totals.monthlyAchievedCount} من {monthlySauceData.allDelegates.length} محققين 🏆</span>
                       </span>
                     </td>
                   </tr>
