@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
+import { SalesEntry } from '../types';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { formatWithCommas } from '../utils/numberUtils';
@@ -52,18 +53,42 @@ const normalizeArabic = (text: any): string => {
     .replace(/ى/g, 'ي');
 };
 
+const DELEGATE_NAME_MAP: Record<string, string> = {
+  'مندوب 1': 'ناجي خلف',
+  'مندوب 2': 'خلدون جمال',
+  'مندوب 3': 'محمد جاسم',
+  'مندوب 4': 'بكر بدران',
+  'مندوب 5': 'فيصل فؤاد',
+  'مندوب 6': 'صباح فرحان',
+  'مندوب 7': 'مندوب عام 1',
+  'مندوب 8': 'مندوب عام 2',
+};
+
+const normalizeDelName = (name?: string): string => {
+  if (!name) return '';
+  const trimmed = name.trim();
+  if (DELEGATE_NAME_MAP[trimmed]) return normalizeArabic(DELEGATE_NAME_MAP[trimmed]);
+  for (const [k, v] of Object.entries(DELEGATE_NAME_MAP)) {
+    if (trimmed.includes(k) || trimmed.includes(v)) {
+      return normalizeArabic(v);
+    }
+  }
+  return normalizeArabic(trimmed.toLowerCase());
+};
+
 const isDelMatch = (nameA?: string, nameB?: string): boolean => {
   if (!nameA || !nameB) return false;
-  const a = nameA.trim().toLowerCase();
-  const b = nameB.trim().toLowerCase();
+  const a = normalizeDelName(nameA);
+  const b = normalizeDelName(nameB);
   if (a === b) return true;
-  return normalizeArabic(a) === normalizeArabic(b);
+  return (a.length >= 3 && b.includes(a)) || (b.length >= 3 && a.includes(b));
 };
 
 export const ItemTrackingScreen: React.FC = () => {
   const {
     currentUser,
     salesEntries = [],
+    allSalesEntries = [],
     rawSavedEntries = [],
     delegatesList = [],
     delegateTargets = [],
@@ -308,27 +333,95 @@ export const ItemTrackingScreen: React.FC = () => {
     };
   }, []);
 
-  // Filter delegates excluding 'الكل' and 'الأدمن' and generic hidden delegates
-  const validDelegates = useMemo(() => {
-    return delegatesList.filter(
-      (d) => d && d !== 'الكل' && d !== 'الأدمن' && d !== 'مندوب عام 1' && d !== 'مندوب عام 2'
-    );
-  }, [delegatesList]);
+  // 6 Required delegates matching the daily sales table in the Reports page
+  const REQUIRED_DELEGATES = [
+    'ناجي خلف',
+    'خلدون جمال',
+    'محمد جاسم',
+    'بكر بدران',
+    'فيصل فؤاد',
+    'صباح فرحان'
+  ];
 
-  // Combined all sales source entries (excluding hidden delegates)
+  // Combined all sales source entries (prioritizing allSalesEntries which contains historical and current dates)
   const allSales = useMemo(() => {
-    const list = rawSavedEntries.length > 0 ? rawSavedEntries : salesEntries;
-    return list.filter(
+    const map = new Map<string, SalesEntry>();
+    (allSalesEntries || []).forEach((e) => {
+      if (e && e.id) map.set(e.id, e);
+    });
+    (salesEntries || []).forEach((e) => {
+      if (e && e.id) map.set(e.id, e);
+    });
+    (rawSavedEntries || []).forEach((e) => {
+      if (e && e.id) map.set(e.id, e);
+    });
+    return Array.from(map.values()).filter(
       (e) => e.delegateName !== 'مندوب عام 1' && e.delegateName !== 'مندوب عام 2'
     );
-  }, [rawSavedEntries, salesEntries]);
+  }, [allSalesEntries, salesEntries, rawSavedEntries]);
 
-  // Category identification (Sauces / صلصات)
+  // Category identification: strictly 'صلصات' (Sauces)
   const isSauceCategory = (catName?: string) => {
     if (!catName) return false;
-    const norm = normalizeArabic(catName);
-    return norm === normalizeArabic('صلصات') || norm.includes('صلص');
+    const norm = normalizeArabic(catName.trim().toLowerCase());
+    return norm === normalizeArabic('صلصات') || norm === 'صلصات' || norm === 'صلصة';
   };
+
+  const isSauceEntry = (e: SalesEntry) => {
+    // 1. Strictly verify the sales entry category is 'صلصات'
+    if (e.categoryName && e.categoryName.trim()) {
+      return isSauceCategory(e.categoryName);
+    }
+    // 2. Fallback: if categoryName is missing, verify product registered category is 'صلصات'
+    const prod = productsList.find(
+      (p) => normalizeArabic(p.productName.trim().toLowerCase()) === normalizeArabic((e.productName || '').trim().toLowerCase())
+    );
+    if (prod && prod.categoryName && prod.categoryName.trim()) {
+      return isSauceCategory(prod.categoryName);
+    }
+    return false;
+  };
+
+  // Filter delegates according to the daily sales table in the Reports page + any other registered/active delegates
+  const validDelegates = useMemo(() => {
+    const set = new Set<string>();
+    // 1. Order exactly as in the daily sales table in the Reports page
+    REQUIRED_DELEGATES.forEach((name) => set.add(name));
+
+    // 2. Add other registered delegates from delegatesList
+    delegatesList.forEach((d) => {
+      if (
+        d &&
+        d !== 'الكل' &&
+        d !== 'الأدمن' &&
+        d !== 'محمد الصلصات' &&
+        d !== 'مندوب عام 1' &&
+        d !== 'مندوب عام 2' &&
+        !Array.from(set).some((existing) => isDelMatch(existing, d))
+      ) {
+        set.add(d);
+      }
+    });
+
+    // 3. Add any delegate who has entered sales
+    allSales.forEach((e) => {
+      const d = e.delegateName?.trim();
+      const mapped = d ? (DELEGATE_NAME_MAP[d] || d) : '';
+      if (
+        mapped &&
+        mapped !== 'الكل' &&
+        mapped !== 'الأدمن' &&
+        mapped !== 'محمد الصلصات' &&
+        mapped !== 'مندوب عام 1' &&
+        mapped !== 'مندوب عام 2' &&
+        !Array.from(set).some((existing) => isDelMatch(existing, mapped))
+      ) {
+        set.add(mapped);
+      }
+    });
+
+    return Array.from(set);
+  }, [delegatesList, allSales]);
 
   // ----------------------------------------------------
   // SECTION A: DAILY TRACKING FOR SAUCES (صلصات)
@@ -336,7 +429,7 @@ export const ItemTrackingScreen: React.FC = () => {
   const dailySauceData = useMemo(() => {
     // 1. Sales for selected date in 'صلصات'
     const dateSales = allSales.filter(
-      (e) => e.dateString === selectedDate && isSauceCategory(e.categoryName)
+      (e) => e.dateString === selectedDate && isSauceEntry(e)
     );
 
     // 2. Breakdown per delegate
@@ -345,7 +438,17 @@ export const ItemTrackingScreen: React.FC = () => {
       const targetObj = delegateTargets.find(
         (t) => isDelMatch(t.delegateName, del) && isSauceCategory(t.categoryName)
       );
-      const dailyTargetKg = targetObj ? Number(targetObj.dailyTargetWeightKg) || 0 : 0;
+      let dailyTargetKg = targetObj ? Number(targetObj.dailyTargetWeightKg) || 0 : 0;
+
+      // Fallback: if not set in delegateTargets, derive from monthlyItemTargets if available
+      if (dailyTargetKg === 0) {
+        const monthlyMatch = monthlyItemTargets.find(
+          (t) => isDelMatch(t.delegateName, del) && isSauceCategory(t.categoryName)
+        );
+        if (monthlyMatch && Number(monthlyMatch.monthlyTarget) > 0) {
+          dailyTargetKg = Math.round((Number(monthlyMatch.monthlyTarget) / 26) * 10) / 10;
+        }
+      }
 
       // Delegate sales on selected date
       const delSales = dateSales.filter((e) => isDelMatch(e.delegateName, del));
@@ -412,7 +515,7 @@ export const ItemTrackingScreen: React.FC = () => {
         achievedCount
       }
     };
-  }, [allSales, selectedDate, validDelegates, delegateTargets, searchTerm]);
+  }, [allSales, selectedDate, validDelegates, delegateTargets, monthlyItemTargets, searchTerm]);
 
   // ----------------------------------------------------
   // SECTION B: MONTHLY TRACKING FOR SAUCES (صلصات)
@@ -425,7 +528,7 @@ export const ItemTrackingScreen: React.FC = () => {
 
     // Also get all sales in current month for 'صلصات'
     const monthSales = allSales.filter(
-      (e) => (e.dateString || '').startsWith(currentMonthPrefix) && isSauceCategory(e.categoryName)
+      (e) => (e.dateString || '').startsWith(currentMonthPrefix) && isSauceEntry(e)
     );
 
     const list = validDelegates.map((del) => {

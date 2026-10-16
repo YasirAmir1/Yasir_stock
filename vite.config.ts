@@ -14,7 +14,24 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'lucide-react',
+      'xlsx',
+      'html2canvas',
+      'html2canvas-pro',
+      'jspdf',
+      'jspdf-autotable',
+      'clsx',
+      'tailwind-merge',
+      'motion',
+      'firebase/app',
+      'firebase/firestore'
+    ],
   },
   server: {
     host: '0.0.0.0',

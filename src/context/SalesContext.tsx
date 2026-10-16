@@ -209,7 +209,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem('app_current_user');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.isAdmin) {
+        if (parsed && (parsed.isAdmin || parsed.role === 'sauceOnly' || parsed.username?.toLowerCase() === 'mohammedsauce' || parsed.name === 'محمد الصلصات')) {
           return 'الكل';
         } else if (parsed && parsed.name) {
           return mapDelegateName(parsed.name);
@@ -245,7 +245,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (savedUser) {
         const u = JSON.parse(savedUser);
         if (u?.username?.toLowerCase() === 'mohammedsauce' || u?.role === 'sauceOnly') {
-          return 'products';
+          return 'item_tracking';
         }
       }
     } catch {
@@ -1035,8 +1035,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // 2. Independent listener for targets and locks (depends only on user role/name, not date/delegate)
   useEffect(() => {
+    const isSauceUser =
+      currentUser?.role === 'sauceOnly' ||
+      currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+      currentUser?.name === 'محمد الصلصات';
+
     let targetsQuery;
-    if (currentUser?.isAdmin) {
+    if (currentUser?.isAdmin || isSauceUser) {
       targetsQuery = collection(db, 'delegate_targets');
     } else {
       targetsQuery = query(
@@ -1063,7 +1068,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     let locksQuery;
-    if (currentUser?.isAdmin) {
+    if (currentUser?.isAdmin || isSauceUser) {
       locksQuery = collection(db, 'target_locks');
     } else {
       locksQuery = query(
@@ -1094,13 +1099,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubTargets();
       unsubLocks();
     };
-  }, [currentUser?.isAdmin, currentUser?.name]);
+  }, [currentUser?.isAdmin, currentUser?.name, currentUser?.role, currentUser?.username]);
 
   // 3. Independent listener for sales entries (scoped to selected date and delegate)
   useEffect(() => {
+    const isSauceUser =
+      currentUser?.role === 'sauceOnly' ||
+      currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+      currentUser?.name === 'محمد الصلصات';
+
     let salesQuery;
-    if (currentUser?.isAdmin) {
-      if (selectedDelegate === 'الكل') {
+    if (currentUser?.isAdmin || isSauceUser) {
+      if (selectedDelegate === 'الكل' || isSauceUser) {
         salesQuery = query(collection(db, 'sales_entries'), where('dateString', '==', selectedDate));
       } else {
         salesQuery = query(
@@ -1130,8 +1140,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const pending = getPendingQueue();
         pending.forEach((entry) => {
           if (entry.dateString === selectedDate) {
-            if (currentUser?.isAdmin) {
-              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
+            if (currentUser?.isAdmin || isSauceUser) {
+              if (selectedDelegate === 'الكل' || isSauceUser || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
                 entriesMap.set(entry.id, entry);
               }
             } else {
@@ -1149,8 +1159,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const pending = getPendingQueue();
         pending.forEach((entry) => {
           if (entry.dateString === selectedDate) {
-            if (currentUser?.isAdmin) {
-              if (selectedDelegate === 'الكل' || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
+            if (currentUser?.isAdmin || isSauceUser) {
+              if (selectedDelegate === 'الكل' || isSauceUser || entry.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()) {
                 entriesMap.set(entry.id, entry);
               }
             } else {
@@ -1167,7 +1177,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       unsubSales();
     };
-  }, [currentUser?.isAdmin, currentUser?.name, selectedDate, selectedDelegate]);
+  }, [currentUser?.isAdmin, currentUser?.name, currentUser?.role, currentUser?.username, selectedDate, selectedDelegate]);
 
   const saveSalesEntries = async (
     newEntriesData: Omit<SalesEntry, 'id' | 'timestamp'>[]
@@ -1471,8 +1481,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const now = Date.now();
     setLoginTimestamp(now);
     if (isSauce) {
-      setSelectedDelegate('محمد الصلصات');
-      setActiveTab('products');
+      setSelectedDelegate('الكل');
+      setActiveTab('item_tracking');
     } else if (!normalizedAccount.isAdmin) {
       setSelectedDelegate(normalizedAccount.name);
     } else {

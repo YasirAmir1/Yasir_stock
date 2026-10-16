@@ -100,7 +100,7 @@ const MainAppContent: React.FC = () => {
   // Strictly enforce that mohammedsauce is always on products or item_tracking
   useEffect(() => {
     if (isSauceUser && activeTab !== 'products' && activeTab !== 'item_tracking') {
-      setActiveTab('products');
+      setActiveTab('item_tracking');
     }
   }, [isSauceUser, activeTab, setActiveTab]);
 

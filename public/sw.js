@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sales-target-delegate-v1';
+const CACHE_NAME = 'sales-target-delegate-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -33,16 +33,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.includes('/api/') || url.hostname.includes('firestore.googleapis.com') || url.hostname.includes('firebase')) {
-    event.respondWith(
-      fetch(event.request).catch(() => {
-        return new Response(JSON.stringify({ error: 'offline' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      })
-    );
-    return;
+  if (
+    url.pathname.includes('/api/') ||
+    url.hostname.includes('firestore.googleapis.com') ||
+    url.hostname.includes('firebase') ||
+    url.pathname.includes('/node_modules/') ||
+    url.pathname.includes('/@') ||
+    url.pathname.includes('/src/') ||
+    url.search.includes('v=') ||
+    url.search.includes('t=')
+  ) {
+    return; // Bypass service worker completely
   }
 
   event.respondWith(
