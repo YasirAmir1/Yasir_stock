@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas-pro';
 import * as XLSX from 'xlsx';
-import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { useSales, DEFAULT_CATEGORIES_LIST, isExcludedReportDelegate } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
@@ -177,7 +177,7 @@ const DailyAdminReport: React.FC<{
   const isDataEntry = Boolean(currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.name?.includes('مدخل'));
   const isAdminOrDataEntry = isAdmin || isDataEntry;
   const today = new Date().toISOString().split('T')[0];
-  const entriesToday = salesEntries.filter(e => e.dateString === today);
+  const entriesToday = salesEntries.filter(e => e.dateString === today && !isExcludedReportDelegate(e.delegateName));
   const threeTablesCaptureRef = useRef<HTMLDivElement>(null);
   
   const [reportActionModal, setReportActionModal] = useState<{
@@ -753,6 +753,7 @@ const DailyAdminReport: React.FC<{
 
       grouped.forEach(e => {
           const name = e.delegateName.trim();
+          if (isExcludedReportDelegate(name)) return;
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
@@ -786,6 +787,7 @@ const DailyAdminReport: React.FC<{
 
       entriesToday.forEach(e => {
           const name = e.delegateName.trim();
+          if (isExcludedReportDelegate(name)) return;
           if (!delegates[name]) {
               delegates[name] = { invoices: new Set(), weight: 0, amount: 0 };
           }
@@ -3104,7 +3106,7 @@ export const ReportsScreen: React.FC = () => {
 
   // Filter saved entries for today
   const todayStr = new Date().toISOString().split('T')[0];
-  const todaysEntries = salesEntries.filter(e => e.dateString === todayStr);
+  const todaysEntries = salesEntries.filter(e => e.dateString === todayStr && !isExcludedReportDelegate(e.delegateName));
   const uniqueCustomerNames = Array.from(new Set(todaysEntries.map(e => e.customerName).filter(Boolean))).sort();
   const achievedCategories = useMemo(() => {
     return categoryReports.filter((r) => r.isAchieved && r.dailyTargetWeightKg > 0);
@@ -3114,7 +3116,7 @@ export const ReportsScreen: React.FC = () => {
   const activeDelegateName = currentUser.isAdmin ? selectedDelegate : currentUser.name;
 
   const { modalTotalWeight, modalTotalPrice } = useMemo(() => {
-    const delegateEntries = salesEntries.filter(e => e.delegateName === activeDelegateName && e.dateString === new Date().toISOString().split('T')[0]);
+    const delegateEntries = salesEntries.filter(e => e.delegateName === activeDelegateName && e.dateString === new Date().toISOString().split('T')[0] && !isExcludedReportDelegate(e.delegateName));
     const weight = delegateEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
     const price = delegateEntries.reduce((sum, e) => {
       const prod = productsList.find(p => p.productName === e.productName);
@@ -3163,17 +3165,17 @@ export const ReportsScreen: React.FC = () => {
 
   // Filter sales entries and evaluations for Date Range if enabled
   const rangeFilteredSales = useMemo(() => {
-    if (!useRange) {
-      return salesEntries.filter((e) => e.dateString === selectedDate);
-    }
-    return salesEntries.filter((e) => e.dateString && e.dateString >= startDate && e.dateString <= endDate);
+    const raw = !useRange
+      ? salesEntries.filter((e) => e.dateString === selectedDate)
+      : salesEntries.filter((e) => e.dateString && e.dateString >= startDate && e.dateString <= endDate);
+    return raw.filter((e) => !isExcludedReportDelegate(e.delegateName));
   }, [salesEntries, useRange, selectedDate, startDate, endDate]);
 
   const rangeFilteredDailyEvals = useMemo(() => {
-    if (!useRange) {
-      return dailyEvaluationsHistory.filter((r) => r.dateString === selectedDate);
-    }
-    return dailyEvaluationsHistory.filter((r) => r.dateString && r.dateString >= startDate && r.dateString <= endDate);
+    const raw = !useRange
+      ? dailyEvaluationsHistory.filter((r) => r.dateString === selectedDate)
+      : dailyEvaluationsHistory.filter((r) => r.dateString && r.dateString >= startDate && r.dateString <= endDate);
+    return raw.filter((r) => !isExcludedReportDelegate(r.delegateName));
   }, [dailyEvaluationsHistory, useRange, selectedDate, startDate, endDate]);
 
   const { totalSalesWeight, totalDailyInvoicesCount } = useMemo(() => {

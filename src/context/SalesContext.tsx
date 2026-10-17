@@ -68,6 +68,19 @@ const mapDelegateName = (name: string): string => {
   return DELEGATE_NAME_MAP[name] || name;
 };
 
+export const isExcludedReportDelegate = (name?: string | null): boolean => {
+  if (!name) return false;
+  const n = name.trim();
+  return (
+    n === 'مندوب عام 1' ||
+    n === 'مندوب عام 2' ||
+    n === 'مندوب 7' ||
+    n === 'مندوب 8' ||
+    n.toLowerCase() === 'del7' ||
+    n.toLowerCase() === 'del8'
+  );
+};
+
 const THIRTY_ONE_DAYS_MS = 31 * 24 * 60 * 60 * 1000;
 
 export interface DelegateLockStatus {
@@ -151,6 +164,8 @@ interface SalesContextType {
   setDailyEvaluationsHistory: (history: DailyEvaluationRecord[]) => void;
   saveDailyEvaluationsToFirestore: (targetDate?: string) => Promise<void>;
   fetchUnifiedDataFromFirestore: () => Promise<void>;
+  isDataRefreshing: boolean;
+  isNetworkDelayed: boolean;
   productsList: ProductItem[];
   importProductsFromExcel: (file: File) => Promise<void>;
   importRoutesFromExcel: (file: File) => Promise<void>;
@@ -230,11 +245,41 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       : DEFAULT_DELEGATE_ACCOUNTS_ENTITIES
   );
 
-  const [delegateTargets, setDelegateTargets] = useState<DelegateTarget[]>([]);
-  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>([]);
-  const [allSalesEntries, setAllSalesEntries] = useState<SalesEntry[]>([]);
-  const [targetLockMap, setTargetLockMap] = useState<Record<string, number>>({});
+  const [delegateTargets, setDelegateTargets] = useState<DelegateTarget[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_delegate_targets');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_sales_entries');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [allSalesEntries, setAllSalesEntries] = useState<SalesEntry[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_all_sales_entries');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [targetLockMap, setTargetLockMap] = useState<Record<string, number>>(() => {
+    try {
+      const cached = localStorage.getItem('cache_target_locks');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return {};
+  });
+
   const [userMessage, setUserMessage] = useState<string | null>(null);
+  const [isDataRefreshing, setIsDataRefreshing] = useState<boolean>(false);
+  const [isNetworkDelayed, setIsNetworkDelayed] = useState<boolean>(false);
   const [dailyEvaluationsHistory, setDailyEvaluationsHistory] = useState<DailyEvaluationRecord[]>([]);
   const [prefilledEntryData, setPrefilledEntryData] = useState<{ customerCode: string, customerName: string, customerAddress: string, customerType?: 'مفرد' | 'جملة', customerInvoiceType?: 'مفرد' | 'جملة', lastInvoiceToday?: Partial<SalesEntry>, isEditing?: boolean } | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -835,12 +880,22 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           entriesMap.set(data.id, data);
         }
       });
-      setAllSalesEntries(Array.from(entriesMap.values()));
+      const allArr = Array.from(entriesMap.values());
+      setAllSalesEntries(allArr);
+      try {
+        localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
+      } catch {}
     }, (err) => {
       console.error('All sales entries listener error:', err);
     });
     return () => unsubAll();
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cache_sales_entries', JSON.stringify(salesEntries));
+    } catch {}
+  }, [salesEntries]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'daily_evaluations'), (snapshot) => {
@@ -1061,6 +1116,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         });
         setDelegateTargets(targets);
+        try {
+          localStorage.setItem('cache_delegate_targets', JSON.stringify(targets));
+        } catch {}
       },
       (err) => {
         console.error('Targets listener error:', err);
@@ -1089,6 +1147,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         });
         setTargetLockMap(locks);
+        try {
+          localStorage.setItem('cache_target_locks', JSON.stringify(locks));
+        } catch {}
       },
       (err) => {
         console.error('Locks listener error:', err);
@@ -1379,7 +1440,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               a.role !== 'viewer' &&
               a.username?.toLowerCase() !== 'mohammedsauce' &&
               a.name !== 'محمد الصلصات' &&
-              !a.name?.toLowerCase().includes('sauce')
+              !a.name?.toLowerCase().includes('sauce') &&
+              !isExcludedReportDelegate(a.name) &&
+              !isExcludedReportDelegate(a.username)
           )
           .map((a) => a.name)
       )
@@ -1392,7 +1455,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const savedEntries = useMemo(() => {
     if (currentUser.isAdmin) {
-      if (selectedDelegate === 'الكل') return rawSavedEntries;
+      if (selectedDelegate === 'الكل') {
+        return rawSavedEntries.filter((e) => !isExcludedReportDelegate(e.delegateName));
+      }
       return rawSavedEntries.filter(
         (e) => e.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()
       );
@@ -1405,12 +1470,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const categoryReports = useMemo(() => {
     const effectiveDelegate = !currentUser.isAdmin ? currentUser.name : selectedDelegate;
 
-    const filteredEntries =
+    let filteredEntries =
       effectiveDelegate === 'الكل' || effectiveDelegate === 'الأدمن'
         ? rawSavedEntries
         : rawSavedEntries.filter(
             (e) => e.delegateName?.trim().toLowerCase() === effectiveDelegate?.trim().toLowerCase()
           );
+
+    filteredEntries = filteredEntries.filter((e) => !isExcludedReportDelegate(e.delegateName));
 
     const reports = DEFAULT_CATEGORIES_LIST.map((displayName, index) => {
       const salesWeightForCategory = filteredEntries
@@ -1997,7 +2064,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
 
       weekDates.forEach((dateStr) => {
-        const savedForDate = dailyEvaluationsHistory.filter((r: DailyEvaluationRecord) => r.dateString === dateStr);
+        const savedForDate = dailyEvaluationsHistory
+          .filter((r: DailyEvaluationRecord) => r.dateString === dateStr)
+          .filter((r) => !isExcludedReportDelegate(r.delegateName));
         if (savedForDate.length > 0) {
           savedForDate.forEach((rec: DailyEvaluationRecord) => {
             const cur = delegateWeekMap.get(rec.delegateName) || { scores: [], totalKg: 0, totalPieces: 0, breakdowns: [] };
@@ -2008,7 +2077,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             delegateWeekMap.set(rec.delegateName, cur);
           });
         } else {
-          const dayEntries = allSalesEntries.filter((e) => e.dateString === dateStr);
+          const dayEntries = allSalesEntries
+            .filter((e) => e.dateString === dateStr)
+            .filter((e) => !isExcludedReportDelegate(e.delegateName));
           delegatesList.forEach((delName) => {
             const delEntries = dayEntries.filter((e) => e.delegateName?.trim().toLowerCase() === delName.trim().toLowerCase());
             const wKg = delEntries.reduce((s, e) => s + e.totalWeightKg, 0);
@@ -2070,7 +2141,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
     }
 
-    let relevantEntries = allSalesEntries;
+    let relevantEntries = allSalesEntries.filter((e) => !isExcludedReportDelegate(e.delegateName));
 
     if (periodType === 'daily') {
       relevantEntries = allSalesEntries.filter((e) => e.dateString === queryDate);
@@ -2169,7 +2240,183 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   };
 
-  const fetchUnifiedDataFromFirestore = async () => {};
+  const fetchUnifiedDataFromFirestore = async () => {
+    if (isDataRefreshing) return;
+    setIsDataRefreshing(true);
+    setIsNetworkDelayed(false);
+
+    // Latency-Aware Timer: Only display delay indicator if network takes > 350ms
+    const delayTimer = setTimeout(() => {
+      setIsNetworkDelayed(true);
+    }, 350);
+
+    try {
+      const isSauceUser =
+        currentUser?.role === 'sauceOnly' ||
+        currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+        currentUser?.name === 'محمد الصلصات';
+
+      // 1. Fetch live sales entries and archive in parallel
+      const [salesSnap, archiveSnap] = await Promise.all([
+        getDocs(collection(db, 'sales_entries')),
+        getDocs(collection(db, 'sales_entries_archive')).catch(() => null),
+      ]);
+
+      const incomingMap = new globalThis.Map<string, SalesEntry>();
+      if (archiveSnap) {
+        archiveSnap.forEach((docSnap) => {
+          const data = docSnap.data() as SalesEntry;
+          if (data && data.id) {
+            incomingMap.set(data.id, data);
+          }
+        });
+      }
+      salesSnap.forEach((docSnap) => {
+        const data = docSnap.data() as SalesEntry;
+        if (data && data.id) {
+          incomingMap.set(data.id, data);
+        }
+      });
+
+      // Synchronously update allSalesEntries and salesEntries without blanking
+      const mergedArray = Array.from(incomingMap.values());
+      setAllSalesEntries(mergedArray);
+
+      // Update salesEntries matching the current date & delegate
+      let currentFiltered = mergedArray.filter((e) => e.dateString === selectedDate);
+      if (!currentUser?.isAdmin && !isSauceUser) {
+        currentFiltered = currentFiltered.filter(
+          (e) => e.delegateName?.trim().toLowerCase() === currentUser?.name?.trim().toLowerCase()
+        );
+      } else if (selectedDelegate !== 'الكل' && !isSauceUser) {
+        currentFiltered = currentFiltered.filter(
+          (e) => e.delegateName?.trim().toLowerCase() === selectedDelegate?.trim().toLowerCase()
+        );
+      }
+      setSalesEntries(currentFiltered);
+
+      try {
+        localStorage.setItem('cache_all_sales_entries', JSON.stringify(mergedArray));
+        localStorage.setItem('cache_sales_entries', JSON.stringify(currentFiltered));
+      } catch {}
+
+      // 2. Fetch delegate targets
+      let targetsQuery;
+      if (currentUser?.isAdmin || isSauceUser) {
+        targetsQuery = collection(db, 'delegate_targets');
+      } else {
+        targetsQuery = query(
+          collection(db, 'delegate_targets'),
+          where('delegateName', '==', currentUser?.name || '')
+        );
+      }
+      const targetsSnap = await getDocs(targetsQuery);
+      const incomingTargets: DelegateTarget[] = [];
+      targetsSnap.forEach((docSnap) => {
+        const data = docSnap.data() as DelegateTarget;
+        if (data) incomingTargets.push({ ...data, id: docSnap.id });
+      });
+      setDelegateTargets(incomingTargets);
+      try {
+        localStorage.setItem('cache_delegate_targets', JSON.stringify(incomingTargets));
+      } catch {}
+
+      // 3. Fetch target locks
+      let locksQuery;
+      if (currentUser?.isAdmin || isSauceUser) {
+        locksQuery = collection(db, 'target_locks');
+      } else {
+        locksQuery = query(
+          collection(db, 'target_locks'),
+          where('delegateName', '==', currentUser?.name || '')
+        );
+      }
+      const locksSnap = await getDocs(locksQuery);
+      const incomingLocks: Record<string, number> = {};
+      locksSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const delName = data.delegateName || docSnap.id;
+        if (delName && data.lockTimestamp) {
+          incomingLocks[delName] = Number(data.lockTimestamp);
+        }
+      });
+      setTargetLockMap(incomingLocks);
+      try {
+        localStorage.setItem('cache_target_locks', JSON.stringify(incomingLocks));
+      } catch {}
+
+      // 4. Fetch delegate accounts
+      const accountsSnap = await getDocs(collection(db, 'delegate_accounts'));
+      const accs: DelegateAccount[] = [];
+      accountsSnap.forEach((docSnap) => {
+        const data = docSnap.data() as DelegateAccount;
+        if (data && data.username) accs.push(data);
+      });
+      if (accs.length > 0) {
+        const merged = [...accs];
+        DEFAULT_DELEGATE_ACCOUNTS_ENTITIES.forEach((defAcc) => {
+          if (!merged.some((a) => a.username.toLowerCase() === defAcc.username.toLowerCase())) {
+            merged.push(defAcc);
+          }
+        });
+        setDelegateAccounts(merged);
+      }
+
+      // 5. Fetch products catalog
+      const prodsSnap = await getDocs(collection(db, 'products_catalog'));
+      const prods: ProductItem[] = [];
+      prodsSnap.forEach((docSnap) => {
+        const data = docSnap.data() as ProductItem;
+        if (data) prods.push({ ...data, id: docSnap.id });
+      });
+      if (prods.length > 0) {
+        setProductsList(prods);
+        try {
+          localStorage.setItem('app_products_catalog', JSON.stringify(prods));
+        } catch {}
+      }
+
+      // 6. Fetch routes
+      const routesSnap = await getDocs(collection(db, 'routes'));
+      const loadedRoutes: RouteItem[] = [];
+      routesSnap.forEach((docSnap) => {
+        loadedRoutes.push({ id: docSnap.id, ...docSnap.data() } as RouteItem);
+      });
+      if (loadedRoutes.length > 0) {
+        setRoutes(loadedRoutes);
+      }
+
+      // 7. Fetch daily evaluations
+      const evalsSnap = await getDocs(collection(db, 'daily_evaluations'));
+      const evalRecords: DailyEvaluationRecord[] = [];
+      evalsSnap.forEach((docSnap) => {
+        const data = docSnap.data() as DailyEvaluationRecord;
+        if (data) evalRecords.push({ ...data, id: docSnap.id });
+      });
+      if (evalRecords.length > 0) {
+        setDailyEvaluationsHistory(evalRecords);
+      }
+
+      // Always display a clear, reassuring success notification confirming refresh
+      addToast({
+        title: 'تم تحديث البيانات',
+        message: 'تم تحديث ومزامنة كافة البيانات والفواتير بنجاح من قاعدة البيانات ✅',
+        type: 'success',
+      });
+      setUserMessage('تم تحديث ومزامنة كافة البيانات والفواتير بنجاح من قاعدة البيانات ✅');
+    } catch (err: any) {
+      console.error('Error fetching unified data from Firestore:', err);
+      addToast({
+        title: 'تنبيه',
+        message: 'تعذر الاتصال بالخادم، تم الإبقاء على بياناتك الحالية دون أي مساس.',
+        type: 'info',
+      });
+    } finally {
+      clearTimeout(delayTimer);
+      setIsDataRefreshing(false);
+      setIsNetworkDelayed(false);
+    }
+  };
 
   const countUniqueInvoices = (
     date: string,
@@ -2241,6 +2488,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         dailyEvaluationsHistory,
         saveDailyEvaluationsToFirestore,
         fetchUnifiedDataFromFirestore,
+        isDataRefreshing,
+        isNetworkDelayed,
         checkAndTriggerMilestoneToasts,
         productsList,
         importProductsFromExcel,

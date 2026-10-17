@@ -1,10 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { SalesProvider, useSales } from './context/SalesContext';
-import { EntryScreen } from './components/EntryScreen';
-import { ReportsScreen } from './components/ReportsScreen';
-import { AdminScreen } from './components/AdminScreen';
-import { EvaluationsScreen } from './components/EvaluationsScreen';
-import { ProductsScreen } from './components/ProductsScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { CalculatorModal } from './components/CalculatorModal';
 import { WeatherWidget } from './components/WeatherWidget';
@@ -16,12 +11,18 @@ import { ScrollToTopButton } from './components/ScrollToTopButton';
 import { DelegatePanelModal } from './components/DelegatePanelModal';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
-import { RoutesScreen } from './components/RoutesScreen';
-import { OldInvoicesScreen } from './components/OldInvoicesScreen';
-import { ReturnsScreen } from './components/ReturnsScreen';
-import { ItemTrackingScreen } from './components/ItemTrackingScreen';
 import { BottomNav } from './components/BottomNav';
 import { GlobalDialogModal } from './components/GlobalDialogModal';
+
+const EntryScreen = lazy(() => import('./components/EntryScreen').then(m => ({ default: m.EntryScreen })));
+const ReportsScreen = lazy(() => import('./components/ReportsScreen').then(m => ({ default: m.ReportsScreen })));
+const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
+const EvaluationsScreen = lazy(() => import('./components/EvaluationsScreen').then(m => ({ default: m.EvaluationsScreen })));
+const ProductsScreen = lazy(() => import('./components/ProductsScreen').then(m => ({ default: m.ProductsScreen })));
+const RoutesScreen = lazy(() => import('./components/RoutesScreen').then(m => ({ default: m.RoutesScreen })));
+const OldInvoicesScreen = lazy(() => import('./components/OldInvoicesScreen').then(m => ({ default: m.OldInvoicesScreen })));
+const ReturnsScreen = lazy(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
+const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -45,6 +46,7 @@ import {
   Bell,
   History,
   Layers,
+  RefreshCw,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -63,6 +65,9 @@ const MainAppContent: React.FC = () => {
     showQuickAdd,
     setShowQuickAdd,
     delegateAccounts,
+    fetchUnifiedDataFromFirestore,
+    isDataRefreshing,
+    isNetworkDelayed,
   } = useSales();
   const [isLoading, setIsLoading] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -186,11 +191,11 @@ const MainAppContent: React.FC = () => {
               : 'bg-white/95 border-emerald-600/20 shadow-md text-slate-900'
           }`}
         >
-          <div className="header-container max-w-5xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2.5 flex-wrap rounded-2xl">
+          <div className="header-container max-w-5xl mx-auto px-2 sm:px-5 py-1.5 sm:py-3 flex items-center justify-between gap-1.5 sm:gap-2.5 flex-wrap rounded-2xl">
             {/* Top row for Mobile (Logo + Delegate Name with Connection & Weather) & Logo for Desktop */}
             <div className="flex items-center justify-between w-full sm:w-auto shrink-0 gap-1.5">
               {/* Brand Logo & App Title */}
-              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+              <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
                 <AppLogo size="sm" />
                 <div className="flex flex-col">
                   <h1
@@ -201,7 +206,7 @@ const MainAppContent: React.FC = () => {
                     Tikrit Sales
                   </h1>
                   <span
-                    className={`text-[8.5px] sm:text-xs font-bold mt-0.5 ${
+                    className={`text-[8px] sm:text-xs font-bold mt-0.5 ${
                       isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                     }`}
                   >
@@ -211,13 +216,13 @@ const MainAppContent: React.FC = () => {
               </div>
               
               {/* Mobile Delegate, Weather, and Real-Time Connection Indicator Group */}
-              <div className="sm:hidden flex items-center gap-1 sm:gap-1.5 shrink-0">
+              <div className="sm:hidden flex items-center gap-1 shrink-0">
                 {/* Visual Connection Status Indicator & Weather Widget */}
                 <WeatherWidget isDarkMode={isDarkMode} compact={true} />
 
                 {/* User Info Card (Mobile Only) */}
                 <div
-                  className={`px-2 py-1 rounded-xl border flex ${
+                  className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-xl border flex ${
                     currentUser?.isAdmin ? 'items-center justify-center text-center' : 'flex-col text-right'
                   } ${
                     isDarkMode
@@ -226,15 +231,15 @@ const MainAppContent: React.FC = () => {
                   }`}
                 >
                   <div className={`flex flex-col ${currentUser?.isAdmin ? 'items-center justify-center text-center' : 'text-right'}`}>
-                      <span className="font-extrabold text-[11px] leading-tight">
+                      <span className="font-extrabold text-[10px] sm:text-[11px] leading-tight">
                           {currentUser?.name || 'مستخدم'}
                       </span>
                       {isSauceUser ? (
-                        <span className="text-[8.5px] font-black text-amber-500">
+                        <span className="text-[8px] font-black text-amber-500">
                           حساب مشاهدة
                         </span>
                       ) : !currentUser?.isAdmin && (
-                        <span className={`text-[8.5px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                        <span className={`text-[8px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
                             {delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || 'لا يوجد كود'}
                         </span>
                       )}
@@ -243,7 +248,7 @@ const MainAppContent: React.FC = () => {
                       <div className="relative">
                           <button 
                               onClick={(e) => { e.stopPropagation(); setShowTooltip(!showTooltip); }}
-                              className="w-4 h-4 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[8px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
+                              className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-emerald-600 text-white text-[7.5px] font-black shrink-0 cursor-pointer hover:bg-emerald-700 transition-colors"
                           >
                               {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.delegateCode || currentUser?.delegateCode || '').slice(-2)}
                           </button>
@@ -263,7 +268,7 @@ const MainAppContent: React.FC = () => {
             </div>
 
             {/* Buttons Group & Desktop User Profile Info */}
-            <div className="flex items-center justify-center sm:justify-end gap-1 sm:gap-2.5 shrink-0 w-full sm:w-auto">
+            <div className="flex items-center justify-between sm:justify-end gap-1 sm:gap-2 shrink-0 w-full sm:w-auto overflow-x-auto no-scrollbar py-0.5">
               {/* User Info Card (Desktop Only) */}
               <div
                 className={`hidden sm:flex px-3 py-1.5 rounded-xl border ${
@@ -313,7 +318,7 @@ const MainAppContent: React.FC = () => {
               {!isSauceUser && (
                 <button
                   onClick={() => setShowDelegateModal(true)}
-                  className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] shrink-0 cursor-pointer ${
+                  className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 cursor-pointer ${
                     isDarkMode
                       ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
                       : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
@@ -321,25 +326,55 @@ const MainAppContent: React.FC = () => {
                   title="لوحة الإشعارات والتنبيهات"
                 >
                   <div className="relative flex items-center justify-center">
-                    <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <Bell className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
                     <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} />
                   </div>
-                  <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">اشعارات</span>
+                  <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">اشعارات</span>
                 </button>
               )}
 
               {/* Calculator Button */}
               <button
                 onClick={() => setShowCalculatorModal(true)}
-                className={`px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] ${
+                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
                   isDarkMode
                     ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
                 }`}
                 title="فتح الحاسبة السريعة"
               >
-                <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">الحاسبة</span>
+                <Calculator className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">الحاسبة</span>
+              </button>
+
+              {/* Refresh Data Button with Optimistic UI & Latency-Aware Indicator */}
+              <button
+                onClick={() => {
+                  fetchUnifiedDataFromFirestore();
+                }}
+                disabled={isDataRefreshing}
+                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 cursor-pointer ${
+                  isDataRefreshing ? 'opacity-90' : ''
+                } ${
+                  isDarkMode
+                    ? 'bg-slate-800 text-indigo-300 hover:bg-slate-700 border-slate-700'
+                    : 'bg-indigo-100 text-indigo-950 hover:bg-indigo-200 border-indigo-300'
+                }`}
+                title="تحديث فوري للبيانات من الذاكرة المحلية وقاعدة البيانات"
+              >
+                <div className="relative flex items-center justify-center">
+                  <RefreshCw className={`w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed ? 'animate-spin' : isDataRefreshing ? 'rotate-180 transition-transform duration-300' : 'hover:rotate-180 transition-transform duration-500'}`} />
+                  {/* Small Latency-Aware Network Indicator - ONLY visible when real network delay occurs */}
+                  {isNetworkDelayed && (
+                    <span className="absolute -top-1 -right-1 flex h-1.5 w-1.5 sm:h-2 sm:w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-amber-500" title="جاري الاتصال بالشبكة..."></span>
+                    </span>
+                  )}
+                </div>
+                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">
+                  {isNetworkDelayed ? 'مزامنة..' : 'تحديث'}
+                </span>
               </button>
 
               {/* Weather Widget (Tikrit) - Desktop Only (on mobile it is positioned beside delegate name) */}
@@ -348,28 +383,28 @@ const MainAppContent: React.FC = () => {
               </div>
               
               {/* Date Display */}
-              <div className={`px-2 py-1.5 sm:px-2 sm:py-1.5 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[65px] sm:min-w-[80px] ${
+              <div className={`px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-xl border font-black text-[8px] sm:text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm min-w-[48px] sm:min-w-[76px] shrink-0 ${
                 isDarkMode
                   ? 'bg-slate-800 text-emerald-300 border-slate-700'
                   : 'bg-emerald-50 text-emerald-950 border-emerald-200'
               }`}>
-                <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">{getFormattedWeekday()}</span>
-                <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
+                <span className="text-[7.5px] sm:text-[11px] leading-tight font-extrabold">{getFormattedWeekday()}</span>
+                <span className="text-[7.5px] sm:text-[11px] leading-tight font-extrabold" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
               </div>
 
               {/* Font Size Toggle Button */}
               {activeTab === 'products' && (
                 <button
                   onClick={() => setLargeFont(!largeFont)}
-                  className={`px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] ${
+                  className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
                     largeFont
                       ? (isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-100 text-amber-800 border-amber-300')
                       : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700' : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300')
                   }`}
                   title="تكبير الخط"
                 >
-                  <Type className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
-                  <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">الخط</span>
+                  <Type className={`w-3.5 h-3.5 sm:w-5 sm:h-5 shrink-0 ${largeFont ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-slate-400' : 'text-slate-600')}`} />
+                  <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">الخط</span>
                 </button>
               )}
 
@@ -380,7 +415,7 @@ const MainAppContent: React.FC = () => {
                 !isSauceUser && (
                 <button
                   onClick={() => setActiveTab('admin')}
-                  className={`px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] ${
+                  className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
                     activeTab === 'admin'
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
                       : isDarkMode
@@ -389,15 +424,15 @@ const MainAppContent: React.FC = () => {
                   }`}
                   title="صفحة الادمن"
                 >
-                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
-                  <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">أدمن</span>
+                  <Shield className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
+                  <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">أدمن</span>
                 </button>
               )}
 
               {/* Theme Toggle Button */}
               <button
                 onClick={toggleDarkMode}
-                className={`px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] ${
+                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
                   isDarkMode
                     ? 'bg-slate-800 text-amber-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
@@ -406,13 +441,13 @@ const MainAppContent: React.FC = () => {
               >
                 {isDarkMode ? (
                   <>
-                    <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
-                    <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">فاتح</span>
+                    <Sun className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
+                    <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">فاتح</span>
                   </>
                 ) : (
                   <>
-                    <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
-                    <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">داكن</span>
+                    <Moon className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
+                    <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">داكن</span>
                   </>
                 )}
               </button>
@@ -420,15 +455,15 @@ const MainAppContent: React.FC = () => {
               {/* Logout Button */}
               <button
                 onClick={() => setShowLogoutModal(true)}
-                className={`px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[10px] sm:text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm active:scale-95 min-w-[42px] sm:min-w-[60px] ${
+                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
                   isDarkMode
                     ? 'bg-red-950/80 text-red-300 hover:bg-red-900 border-red-800/80'
                     : 'bg-red-600 text-white hover:bg-red-700 border-red-600'
                 }`}
                 title="تسجيل الخروج والعودة لشاشة الدخول"
               >
-                <LogOut className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-                <span className="text-[9.5px] sm:text-[11px] leading-tight font-extrabold">خروج</span>
+                <LogOut className="w-3.5 h-3.5 sm:w-5 sm:h-5 shrink-0" />
+                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">خروج</span>
               </button>
             </div>
           </div>
@@ -670,33 +705,42 @@ const MainAppContent: React.FC = () => {
 
       {/* Main Screen Body - Strict Protection */}
       <main className="flex-1 pb-20 sm:pb-12 pt-2">
-        {isSauceUser ? (
-          <>
-            {activeTab === 'item_tracking' ? (
-              <ItemTrackingScreen />
-            ) : (
-              <ProductsScreen largeFont={largeFont} />
-            )}
-          </>
-        ) : (
-          <>
-            {activeTab === 'entry' && <EntryScreen />}
-            {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
-            {activeTab === 'routes' && <RoutesScreen />}
-            {activeTab === 'reports' && <ReportsScreen />}
-            {activeTab === 'evaluations' && <EvaluationsScreen />}
-            {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
-            {activeTab === 'returns' && <ReturnsScreen />}
-            {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
-            {activeTab === 'admin' && (
-              currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
-                <AdminScreen />
+        <Suspense fallback={
+          <div className="flex items-center justify-center py-24">
+            <div className="relative w-16 h-16 flex items-center justify-center animate-pulse">
+              <div className="absolute w-16 h-16 border-[6px] border-slate-200 rounded-full"></div>
+              <div className="absolute w-16 h-16 border-[6px] border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
+            </div>
+          </div>
+        }>
+          {isSauceUser ? (
+            <>
+              {activeTab === 'item_tracking' ? (
+                <ItemTrackingScreen />
               ) : (
-                <EntryScreen />
-              )
-            )}
-          </>
-        )}
+                <ProductsScreen largeFont={largeFont} />
+              )}
+            </>
+          ) : (
+            <>
+              {activeTab === 'entry' && <EntryScreen />}
+              {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
+              {activeTab === 'routes' && <RoutesScreen />}
+              {activeTab === 'reports' && <ReportsScreen />}
+              {activeTab === 'evaluations' && <EvaluationsScreen />}
+              {activeTab === 'products' && <ProductsScreen largeFont={largeFont} />}
+              {activeTab === 'returns' && <ReturnsScreen />}
+              {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
+              {activeTab === 'admin' && (
+                currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
+                  <AdminScreen />
+                ) : (
+                  <EntryScreen />
+                )
+              )}
+            </>
+          )}
+        </Suspense>
       </main>
 
       {/* Bottom Navigation (Mobile Only) */}

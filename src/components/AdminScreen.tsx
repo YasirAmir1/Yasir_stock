@@ -1274,166 +1274,12 @@ export const AdminScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Archive Old Invoices */}
-      <div className="bg-amber-950 border border-amber-800/80 rounded-xl p-3.5 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 text-amber-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-amber-200">
-            أرشفة الفواتير القديمة (أكثر من شهر):
-          </h3>
-        </div>
-
-        <p className="text-xs text-slate-300 leading-relaxed">
-          تتيح هذه الميزة نقل الفواتير التي تجاوز عمرها 30 يوماً إلى الأرشيف لتخفيف الضغط على قاعدة البيانات وتحسين الأداء.
-        </p>
-        
-        <button
-          onClick={async () => {
-            if (!(await showConfirm("هل أنت متأكد من أرشفة الفواتير التي مر عليها أكثر من شهر؟"))) return;
-            setBackupStatusMsg('جاري أرشفة الفواتير...');
-            try {
-              const oneMonthAgo = new Date();
-              oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
-              const oneMonthAgoTimestamp = oneMonthAgo.getTime();
-
-              const q = query(collection(db, 'sales_entries'), where('timestamp', '<', oneMonthAgoTimestamp));
-              const snapshot = await getDocs(q);
-
-              if (snapshot.empty) {
-                setBackupStatusMsg('لا توجد فواتير قديمة لأرشفتها.');
-                setTimeout(() => setBackupStatusMsg(null), 3000);
-                return;
-              }
-
-              const batch = writeBatch(db);
-              let count = 0;
-              snapshot.forEach((docSnap) => {
-                if (count < 500) {
-                    const data = docSnap.data();
-                    const archiveRef = doc(collection(db, 'sales_entries_archive'), docSnap.id);
-                    batch.set(archiveRef, data);
-                    batch.delete(docSnap.ref);
-                    count++;
-                }
-              });
-              await batch.commit();
-              setBackupStatusMsg(`تمت أرشفة ${count} فاتورة بنجاح.`);
-              setTimeout(() => setBackupStatusMsg(null), 3000);
-            } catch (err) {
-              console.error(err);
-              setBackupStatusMsg('حدث خطأ أثناء أرشفة الفواتير.');
-              setTimeout(() => setBackupStatusMsg(null), 3000);
-            }
-          }}
-          className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg transition-all"
-        >
-          <Clock className="w-4 h-4" />
-          <span>بدء عملية الأرشفة</span>
-        </button>
-      </div>
-
-      {/* 6. Top 3 Most Requested Products This Month (Firestore Stats) */}
-      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-amber-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
-            6. أكثر 3 منتجات طلباً لهذا الشهر (إحصائيات Firestore):
-          </h3>
-        </div>
-        <p className="text-xs text-slate-300">
-          إحصائيات تلقائية تساعد في اتخاذ قرارات إدارية سريعة حول المخزون وتوريد الأصناف الأكثر طلباً.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-          {(() => {
-            const currentYearMonth = new Date().toISOString().slice(0, 7);
-            const map = new globalThis.Map<string, { productName: string; totalPieces: number; totalWeightKg: number }>();
-            rawSavedEntries.forEach((entry) => {
-              if (entry.dateString && entry.dateString.startsWith(currentYearMonth)) {
-                const name = entry.productName?.trim() || 'منتج غير محدد';
-                const cur = map.get(name) || { productName: name, totalPieces: 0, totalWeightKg: 0 };
-                cur.totalPieces += entry.quantity || 0;
-                cur.totalWeightKg += entry.totalWeightKg || 0;
-                map.set(name, cur);
-              }
-            });
-            const arr = Array.from(map.values());
-            arr.sort((a, b) => b.totalPieces - a.totalPieces || b.totalWeightKg - a.totalWeightKg);
-            const top3 = arr.slice(0, 3);
-
-            if (top3.length === 0) {
-              return (
-                <div className="col-span-3 p-4 bg-slate-900 rounded-xl text-center text-slate-400 text-xs font-bold">
-                  لا توجد مبيعات مسجلة في هذا الشهر حتى الآن.
-                </div>
-              );
-            }
-
-            return top3.map((prod, idx) => {
-              const badges = ['🥇 الأول', '🥈 الثاني', '🥉 الثالث'];
-              return (
-                <div key={prod.productName} className="p-3.5 bg-slate-900 border border-emerald-800 rounded-xl space-y-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-md text-[10px] font-black">
-                      {badges[idx]}
-                    </span>
-                    <span className="text-xs font-mono text-emerald-300 font-bold">
-                      {prod.totalPieces} قطعة
-                    </span>
-                  </div>
-                  <div className="font-extrabold text-sm text-white line-clamp-1">
-                    {prod.productName}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    إجمالي الوزن: <strong className="text-white">{formatWithCommas(parseFloat(prod.totalWeightKg.toFixed(1)), true)} كجم</strong>
-                  </div>
-                </div>
-              );
-            });
-          })()}
-        </div>
-      </div>
 
 
-      {/* 8. Monthly Sales Report Export (Excel/CSV) */}
-      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
-            8. تصدير تقرير المبيعات الشهري (Excel / CSV) للإدارة العليا:
-          </h3>
-        </div>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          تصدير تفصيلي كامل لجميع مبيعات الشهر الحالي بصيغة ملف Excel (.xlsx) جاهز للطباعة والمشاركة مع الإدارة العليا.
-        </p>
-        <button
-          onClick={() => {
-            const currentYearMonth = new Date().toISOString().slice(0, 7);
-            const monthEntries = rawSavedEntries.filter(e => e.dateString && e.dateString.startsWith(currentYearMonth));
-            if (monthEntries.length === 0) {
-              alert('لا توجد مبيعات مسجلة لهذا الشهر للتصدير.');
-              return;
-            }
-            const dataToExport = monthEntries.map(e => ({
-              'التاريخ': e.dateString,
-              'المندوب': e.delegateName,
-              'الفئة': e.categoryName,
-              'المادة': e.productName,
-              'الكمية (قطعة)': e.quantity,
-              'وزن القطعة (كجم)': e.pieceWeightKg,
-              'إجمالي الوزن (كجم)': e.totalWeightKg,
-            }));
-            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'MonthlySales');
-            XLSX.writeFile(workbook, `Monthly_Sales_Report_${currentYearMonth}.xlsx`);
-          }}
-          className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-2 shadow-lg transition-all cursor-pointer"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>تنزيل تقرير مبيعات الشهر الحالي (Excel)</span>
-        </button>
-      </div>
+
+
+
+
 
 
 
@@ -1494,40 +1340,7 @@ export const AdminScreen: React.FC = () => {
           {noteMessage && <p className="text-center text-xs text-emerald-300">{noteMessage}</p>}
         </div>
       </CollapsibleCard>
-      <div className="bg-emerald-950 border border-emerald-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2 mb-2">
-          <Shield className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-emerald-200">
-            إضافة مندوب جديد:
-          </h3>
-        </div>
-        <div className="bg-slate-900/90 border border-emerald-800 rounded-xl p-3 space-y-3">
-          <input 
-            type="text" placeholder="اسم المندوب" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newName} onChange={e => setNewDelegateData({...newDelegateData, newName: e.target.value})}
-          />
-          <input 
-            type="text" placeholder="اسم المستخدم (username)" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newUsername} onChange={e => setNewDelegateData({...newDelegateData, newUsername: e.target.value})}
-          />
-          <input 
-            type="text" placeholder="الرمز السري" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs font-bold"
-            value={newDelegateData.newPassword} onChange={e => setNewDelegateData({...newDelegateData, newPassword: e.target.value})}
-          />
-          <button 
-            onClick={() => console.log('Delegates:', delegateAccounts)}
-            className="w-full px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-xl text-xs font-bold shadow-lg"
-          >
-            Debug: طباعة المندوبين في الكونسول
-          </button>
-          <button 
-            onClick={() => addDelegateAccount({ delegateName: newDelegateData.newName, username: newDelegateData.newUsername, password: newDelegateData.newPassword, monthlyTargetKg: 1000, isAdmin: false })}
-            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg"
-          >
-            إضافة المندوب
-          </button>
-        </div>
-      </div>
+
 
       {/* 12. Manage Delegate Accounts */}
         <div className="flex items-center gap-2 mb-2">
@@ -1984,30 +1797,7 @@ export const AdminScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* 12. System Cleanup */}
-      <div className="bg-red-950 border border-red-800/80 rounded-xl p-4 text-white space-y-3 shadow-md">
-        <div className="flex items-center gap-2 mb-2">
-          <Shield className="w-5 h-5 text-red-400" />
-          <h3 className="text-xs sm:text-sm font-bold text-red-200">
-            12. تنظيف البيانات:
-          </h3>
-        </div>
-        <button
-          onClick={async () => {
-            if (await showConfirm('هل تريد حذف المندوب القديم (del6) نهائياً من قاعدة البيانات؟')) {
-              try {
-                await deleteDoc(doc(db, 'delegate_accounts', 'del6'));
-                alert('تم حذف البيانات القديمة بنجاح!');
-              } catch (e) {
-                alert('حدث خطأ أثناء الحذف.');
-              }
-            }
-          }}
-          className="w-full px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold"
-        >
-          تنظيف البيانات القديمة (حذف del6)
-        </button>
-      </div>
+
 
       </PullToRefresh>
     );
