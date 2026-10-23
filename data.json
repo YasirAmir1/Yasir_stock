@@ -1,0 +1,1395 @@
+{
+  "sales_entries": [
+    {
+      "id": "1787054116531_0_xizfl",
+      "totalWeightKg": 6,
+      "categoryName": "جبن بيتزا",
+      "timestamp": 1787054116531,
+      "quantity": 3,
+      "productName": "جبن بيتزا",
+      "dateString": "2026-08-18",
+      "delegateName": "ناجي خلف",
+      "pieceWeightKg": 2
+    },
+    {
+      "categoryName": "جبن ويلي",
+      "timestamp": 1787054068849,
+      "dateString": "2026-08-18",
+      "quantity": 40,
+      "totalWeightKg": 4,
+      "delegateName": "خلدون جمال",
+      "productName": "ويلي ١٠٠",
+      "pieceWeightKg": 0.1,
+      "id": "1787054068849_0_bax3g"
+    },
+    {
+      "pieceWeightKg": 0.09,
+      "delegateName": "خلدون جمال",
+      "productName": "اليك",
+      "dateString": "2026-08-18",
+      "categoryName": "جبن عادي",
+      "id": "1787053633840_0_pb77m",
+      "quantity": 36,
+      "totalWeightKg": 3.24,
+      "timestamp": 1787053633840
+    },
+    {
+      "delegateName": "ناجي خلف",
+      "pieceWeightKg": 0.09,
+      "productName": "امل",
+      "dateString": "2026-08-18",
+      "timestamp": 1787053613411,
+      "categoryName": "جبن عادي",
+      "id": "1787053613411_0_l5g3g",
+      "totalWeightKg": 2.16,
+      "quantity": 24
+    },
+    {
+      "totalWeightKg": 54,
+      "productName": "دوغ",
+      "delegateName": "خلدون جمال",
+      "quantity": 36,
+      "dateString": "2026-08-18",
+      "categoryName": "دوغ",
+      "pieceWeightKg": 1.5,
+      "timestamp": 1787053359488,
+      "id": "1787053359488_0_6yhdb"
+    },
+    {
+      "categoryName": "عصير",
+      "dateString": "2026-08-18",
+      "totalWeightKg": 72,
+      "pieceWeightKg": 0.2,
+      "delegateName": "محمد جاسم",
+      "quantity": 360,
+      "productName": "عصير ٢٠٠",
+      "id": "1787052593319_0_gsk3z",
+      "timestamp": 1787052593319
+    }
+  ],
+  "inventory_items": [],
+  "delegate_targets": [
+    {
+      "id": "1",
+      "delegateName": "ناجي خلف",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "2",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "3",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "4",
+      "delegateName": "ناجي خلف",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "5",
+      "delegateName": "ناجي خلف",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "6",
+      "delegateName": "ناجي خلف",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "7",
+      "delegateName": "ناجي خلف",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "8",
+      "delegateName": "ناجي خلف",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "9",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "10",
+      "delegateName": "ناجي خلف",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "11",
+      "delegateName": "ناجي خلف",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "12",
+      "delegateName": "ناجي خلف",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "13",
+      "delegateName": "ناجي خلف",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "14",
+      "delegateName": "ناجي خلف",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "15",
+      "delegateName": "ناجي خلف",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "16",
+      "delegateName": "ناجي خلف",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "17",
+      "delegateName": "خلدون جمال",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "18",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "19",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "20",
+      "delegateName": "خلدون جمال",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "21",
+      "delegateName": "خلدون جمال",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "22",
+      "delegateName": "خلدون جمال",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "23",
+      "delegateName": "خلدون جمال",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "24",
+      "delegateName": "خلدون جمال",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "25",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "26",
+      "delegateName": "خلدون جمال",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "27",
+      "delegateName": "خلدون جمال",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "28",
+      "delegateName": "خلدون جمال",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "29",
+      "delegateName": "خلدون جمال",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "30",
+      "delegateName": "خلدون جمال",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "31",
+      "delegateName": "خلدون جمال",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "32",
+      "delegateName": "خلدون جمال",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "33",
+      "delegateName": "محمد جاسم",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "34",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "35",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "36",
+      "delegateName": "محمد جاسم",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "37",
+      "delegateName": "محمد جاسم",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "38",
+      "delegateName": "محمد جاسم",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "39",
+      "delegateName": "محمد جاسم",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "40",
+      "delegateName": "محمد جاسم",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "41",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "42",
+      "delegateName": "محمد جاسم",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "43",
+      "delegateName": "محمد جاسم",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "44",
+      "delegateName": "محمد جاسم",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "45",
+      "delegateName": "محمد جاسم",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "46",
+      "delegateName": "محمد جاسم",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "47",
+      "delegateName": "محمد جاسم",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "48",
+      "delegateName": "محمد جاسم",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "49",
+      "delegateName": "بكر بدران",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "50",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "51",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "52",
+      "delegateName": "بكر بدران",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "53",
+      "delegateName": "بكر بدران",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "54",
+      "delegateName": "بكر بدران",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "55",
+      "delegateName": "بكر بدران",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "56",
+      "delegateName": "بكر بدران",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "57",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "58",
+      "delegateName": "بكر بدران",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "59",
+      "delegateName": "بكر بدران",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "60",
+      "delegateName": "بكر بدران",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "61",
+      "delegateName": "بكر بدران",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "62",
+      "delegateName": "بكر بدران",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "63",
+      "delegateName": "بكر بدران",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "64",
+      "delegateName": "بكر بدران",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "65",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "66",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "67",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "68",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "69",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "70",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "71",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "72",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "73",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "74",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "75",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "76",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "77",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "78",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "79",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "80",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "81",
+      "delegateName": "شرقاط",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "82",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "83",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "84",
+      "delegateName": "شرقاط",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "85",
+      "delegateName": "شرقاط",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "86",
+      "delegateName": "شرقاط",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "87",
+      "delegateName": "شرقاط",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "88",
+      "delegateName": "شرقاط",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "89",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "90",
+      "delegateName": "شرقاط",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "91",
+      "delegateName": "شرقاط",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "92",
+      "delegateName": "شرقاط",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "93",
+      "delegateName": "شرقاط",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "94",
+      "delegateName": "شرقاط",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "95",
+      "delegateName": "شرقاط",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "96",
+      "delegateName": "شرقاط",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "97",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "98",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "99",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "100",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "101",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "102",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "103",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "104",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "105",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "106",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "107",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "108",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "109",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "110",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "111",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "112",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "212",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "قشطة",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "213",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "214",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "215",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "عجين بيتزا",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "216",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "عصير",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "217",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "دوغ",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "218",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "صلصات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "219",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "حلويات",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "220",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن ويلي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "221",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "خاثر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "222",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "خضراوات وفنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "223",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "صوصج",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "224",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "بركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "225",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "دانيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "226",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "حليب بطل",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "227",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "حليب كارتون",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "228",
+      "delegateName": "ناجي خلف",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "229",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "230",
+      "delegateName": "ناجي خلف",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "231",
+      "delegateName": "خلدون جمال",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "232",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "233",
+      "delegateName": "خلدون جمال",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "234",
+      "delegateName": "محمد جاسم",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "235",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "236",
+      "delegateName": "محمد جاسم",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "237",
+      "delegateName": "بكر بدران",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "238",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "239",
+      "delegateName": "بكر بدران",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "240",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "241",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "242",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "243",
+      "delegateName": "شرقاط",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "244",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "245",
+      "delegateName": "شرقاط",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "246",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "247",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "248",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "249",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "250",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن عادي",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "251",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "حليب باكيت",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "252",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "253",
+      "delegateName": "ناجي خلف",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "254",
+      "delegateName": "ناجي خلف",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "255",
+      "delegateName": "ناجي خلف",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "256",
+      "delegateName": "ناجي خلف",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "257",
+      "delegateName": "ناجي خلف",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "258",
+      "delegateName": "ناجي خلف",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "259",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "260",
+      "delegateName": "خلدون جمال",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "261",
+      "delegateName": "خلدون جمال",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "262",
+      "delegateName": "خلدون جمال",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "263",
+      "delegateName": "خلدون جمال",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "264",
+      "delegateName": "خلدون جمال",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "265",
+      "delegateName": "خلدون جمال",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "266",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "267",
+      "delegateName": "محمد جاسم",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "268",
+      "delegateName": "محمد جاسم",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "269",
+      "delegateName": "محمد جاسم",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "270",
+      "delegateName": "محمد جاسم",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "271",
+      "delegateName": "محمد جاسم",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "272",
+      "delegateName": "محمد جاسم",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "273",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "274",
+      "delegateName": "بكر بدران",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "275",
+      "delegateName": "بكر بدران",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "276",
+      "delegateName": "بكر بدران",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "277",
+      "delegateName": "بكر بدران",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "278",
+      "delegateName": "بكر بدران",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "279",
+      "delegateName": "بكر بدران",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "280",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "281",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "282",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "283",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "284",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "285",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "286",
+      "delegateName": "فيصل فؤاد",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "287",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "288",
+      "delegateName": "شرقاط",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "289",
+      "delegateName": "شرقاط",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "290",
+      "delegateName": "شرقاط",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "291",
+      "delegateName": "شرقاط",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "292",
+      "delegateName": "شرقاط",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "293",
+      "delegateName": "شرقاط",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "294",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "295",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "296",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "297",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "298",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "299",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "300",
+      "delegateName": "مندوب عام 1",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "301",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن 1",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "302",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "جبن 2",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "303",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "لبن",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "304",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "بيتزا جاهز وبركر ومقرمش",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "305",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "خضراوات مجمدة و فنكر",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "306",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "منتجات بروتين",
+      "dailyTargetWeightKg": 50
+    },
+    {
+      "id": "307",
+      "delegateName": "مندوب عام 2",
+      "categoryName": "منتج جديد",
+      "dailyTargetWeightKg": 50
+    }
+  ],
+  "delegate_accounts": [
+    {
+      "username": "admin",
+      "password": "0000",
+      "delegateName": "الأدمن",
+      "monthlyTargetKg": 0,
+      "isAdmin": true,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "del6",
+      "password": "1234",
+      "delegateName": "شرقاط",
+      "monthlyTargetKg": 1500,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "del7",
+      "password": "1234",
+      "delegateName": "مندوب عام 1",
+      "monthlyTargetKg": 1500,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "Mohkala",
+      "password": "3333",
+      "delegateName": "محمد جاسم",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "Bkrkala",
+      "password": "4444",
+      "delegateName": "بكر بدران",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "Fslkala",
+      "password": "5555",
+      "delegateName": "فيصل فؤاد",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "Kldkala",
+      "password": "2222",
+      "delegateName": "خلدون جمال",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "Najikala",
+      "password": "1111",
+      "delegateName": "ناجي خلف",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "del8",
+      "password": "1234",
+      "delegateName": "مندوب عام 2",
+      "monthlyTargetKg": 1500,
+      "isAdmin": false
+    }
+  ],
+  "target_locks": {}
+}
