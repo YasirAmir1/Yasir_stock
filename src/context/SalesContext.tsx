@@ -295,6 +295,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const [userMessage, setUserMessage] = useState<string | null>(null);
+  const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(false);
 
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
@@ -427,7 +428,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   useEffect(() => {
-    if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
+    if (isFirestoreQuotaExceeded) return;
     const unsub = onSnapshot(
       collection(db, 'products_catalog'),
       (snapshot) => {
@@ -454,7 +455,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     );
     return () => unsub();
-  }, [isPowerSavingMode]);
+  }, [isFirestoreQuotaExceeded]);
 
   const [inventoryLogs, setInventoryLogs] = useState<InventoryLogRecord[]>(() => {
     try {
@@ -1144,7 +1145,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const [syncFailureAlert, setSyncFailureAlert] = useState<boolean>(false);
-  const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(false);
 
   // Periodically check connection and pending sync status
   useEffect(() => {
