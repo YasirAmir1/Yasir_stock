@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, query, where, getDocs, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { isQuotaExceededError, cleanFirestoreData } from '../lib/firestoreUtils';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
@@ -174,6 +175,7 @@ interface SalesContextType {
   importProductsFromExcel: (file: File) => Promise<void>;
   importRoutesFromExcel: (file: File) => Promise<void>;
   updateProduct: (id: string, updatedData: Partial<ProductItem>) => void;
+  uploadProductImage: (id: string, file: File) => Promise<string | null>;
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
@@ -718,7 +720,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateProduct = async (id: string, updatedData: Partial<ProductItem>) => {
-    const cleaned = cleanFirestoreData(updatedData);
+    const dataToUpdate = { ...updatedData };
+    if (dataToUpdate.imageUrl !== undefined) {
+      dataToUpdate.imageUpdatedAt = Date.now();
+    }
+    const cleaned = cleanFirestoreData(dataToUpdate);
 
     // Update local state immediately
     setProductsList(prev => {
@@ -738,6 +744,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     
     setUserMessage('تم تحديث بيانات المنتج بنجاح ✅');
+  };
+
+  const uploadProductImage = async (id: string, file: File): Promise<string | null> => {
+    try {
+      const storageRef = ref(storage, `products/${id}/${Date.now()}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      await updateProduct(id, { imageUrl: downloadURL });
+      return downloadURL;
+    } catch (err) {
+      console.error('Error uploading image to Storage:', err);
+      setUserMessage('حدث خطأ أثناء رفع الصورة');
+      return null;
+    }
   };
 
   const addProduct = async () => {
@@ -2827,6 +2847,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         importProductsFromExcel,
         importRoutesFromExcel,
         updateProduct,
+        uploadProductImage,
         addProduct,
         deleteProduct,
         deleteAllProducts,

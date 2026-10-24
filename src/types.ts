@@ -165,6 +165,7 @@ export interface ProductItem {
   isAvailable?: boolean;    // حالة المنتج
   isVisible?: boolean;      // ظهور المنتج بناءً على توفر الكمية
   isGift?: boolean;         // هل المنتج هدية
+  imageUpdatedAt?: number;  // تاريخ آخر تعديل لصورة المنتج (Timestamp)
   priceUpdatedAt?: number;  // تاريخ آخر تعديل للأسعار (Timestamp)
   previousRetailPrice?: number;
   previousWholesalePrice?: number;

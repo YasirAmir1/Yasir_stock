@@ -37,7 +37,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
     currentUser, 
     productsList, 
     importProductsFromExcel, 
-    updateProduct, 
+    updateProduct, uploadProductImage, 
     addProduct, 
     deleteProduct, 
     deleteAllProducts, 
@@ -342,6 +342,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const [showImageUploadModal, setShowImageUploadModal] = useState(false);
   const [imageUploadCode, setImageUploadCode] = useState('');
   const [imageUploadBase64, setImageUploadBase64] = useState('');
+  const [imageUploadFile, setImageUploadFile] = useState<File | null>(null);
   const [imageUploadError, setImageUploadError] = useState('');
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
@@ -508,48 +509,22 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImageUploadFile(file);
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 500;
-        const MAX_HEIGHT = 500;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          setImageUploadBase64(compressedDataUrl);
-        }
-      };
+      setImageUploadBase64(event.target?.result as string);
     };
     e.target.value = '';
   };
 
-  const handleStandaloneImageSubmit = () => {
+  const handleStandaloneImageSubmit = async () => {
     setImageUploadError('');
     if (!imageUploadCode.trim()) {
       setImageUploadError('يرجى إدخال كود المنتج');
       return;
     }
-    if (!imageUploadBase64) {
+    if (!imageUploadFile) {
       setImageUploadError('يرجى اختيار صورة');
       return;
     }
@@ -560,11 +535,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       return;
     }
 
-    updateProduct(prod.id, { imageUrl: imageUploadBase64 });
-    setShowImageUploadModal(false);
-    setImageUploadCode('');
-    setImageUploadBase64('');
-    setUserMessage('تم ربط الصورة بالمنتج بنجاح ✅');
+    const downloadURL = await uploadProductImage(prod.id, imageUploadFile);
+    if (downloadURL) {
+      setShowImageUploadModal(false);
+      setImageUploadCode('');
+      setImageUploadBase64('');
+      setImageUploadFile(null);
+      setUserMessage('تم ربط الصورة بالمنتج بنجاح ✅');
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1907,6 +1885,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
                       <div className="shrink-0 animate-in fade-in zoom-in-95 duration-200">
                         {prod.imageUrl ? (
                           <img 
+                            key={prod.imageUpdatedAt || prod.id}
                             src={prod.imageUrl} 
                             alt={prod.productName} 
                             loading="lazy"
