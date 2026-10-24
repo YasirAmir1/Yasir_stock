@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { isQuotaExceededError } from '../lib/firestoreUtils';
+import { isQuotaExceededError, cleanFirestoreData } from '../lib/firestoreUtils';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
 import { parseArabicDigits, getInvoiceKey } from '../utils/numberUtils';
@@ -682,7 +682,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           let insertCount = 0;
           for (const prod of parsedProducts) {
             const docRef = doc(db, 'products_catalog', prod.id);
-            insertBatch.set(docRef, prod);
+            insertBatch.set(docRef, cleanFirestoreData(prod));
             insertCount++;
             if (insertCount === 450) {
               await insertBatch.commit();
@@ -717,9 +717,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateProduct = async (id: string, updatedData: Partial<ProductItem>) => {
+    const cleaned = cleanFirestoreData(updatedData);
+
     // Update local state immediately
     setProductsList(prev => {
-      const next = prev.map(p => p.id === id ? { ...p, ...updatedData } : p);
+      const next = prev.map(p => p.id === id ? { ...p, ...cleaned } : p);
       try {
         localStorage.setItem('app_products_catalog', JSON.stringify(next));
       } catch {}
@@ -729,7 +731,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Save to Firestore
     try {
       const docRef = doc(db, 'products_catalog', id);
-      await setDoc(docRef, updatedData, { merge: true });
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
       console.error('Error updating product in Firestore:', err);
     }
@@ -750,6 +752,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       stockCartons: 0,
       imageUrl: '',
       isAvailable: true,
+      isVisible: true,
+      isGift: false,
     };
     
     setProductsList(prev => {
@@ -762,7 +766,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const docRef = doc(db, 'products_catalog', newProduct.id);
-      await setDoc(docRef, newProduct);
+      await setDoc(docRef, cleanFirestoreData(newProduct));
     } catch (err) {
       console.error('Error adding product to Firestore:', err);
     }
@@ -986,7 +990,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const docRef = doc(db, 'gift_promotions', newId);
-      await setDoc(docRef, newGift);
+      await setDoc(docRef, cleanFirestoreData(newGift));
     } catch (err) {
       console.error('Error adding gift promotion to Firestore:', err);
     }
@@ -996,6 +1000,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateGiftPromotion = async (id: string, updatedData: Partial<GiftPromotion>) => {
     const updatePayload = { ...updatedData, updatedAt: Date.now() };
+    const cleaned = cleanFirestoreData(updatePayload);
     setGiftPromotions(prev => {
       const next = prev.map(g => (g.id === id ? { ...g, ...updatePayload } : g));
       try {
@@ -1006,7 +1011,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const docRef = doc(db, 'gift_promotions', id);
-      await setDoc(docRef, updatePayload, { merge: true });
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
       console.error('Error updating gift promotion in Firestore:', err);
     }
@@ -1694,10 +1699,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateSalesEntry = async (id: string, updatedData: Partial<SalesEntry>) => {
-    setSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...updatedData } : e));
-    setAllSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...updatedData } : e));
+    const cleaned = cleanFirestoreData(updatedData);
+    setSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...cleaned } : e));
+    setAllSalesEntries(prev => prev.map(e => e.id === id ? { ...e, ...cleaned } : e));
     try {
-      await setDoc(doc(db, 'sales_entries', id), updatedData, { merge: true });
+      await setDoc(doc(db, 'sales_entries', id), cleaned, { merge: true });
       setUserMessage('تم تعديل بيانات المنتج المسجل بنجاح');
     } catch (e) {
       console.error('Error updating entry:', e);

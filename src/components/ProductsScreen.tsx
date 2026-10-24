@@ -644,7 +644,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = ({ largeFont = fals
       stockCartons: Number(editStockCartons) || 0,
       imageUrl: editImageUrl.trim(),
       isAvailable: editIsAvailable,
-      isGift: currentProd?.isGift,
+      isGift: Boolean(currentProd?.isGift),
     });
     setEditingId(null);
   };

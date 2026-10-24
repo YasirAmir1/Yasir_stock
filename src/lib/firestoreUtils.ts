@@ -29,3 +29,28 @@ export const logFirestoreErrorGracefully = (err: any, context = 'Firestore') => 
     console.error(`[Firestore Error] in ${context}:`, err);
   }
 };
+
+/**
+ * Recursively strips `undefined` fields from an object or array to ensure it is valid for Firestore setDoc / updateDoc.
+ * Firestore throws a fatal error if any field is `undefined`.
+ */
+export const cleanFirestoreData = <T = any>(obj: T): T => {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => (typeof item === 'object' && item !== null && !(item instanceof Date) ? cleanFirestoreData(item) : item)) as any;
+  }
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj as Record<string, any>)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+        result[key] = cleanFirestoreData(value);
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+  return result as T;
+};
+
