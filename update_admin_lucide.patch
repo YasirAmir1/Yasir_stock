@@ -1,0 +1,11 @@
+--- src/components/AdminScreen.tsx
++++ src/components/AdminScreen.tsx
+@@ -23,6 +23,7 @@
+   Download,
+   Trash2,
+   TrendingUp,
+   Map,
+-  ClipboardList
++  ClipboardList,
++  Bell
+ } from 'lucide-react';

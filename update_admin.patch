@@ -1,0 +1,96 @@
+--- src/components/AdminScreen.tsx
++++ src/components/AdminScreen.tsx
+@@ -1,6 +1,8 @@
+ import React, { useState } from 'react';
+ import * as XLSX from 'xlsx';
+ import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
++import { db } from '../lib/firebase';
++import { collection, writeBatch, doc, getDocs, setDoc } from 'firebase/firestore';
+ import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
+ import { PullToRefresh } from './PullToRefresh';
+ import {
+@@ -21,6 +23,8 @@
+   Download,
+   Trash2,
+   TrendingUp,
++  Map,
++  ClipboardList
+ } from 'lucide-react';
+ 
+ export const AdminScreen: React.FC = () => {
+@@ -43,6 +47,58 @@
+     syncData,
+   } = useSales();
+ 
++  // --- Route Management State ---
++  const [routeUploadMessage, setRouteUploadMessage] = useState<string | null>(null);
++  const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
++  const [dailyTaskText, setDailyTaskText] = useState<string>('');
++  const [dailyTaskMessage, setDailyTaskMessage] = useState<string | null>(null);
++
++  const handleRouteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file) return;
++    setRouteUploadMessage('جاري معالجة ورفع مسارات المندوبين...');
++    try {
++      const data = await file.arrayBuffer();
++      const workbook = XLSX.read(data);
++      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
++      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
++      
++      if (jsonData.length <= 1) {
++        setRouteUploadMessage('الملف فارغ أو لا يحتوي على بيانات صحيحة.');
++        return;
++      }
++
++      const batch = writeBatch(db);
++      
++      // Clear existing routes (optional, but good for fresh uploads)
++      const oldRoutes = await getDocs(collection(db, 'routes'));
++      oldRoutes.docs.forEach((docSnap) => batch.delete(docSnap.ref));
++
++      // Columns mapping: Customer Code, Name, Address, Delegate, Path
++      for (let i = 1; i < jsonData.length; i++) {
++        const row = jsonData[i];
++        if (!row || row.length === 0) continue;
++        const docRef = doc(collection(db, 'routes'));
++        batch.set(docRef, {
++          customerCode: row[0] || '',
++          customerName: row[1] || '',
++          customerAddress: row[2] || '',
++          delegateName: row[3] || '',
++          path: row[4] || '', // Day of the week
++        });
++      }
++      
++      await batch.commit();
++      setRouteUploadMessage('تم رفع وتحديث المسارات بنجاح!');
++      e.target.value = '';
++    } catch (err) {
++      console.error(err);
++      setRouteUploadMessage('حدث خطأ أثناء الرفع.');
++    }
++  };
++
++  const handleSaveDailyTask = async () => {
++    if (!dailyTaskDelegate || !dailyTaskText) {
++      setDailyTaskMessage('يرجى اختيار المندوب وكتابة المهمة.');
++      return;
++    }
++    setDailyTaskMessage('جاري الحفظ...');
++    try {
++      await setDoc(doc(db, 'admin_daily_tasks', dailyTaskDelegate), {
++        taskText: dailyTaskText,
++        timestamp: Date.now()
++      });
++      setDailyTaskMessage('تم تعيين المهمة اليومية بنجاح!');
++      setDailyTaskText('');
++    } catch (err) {
++      console.error(err);
++      setDailyTaskMessage('حدث خطأ أثناء حفظ المهمة.');
++    }
++  };
++
+   const [passwordMode, setPasswordMode] = useState<Record<string, boolean>>({});
+ 
+   const [newDelName, setNewDelName] = useState('');

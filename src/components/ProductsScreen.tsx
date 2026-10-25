@@ -1,0 +1,2393 @@
+import React, { useState, useMemo } from 'react';
+import { useSales } from '../context/SalesContext';
+import { ProductItem, GiftPromotion } from '../types';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { showConfirm } from '../utils/dialogService';
+import { GiftsManagementTable } from './GiftsManagementTable';
+import { StoreNotificationsModal } from './StoreNotificationsModal';
+
+const getAvatarProps = (name: string) => {
+  const colors = [
+    'bg-gradient-to-br from-red-400 to-red-600',
+    'bg-gradient-to-br from-blue-400 to-blue-600',
+    'bg-gradient-to-br from-green-400 to-green-600',
+    'bg-gradient-to-br from-yellow-400 to-yellow-600',
+    'bg-gradient-to-br from-purple-400 to-purple-600',
+    'bg-gradient-to-br from-pink-400 to-pink-600',
+    'bg-gradient-to-br from-indigo-400 to-indigo-600',
+    'bg-gradient-to-br from-teal-400 to-teal-600',
+    'bg-gradient-to-br from-orange-400 to-orange-600',
+    'bg-gradient-to-br from-cyan-400 to-cyan-600'
+  ];
+  const charCode = name && name.length > 0 ? name.charCodeAt(0) : 0;
+  const initial = name && name.length > 0 ? name.charAt(0).toUpperCase() : '?';
+  const colorClass = colors[charCode % colors.length];
+  return { initial, colorClass };
+};
+
+interface ProductsScreenProps {}
+
+export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
+  const { 
+    routes, 
+    currentUser, 
+    productsList, 
+    importProductsFromExcel, 
+    updateProduct, uploadProductImage, 
+    addProduct, 
+    deleteProduct, 
+    deleteAllProducts, 
+    isDarkMode, 
+    setUserMessage, 
+    saveSalesEntries, 
+    selectedDelegate, 
+    rawSavedEntries, 
+    showQuickAdd, 
+    setShowQuickAdd, 
+    prefilledEntryData, 
+    setPrefilledEntryData,
+    giftPromotions,
+    addGiftPromotion,
+    updateGiftPromotion,
+    deleteGiftPromotion,
+    addToast,
+    inventoryLogs = [],
+    deleteInventoryLog,
+    processOrder,
+    todaySalesByProductName = {},
+    getProductLiveStock
+  } = useSales();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [showStoreNotificationsModal, setShowStoreNotificationsModal] = useState(false);
+
+  // Unique sanitized key for current user (persisted across sessions)
+  const userKey = useMemo(() => {
+    const raw = currentUser?.username || currentUser?.name || currentUser?.email || 'guest_user';
+    return String(raw).trim().replace(/[/\\.#$\[\]]/g, '_');
+  }, [currentUser]);
+
+  // Read status timestamp for this user (cached locally and synced with Firestore)
+  const [userLastReadTimestamp, setUserLastReadTimestamp] = useState<number>(() => {
+    try {
+      const initialKey = currentUser?.username || currentUser?.name || currentUser?.email || 'guest_user';
+      const safeKey = String(initialKey).trim().replace(/[/\\.#$\[\]]/g, '_');
+      const saved = localStorage.getItem(`last_read_inv_${safeKey}`);
+      return saved ? Number(saved) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  // Real-time listener for user's read state document from Firestore
+  React.useEffect(() => {
+    if (!userKey) return;
+    const unsub = onSnapshot(
+      doc(db, 'store_notification_reads', userKey),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (typeof data?.lastReadTimestamp === 'number') {
+            setUserLastReadTimestamp(data.lastReadTimestamp);
+            try {
+              localStorage.setItem(`last_read_inv_${userKey}`, String(data.lastReadTimestamp));
+            } catch {}
+          }
+        }
+      },
+      (err) => {
+        console.warn('Could not sync store_notification_reads from Firestore:', err);
+      }
+    );
+    return () => unsub();
+  }, [userKey]);
+
+  // Latest price update timestamp across all products updated within the last 5 days
+  const latestPriceUpdateTimestamp = useMemo(() => {
+    if (!productsList || productsList.length === 0) return 0;
+    const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const validTimestamps = productsList
+      .filter(p => p.priceUpdatedAt && (now - p.priceUpdatedAt) <= fiveDaysMs)
+      .map(p => p.priceUpdatedAt || 0);
+    return validTimestamps.length > 0 ? Math.max(...validTimestamps) : 0;
+  }, [productsList]);
+
+  // Latest upload timestamp across all inventory logs
+  const latestUploadTimestamp = useMemo(() => {
+    if (!inventoryLogs || inventoryLogs.length === 0) return 0;
+    return Math.max(...inventoryLogs.map(l => l.timestamp || 0));
+  }, [inventoryLogs]);
+
+  // Combined latest notification timestamp
+  const latestActivityTimestamp = useMemo(() => {
+    return Math.max(latestUploadTimestamp, latestPriceUpdateTimestamp);
+  }, [latestUploadTimestamp, latestPriceUpdateTimestamp]);
+
+  // Determine if pulse / glow effect is active:
+  // Active when there is a new upload or price change that occurred after the user's last read timestamp
+  const hasUnreadInventory = useMemo(() => {
+    return latestActivityTimestamp > userLastReadTimestamp;
+  }, [latestActivityTimestamp, userLastReadTimestamp]);
+
+  const totalRestockedCount = useMemo(() => {
+    return inventoryLogs.reduce((acc, log) => acc + (log.restockedCount || 0), 0);
+  }, [inventoryLogs]);
+
+  // Handler to open modal, immediately silence glow locally, and persist read state in Firestore
+  const handleOpenStoreNotifications = async () => {
+    setShowStoreNotificationsModal(true);
+
+    const now = Date.now();
+    // 1. Immediately update local state to stop pulse & glow without waiting for network round-trip
+    setUserLastReadTimestamp(now);
+    try {
+      localStorage.setItem(`last_read_inv_${userKey}`, String(now));
+    } catch {}
+
+    // 2. Synchronize to Firestore for this user
+    if (userKey) {
+      try {
+        await setDoc(
+          doc(db, 'store_notification_reads', userKey),
+          {
+            userKey,
+            userName: currentUser?.name || currentUser?.username || 'مستخدم',
+            userRole: currentUser?.role || (currentUser?.isAdmin ? 'admin' : 'delegate'),
+            lastReadTimestamp: now,
+            readAtIso: new Date(now).toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error('Error saving store notification read status in Firestore:', err);
+      }
+    }
+  };
+
+  // Render helper for the Store Notifications button with Pulse & Glow effect when unread
+  const renderStoreNotificationsButton = (customClasses = 'text-xs sm:text-sm') => (
+    <div className="relative inline-flex items-center shrink-0">
+      {hasUnreadInventory && (
+        <>
+          <span className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-emerald-500 via-amber-400 to-teal-400 opacity-80 blur-md animate-pulse pointer-events-none" />
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 z-20 pointer-events-none">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90" />
+            <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 border-2 border-white dark:border-slate-900 shadow-sm" />
+          </span>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={handleOpenStoreNotifications}
+        className={`relative z-10 cursor-pointer px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 border ${customClasses} ${
+          hasUnreadInventory
+            ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 text-white border-2 border-amber-300 shadow-xl shadow-emerald-500/40 ring-4 ring-emerald-400/40 animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite]'
+            : isDarkMode
+            ? 'bg-slate-800 text-emerald-400 border-slate-700 hover:bg-slate-700 shadow-sm'
+            : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-sm'
+        }`}
+        title="إشعارات وسجل عمليات الجرد بالمخزن"
+      >
+        <Boxes className="w-4 h-4 shrink-0" />
+        <span>إشعارات المخزن</span>
+        {hasUnreadInventory ? (
+          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 animate-bounce shadow-xs">
+            جرد جديد! 🔔
+          </span>
+        ) : inventoryLogs.length > 0 ? (
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-700 text-white font-mono shadow-xs">
+            {inventoryLogs.length}
+          </span>
+        ) : null}
+      </button>
+    </div>
+  );
+  
+  const suggestedProducts = useMemo(() => {
+    if (!prefilledEntryData || !prefilledEntryData.customerName) return [];
+    
+    const customerEntries = rawSavedEntries.filter(e => e.customerName === prefilledEntryData.customerName);
+    const productFrequency: Record<string, number> = {};
+    customerEntries.forEach(e => {
+        productFrequency[e.productName] = (productFrequency[e.productName] || 0) + 1;
+    });
+
+    const frequentProducts = Object.entries(productFrequency)
+        .filter(([_, freq]) => freq >= 3)
+        .map(([name]) => name);
+    
+    // Filter out already added products in this session (this is hard since ProductsScreen doesn't hold cart)
+    // We'll just suggest frequent products.
+    return productsList.filter(p => frequentProducts.includes(p.productName)).slice(0, 5);
+  }, [prefilledEntryData, rawSavedEntries, productsList]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(() => localStorage.getItem('pref_categoryFilter') || 'الكل');
+  const [priceMode, setPriceMode] = useState<'retail' | 'wholesale'>(() => {
+    const typeToUse = prefilledEntryData?.customerInvoiceType || prefilledEntryData?.customerType;
+    if (typeToUse) {
+      return typeToUse === 'جملة' ? 'wholesale' : 'retail';
+    }
+    // Default to retail
+    return 'retail';
+  });
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
+  const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
+
+  const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
+  const isSauceUser = Boolean(
+    currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+    currentUser?.role === 'sauceOnly' ||
+    currentUser?.role === 'viewer' ||
+    currentUser?.name === 'محمد الصلصات' ||
+    currentUser?.delegateName === 'محمد الصلصات' ||
+    currentUser?.username?.toLowerCase() === 'محمد الصلصات'
+  );
+
+  // ... (rest of the component)
+
+  const [customerName, setCustomerName] = useState(() => localStorage.getItem('autosave_customerName') || '');
+  const [customerCode, setCustomerCode] = useState(() => localStorage.getItem('autosave_customerCode') || '');
+  const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('autosave_customerAddress') || '');
+  const [customerType, setCustomerType] = useState<'مفرد' | 'جملة'>(() => (localStorage.getItem('autosave_customerType') as 'مفرد' | 'جملة') || 'مفرد');
+
+  React.useEffect(() => {
+    localStorage.setItem('autosave_customerName', customerName);
+    localStorage.setItem('autosave_customerCode', customerCode);
+    localStorage.setItem('autosave_customerAddress', customerAddress);
+    localStorage.setItem('autosave_customerType', customerType);
+  }, [customerName, customerCode, customerAddress, customerType]);
+
+  const determinedCustomerType = useMemo(() => {
+    if (!customerCode) return null;
+    const route = routes.find(r => r.customerCode === customerCode);
+    return route ? route.customerType : 'مفرد';
+  }, [routes, customerCode]);
+
+  React.useEffect(() => {
+    const typeToUse = prefilledEntryData?.customerInvoiceType || prefilledEntryData?.customerType;
+    if (typeToUse) {
+      const mode = typeToUse === 'جملة' ? 'wholesale' : 'retail';
+      setPriceMode(mode);
+      setCustomerType(typeToUse);
+    } else if (determinedCustomerType && !prefilledEntryData) {
+      setCustomerType(determinedCustomerType);
+      setPriceMode(determinedCustomerType === 'جملة' ? 'wholesale' : 'retail');
+    }
+  }, [determinedCustomerType, prefilledEntryData]);
+
+  // Removed localStorage sync for priceMode to prevent override
+
+  React.useEffect(() => {
+    localStorage.setItem('pref_sortBy', sortBy);
+  }, [sortBy]);
+
+  React.useEffect(() => {
+    localStorage.setItem('pref_mobileGridCols', mobileGridCols);
+  }, [mobileGridCols]);
+
+
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (prefilledEntryData) {
+      setCustomerName(prefilledEntryData.customerName);
+      setCustomerCode(prefilledEntryData.customerCode);
+      setCustomerAddress(prefilledEntryData.customerAddress);
+      if (prefilledEntryData.customerType) {
+        setCustomerType(prefilledEntryData.customerType);
+      }
+    }
+  }, [prefilledEntryData]);
+
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('app_selected_quantities');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [entryModes, setEntryModes] = useState<Record<string, 'piece' | 'carton'>>(() => {
+    try {
+      const saved = localStorage.getItem('app_entry_modes');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    localStorage.setItem('app_selected_quantities', JSON.stringify(selectedQuantities));
+  }, [selectedQuantities]);
+
+  React.useEffect(() => {
+    localStorage.setItem('app_entry_modes', JSON.stringify(entryModes));
+  }, [entryModes]);
+
+  // Inline editing state for Admin
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState('');
+  const [editProductCode, setEditProductCode] = useState('');
+  const [editProductName, setEditProductName] = useState('');
+  const [editCartonQuantity, setEditCartonQuantity] = useState<string | number>('');
+  const [editPieceWeightKg, setEditPieceWeightKg] = useState<string | number>('');
+  const [editRetailPrice, setEditRetailPrice] = useState<string | number>('');
+  const [editWholesalePrice, setEditWholesalePrice] = useState<string | number>('');
+  const [editStockCartons, setEditStockCartons] = useState<string | number>('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editIsAvailable, setEditIsAvailable] = useState(true);
+
+  // Standalone Image Upload Modal State
+  const [showImageUploadModal, setShowImageUploadModal] = useState(false);
+  const [imageUploadCode, setImageUploadCode] = useState('');
+  const [imageUploadBase64, setImageUploadBase64] = useState('');
+  const [imageUploadFile, setImageUploadFile] = useState<File | null>(null);
+  const [imageUploadError, setImageUploadError] = useState('');
+
+  const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
+  const isRafat = currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry' || currentUser?.name === 'رأفت جمال';
+  const isNewInvoice = !!prefilledEntryData;
+
+  // Gift Promotion Notification Alert State
+  const [giftAlertNotification, setGiftAlertNotification] = useState<{
+    isOpen: boolean;
+    earnedGifts: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[];
+  } | null>(null);
+
+  const exportProductCardsPdf = () => {
+    import('jspdf').then(({ default: jsPDF }) => {
+      const doc = new jsPDF();
+      
+      const marginLeft = 15;
+      const marginTop = 15;
+      const colWidth = 85;
+      const rowHeight = 84;
+      const colGap = 10;
+      const rowGap = 8;
+
+      productsList.forEach((product, index) => {
+        const posOnPage = index % 6;
+        if (posOnPage === 0 && index > 0) {
+          doc.addPage();
+        }
+
+        const col = posOnPage % 2;
+        const row = Math.floor(posOnPage / 2);
+        
+        const x = marginLeft + col * (colWidth + colGap);
+        const y = marginTop + row * (rowHeight + rowGap);
+
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(x, y, colWidth, rowHeight);
+
+        if (product.imageUrl) {
+          try {
+            doc.addImage(product.imageUrl, 'JPEG', x + 2, y + 2, colWidth - 4, rowHeight - 4);
+          } catch (e) {
+            console.error("Error adding image:", e);
+            doc.setFontSize(10);
+            doc.text(`[صورة غير متوفرة]`, x + colWidth / 2, y + rowHeight / 2, { align: 'center' });
+          }
+        } else {
+          doc.setFontSize(10);
+          doc.text(`[لا توجد صورة]`, x + colWidth / 2, y + rowHeight / 2, { align: 'center' });
+        }
+      });
+
+      doc.save("product_images_cards.pdf");
+    });
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          setEditImageUrl(compressedDataUrl);
+        }
+      };
+    };
+    e.target.value = ''; // Reset input
+  };
+
+  const categoriesList = useMemo(() => {
+    if (isSauceUser) return ['صلصات'];
+    const cats = new Set<string>();
+    productsList.forEach(p => {
+      if (p.categoryName) cats.add(p.categoryName);
+    });
+    return ['الكل', ...Array.from(cats)];
+  }, [productsList, isSauceUser]);
+
+  const filteredProducts = useMemo(() => {
+    let filtered = productsList.filter(p => {
+      // If user is mohammedsauce, strictly limit to category "صلصات"
+      if (isSauceUser && p.categoryName?.trim() !== 'صلصات') {
+        return false;
+      }
+
+      // Hide unavailable products and low stock products (< 6 cartons) for non-admins (مندوبين)
+      const stock = Number(p.stockCartons) || 0;
+      if (!isAdmin && (p.isAvailable === false || stock < 6)) return false;
+
+      const term = (searchTerm || '').toLowerCase();
+      const matchSearch = 
+        (p.productName || '').toLowerCase().includes(term) ||
+        (p.productCode || '').toLowerCase().includes(term) ||
+        (p.categoryName || '').toLowerCase().includes(term);
+      
+      const matchCat = isSauceUser ? true : (selectedCategoryFilter === 'الكل' || p.categoryName === selectedCategoryFilter);
+      return matchSearch && matchCat;
+    });
+
+    if (sortBy === 'most_sold') {
+      const salesMap = new globalThis.Map<string, number>();
+      rawSavedEntries?.forEach(entry => {
+        salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
+      });
+      filtered.sort((a, b) => {
+        const salesA = salesMap.get(a.productName) || 0;
+        const salesB = salesMap.get(b.productName) || 0;
+        return salesB - salesA;
+      });
+    } else if (sortBy === 'file_order') {
+      filtered.sort((a, b) => {
+        return productsList.indexOf(a) - productsList.indexOf(b);
+      });
+    } else {
+      filtered.sort((a, b) => {
+        if (sortBy === 'name') return a.productName.localeCompare(b.productName);
+        if (sortBy === 'category') return a.categoryName.localeCompare(b.categoryName);
+        if (sortBy === 'weight') return (Number(b.pieceWeightKg) || 0) - (Number(a.pieceWeightKg) || 0);
+        if (sortBy === 'price') {
+          const priceA = (priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0;
+          const priceB = (priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0;
+          return (priceB * (Number(a.cartonQuantity) || 1)) - (priceA * (Number(b.cartonQuantity) || 1));
+        }
+        if (sortBy === 'stock') return (b.stockCartons || 0) - (a.stockCartons || 0);
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries]);
+
+  const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageUploadFile(file);
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      setImageUploadBase64(event.target?.result as string);
+    };
+    e.target.value = '';
+  };
+
+  const handleStandaloneImageSubmit = async () => {
+    setImageUploadError('');
+    if (!imageUploadCode.trim()) {
+      setImageUploadError('يرجى إدخال كود المنتج');
+      return;
+    }
+    if (!imageUploadFile) {
+      setImageUploadError('يرجى اختيار صورة');
+      return;
+    }
+
+    const prod = productsList.find(p => p.productCode === imageUploadCode.trim());
+    if (!prod) {
+      setImageUploadError('لم يتم العثور على منتج بهذا الكود');
+      return;
+    }
+
+    const downloadURL = await uploadProductImage(prod.id, imageUploadFile);
+    if (downloadURL) {
+      setShowImageUploadModal(false);
+      setImageUploadCode('');
+      setImageUploadBase64('');
+      setImageUploadFile(null);
+      setUserMessage('تم ربط الصورة بالمنتج بنجاح ✅');
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    importProductsFromExcel(file);
+    e.target.value = '';
+  };
+
+  const downloadExcelTemplate = () => {
+    const headers = [
+      'صنف المنتج',
+      'كود المنتج',
+      'عدد بالكارتون',
+      'اسم المنتج',
+      'وزن القطعة الواحدة',
+      'سعر القطعة مفرد',
+      'سعر القطعة جملة',
+      'عدد الكارتون المتوفر بالمخزن'
+    ];
+    const csvContent = '\uFEFF' + headers.join(',') + '\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'نموذج_المنتجات.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const startEditing = (p: ProductItem) => {
+    if (!isAdmin || isRafat) return;
+    setEditingId(p.id);
+    setEditCategoryName(p.categoryName);
+    setEditProductCode(p.productCode);
+    setEditProductName(p.productName);
+    setEditCartonQuantity(p.cartonQuantity ?? p.unitsPerCarton ?? 12);
+    setEditPieceWeightKg(p.pieceWeightKg.toString());
+    setEditRetailPrice(p.retailPrice?.toString() || '0');
+    setEditWholesalePrice(p.wholesalePrice?.toString() || '0');
+    setEditStockCartons(p.stockCartons?.toString() || '0');
+    setEditImageUrl(p.imageUrl || '');
+    setEditIsAvailable(p.isAvailable !== false);
+    setExpandedId(p.id); // Expand when editing
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const container = e.currentTarget.closest('.entry-grid-container');
+      if (!container) return;
+      const focusableElements = Array.from(
+        container.querySelectorAll('input, select')
+      ) as HTMLElement[];
+      const index = focusableElements.indexOf(e.currentTarget);
+      if (index > -1 && index + 1 < focusableElements.length) {
+        focusableElements[index + 1].focus();
+      }
+    }
+  };
+
+  const saveEditing = (id: string) => {
+    const currentProd = productsList.find(p => p.id === id);
+    const newStockCartons = Number(editStockCartons) || 0;
+    const unitsPerCarton = Number(editCartonQuantity) || 12;
+    
+    updateProduct(id, {
+      categoryName: editCategoryName.trim() || 'عام',
+      productCode: editProductCode.trim() || 'PRD-000',
+      productName: editProductName.trim() || 'منتج جديد',
+      unitsPerCarton: unitsPerCarton,
+      totalPieces: newStockCartons * unitsPerCarton,
+      pieceWeightKg: Number(editPieceWeightKg) || 0,
+      retailPrice: Number(editRetailPrice) || 0,
+      wholesalePrice: Number(editWholesalePrice) || 0,
+      imageUrl: editImageUrl.trim(),
+      isAvailable: editIsAvailable,
+      isGift: Boolean(currentProd?.isGift),
+    });
+    setEditingId(null);
+  };
+
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showConditionsModal, setShowConditionsModal] = useState(false);
+  const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{ total: number; count: number } | null>(null);
+  const [saveSummary, setSaveSummary] = useState<{ total: number, itemCount: number } | null>(null);
+
+  const isEditingInvoice = useMemo(() => {
+    const trimmedCustomerName = customerName.trim();
+    const cCode = String(customerCode || '').trim();
+    return Boolean(
+      prefilledEntryData?.isEditing ||
+      (trimmedCustomerName && rawSavedEntries.some(e => e.customerName.trim() === trimmedCustomerName)) ||
+      (cCode && rawSavedEntries.some(e => e.customerCode && String(e.customerCode).trim() === cCode))
+    );
+  }, [prefilledEntryData, customerName, customerCode, rawSavedEntries]);
+
+  // Current Invoice Totals for the sticky bottom bar and validation
+  const currentInvoiceTotals = useMemo(() => {
+    const entries = Object.entries(selectedQuantities);
+    let totalAmount = 0;
+    let totalWeightKg = 0;
+    let itemCount = 0;
+    const uniqueProducts = new Set<string>();
+
+    for (const [prodId, qtyStr] of entries) {
+      let q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+
+      const unit = entryModes[prodId] || 'piece';
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
+
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      totalAmount += (price * q);
+      itemCount += 1;
+      uniqueProducts.add(prod.productName);
+
+      const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+      const totalW = (q * wGrams) / 1000;
+      totalWeightKg += totalW;
+    }
+
+    return {
+      totalAmount,
+      totalWeightKg,
+      itemCount,
+      uniqueCount: uniqueProducts.size,
+    };
+  }, [selectedQuantities, productsList, entryModes, priceMode]);
+
+  // Real-time stock validation check for selected items
+  const { hasAnyOversoldProduct, oversoldProductMessage } = useMemo(() => {
+    for (const [prodId, qtyStr] of Object.entries(selectedQuantities)) {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+      const { totalUnits, unitsPerCarton: upc } = getProductLiveStock(prod);
+      const unit = entryModes[prodId] || 'piece';
+      const requestedUnits = unit === 'carton' ? (q * upc) : q;
+      if (requestedUnits > totalUnits) {
+        const availCartons = Math.floor(totalUnits / upc);
+        const availPieces = totalUnits % upc;
+        return {
+          hasAnyOversoldProduct: true,
+          oversoldProductMessage: `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`
+        };
+      }
+    }
+    return { hasAnyOversoldProduct: false, oversoldProductMessage: '' };
+  }, [selectedQuantities, productsList, entryModes]);
+
+  const prepareSave = () => {
+    setErrorMessage(null);
+    if (hasAnyOversoldProduct) {
+      setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر');
+      return;
+    }
+    const trimmedCustomerName = customerName.trim();
+    if (!trimmedCustomerName) {
+      setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
+      return;
+    }
+
+    const itemsToSave = [];
+    const entries = Object.entries(selectedQuantities);
+    
+    let total = 0;
+    let itemCount = 0;
+    const uniqueProducts = new Set<string>();
+
+    for (const [prodId, qtyStr] of entries) {
+      let q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+      
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+      
+      const unit = entryModes[prodId] || 'piece';
+      const enteredQty = q;
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
+      
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      const discountedPrice = price;
+      total += (discountedPrice * q);
+      itemCount += 1;
+      uniqueProducts.add(prod.productName);
+    }
+
+    if (itemCount === 0) {
+      setErrorMessage('تنبيه: لم تقم باختيار أي منتجات لإضافتها للفاتورة!');
+      return;
+    }
+
+    // شرط الـ 25 ألف و 2 أصناف يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    if (!isEditingInvoice && !isAdminUser) {
+      if (total < 25000 || uniqueProducts.size < 2) {
+        setMinInvoiceAlertData({ total, count: uniqueProducts.size });
+        return;
+      }
+    }
+
+    // Check for earned gift promotions
+    const today = new Date().toISOString().split('T')[0];
+    const earnedGiftsList: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[] = [];
+
+    entries.forEach(([prodId, qtyStr]) => {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) return;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const unit = entryModes[prodId] || 'piece';
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const orderedText = unit === 'carton' 
+        ? `${q} كارتون (${totalPiecesOrdered} قطعة)` 
+        : `${q} قطعة`;
+
+      // Find active gift promotion for this product
+      const norm = (s: string) => (s || '').trim().toLowerCase();
+      const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+      const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+
+      const pCode = norm(prod.productCode);
+      const pName = norm(prod.productName);
+
+      const matchingPromotion = giftPromotions.find(gp => {
+        const gCode = norm(gp.productCode);
+        const gName = norm(gp.productName);
+        const matchCode = pCode && gCode && (pCode === gCode || pCode.includes(gCode) || gCode.includes(pCode));
+        const matchName = pName && gName && (pName === gName || pName.includes(gName) || gName.includes(pName));
+        const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+        const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+        return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+      });
+
+      if (matchingPromotion) {
+        const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+        const requiredQty = matchingPromotion.conditionQuantity;
+        let qualifiedMultiplier = 0;
+
+        if (requiredUnit === 'carton') {
+          const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+          }
+        } else {
+          // piece unit
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+          }
+        }
+
+        if (qualifiedMultiplier > 0) {
+          const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          earnedGiftsList.push({
+            productName: prod.productName,
+            orderedText,
+            giftPieces: totalGiftPieces,
+            conditionText: matchingPromotion.requirementCondition
+          });
+        }
+      }
+    });
+
+    setSaveSummary({ total, itemCount });
+    setShowConfirmDialog(true);
+  };
+
+  const handleSaveQuickAdd = () => {
+    // Re-calculating items for the actual save
+    if (hasAnyOversoldProduct) {
+      setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر');
+      return;
+    }
+    const trimmedCustomerName = customerName.trim();
+    if (!trimmedCustomerName) {
+      setErrorMessage('تنبيه: لم تقم بإدخال اسم الزبون!');
+      return;
+    }
+
+    const itemsToSave = [];
+    const entries = Object.entries(selectedQuantities);
+    let total = 0;
+    const uniqueProducts = new Set<string>();
+
+    const currentInvoiceId = prefilledEntryData?.lastInvoiceToday?.invoiceId || (Date.now().toString() + "_" + Math.random().toString(36).substr(2, 5));
+
+    for (const [prodId, qtyStr] of entries) {
+      let q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) continue;
+      
+      const unit = entryModes[prodId] || 'piece';
+      const enteredQty = q;
+      if (unit === 'carton') {
+        q = q * (Number(prod.cartonQuantity) || 1);
+      }
+      
+      const price = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      total += (price * q);
+      uniqueProducts.add(prod.productName);
+
+      const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+      const pieceWeightKg = wGrams / 1000;
+      const totalW = (q * wGrams) / 1000;
+      
+      itemsToSave.push({
+        productName: prod.productName,
+        categoryName: prod.categoryName,
+        quantity: q,
+        entryUnit: unit,
+        enteredQuantity: enteredQty,
+        pieceWeightKg: pieceWeightKg,
+        totalWeightKg: totalW,
+        delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
+        dateString: new Date().toISOString().split('T')[0],
+        customerName: trimmedCustomerName,
+        customerCode: String(customerCode || '').trim(),
+        customerAddress: String(customerAddress || '').trim(),
+        priceMode: priceMode,
+        invoiceId: currentInvoiceId
+      });
+    }
+
+    if (itemsToSave.length === 0) {
+      setErrorMessage('تنبيه: لم تقم باختيار أي منتجات لإضافتها للفاتورة!');
+      return;
+    }
+
+    // شرط الـ 25 ألف و 2 أصناف يطبق فقط على الفواتير الجديدة ويستثنى في حالة التعديل ويُرفع بالكامل عند إدخال الأدمن
+    if (!isEditingInvoice && !isAdminUser) {
+      if (total < 25000 || uniqueProducts.size < 2) {
+        setMinInvoiceAlertData({ total, count: uniqueProducts.size });
+        return;
+      }
+    }
+
+    // 2 & 3. Validate earned gifts and append them as separate rows without price/code
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+
+    const earnedGiftsList: {
+      productName: string;
+      orderedText: string;
+      giftPieces: number;
+      conditionText: string;
+    }[] = [];
+
+    entries.forEach(([prodId, qtyStr]) => {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) return;
+      const prod = productsList.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const unit = entryModes[prodId] || 'piece';
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const orderedText = unit === 'carton' 
+        ? `${q} كارتون (${totalPiecesOrdered} قطعة)` 
+        : `${q} قطعة`;
+
+      // Active gift promotion with customerType condition
+      const pCode = norm(prod.productCode);
+      const pName = norm(prod.productName);
+
+      const matchingPromotion = giftPromotions.find(gp => {
+        const gCode = norm(gp.productCode);
+        const gName = norm(gp.productName);
+        const matchCode = pCode && gCode && (pCode === gCode || pCode.includes(gCode) || gCode.includes(pCode));
+        const matchName = pName && gName && (pName === gName || pName.includes(gName) || gName.includes(pName));
+        const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+        const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+        return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+      });
+
+      if (matchingPromotion) {
+        const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+        const requiredQty = matchingPromotion.conditionQuantity;
+        let qualifiedMultiplier = 0;
+
+        if (requiredUnit === 'carton') {
+          const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+          }
+        } else {
+          if (requiredQty > 0) {
+            qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+          }
+        }
+
+        if (qualifiedMultiplier > 0) {
+          const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          earnedGiftsList.push({
+            productName: prod.productName,
+            orderedText,
+            giftPieces: totalGiftPieces,
+            conditionText: matchingPromotion.requirementCondition
+          });
+
+          // Append earned gift pieces as separate row in customer's invoice
+          const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+          const pieceWeightKg = wGrams / 1000;
+          const totalGiftWeight = (totalGiftPieces * wGrams) / 1000;
+
+          itemsToSave.push({
+            productName: prod.productName,
+            categoryName: prod.categoryName,
+            quantity: totalGiftPieces,
+            entryUnit: 'piece' as const,
+            enteredQuantity: totalGiftPieces,
+            pieceWeightKg: pieceWeightKg,
+            totalWeightKg: totalGiftWeight,
+            delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
+            dateString: today,
+            customerName: trimmedCustomerName,
+            customerCode: String(customerCode || '').trim(),
+            customerAddress: String(customerAddress || '').trim(),
+            priceMode: priceMode,
+            invoiceId: currentInvoiceId,
+            isGift: true,
+            giftPromotionId: matchingPromotion.id
+          });
+        }
+      }
+    });
+
+    processOrder(itemsToSave);
+
+    if (earnedGiftsList.length > 0) {
+      setGiftAlertNotification({
+        isOpen: true,
+        earnedGifts: earnedGiftsList
+      });
+      setUserMessage(`تم حفظ الفاتورة بنجاح مع إضافة ${earnedGiftsList.reduce((s, g) => s + g.giftPieces, 0)} قطعة هدية مجانية 🎁✅`);
+    } else {
+      setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+    }
+
+    setSelectedQuantities({});
+    setCustomerName('');
+    setCustomerCode('');
+    setCustomerAddress('');
+    setErrorMessage(null);
+    setShowQuickAdd(false);
+    setShowConfirmDialog(false);
+    setSaveSummary(null);
+    setPrefilledEntryData(null);
+  };
+
+  const handleUpdateQuantity = (prodId: string, val: string) => {
+    if (val === '') {
+      const newQ = { ...selectedQuantities };
+      delete newQ[prodId];
+      setSelectedQuantities(newQ);
+    } else {
+      setSelectedQuantities({ ...selectedQuantities, [prodId]: val });
+    }
+  };
+
+  // Check and trigger gift toast notification when a product is added or quantity is updated
+  const triggerGiftToastIfEligible = (prodId: string, qtyStr: string, unit: 'piece' | 'carton') => {
+    const q = parseInt(qtyStr, 10);
+    if (isNaN(q) || q <= 0) return;
+    const prod = productsList.find(p => p.id === prodId);
+    if (!prod) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+    const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+
+    const pCode = norm(prod.productCode);
+    const pName = norm(prod.productName);
+
+    const matchingPromotion = giftPromotions.find(gp => {
+      const gCode = norm(gp.productCode);
+      const gName = norm(gp.productName);
+      const matchCode = pCode && gCode && (pCode === gCode || pCode.includes(gCode) || gCode.includes(pCode));
+      const matchName = pName && gName && (pName === gName || pName.includes(gName) || gName.includes(pName));
+      const isDateActive = (today >= gp.startDate && today <= gp.endDate) || (baghdadToday >= gp.startDate && baghdadToday <= gp.endDate);
+      const matchCustomerType = !gp.customerType || gp.customerType === 'الكل' || gp.customerType === invoiceType;
+      return (matchCode || matchName) && gp.isActive !== false && isDateActive && matchCustomerType;
+    });
+
+    if (matchingPromotion) {
+      const cartonSize = Number(prod.cartonQuantity) || 1;
+      const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
+      const requiredUnit = matchingPromotion.conditionUnit || 'piece';
+      const requiredQty = matchingPromotion.conditionQuantity;
+      let qualifiedMultiplier = 0;
+
+      if (requiredUnit === 'carton') {
+        const cartonsOrdered = unit === 'carton' ? q : Math.floor(q / cartonSize);
+        if (requiredQty > 0) {
+          qualifiedMultiplier = Math.floor(cartonsOrdered / requiredQty);
+        }
+      } else {
+        if (requiredQty > 0) {
+          qualifiedMultiplier = Math.floor(totalPiecesOrdered / requiredQty);
+        }
+      }
+
+      if (qualifiedMultiplier > 0) {
+        const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+        const orderedDesc = unit === 'carton' ? `${q} كارتون (${totalPiecesOrdered} قطعة)` : `${q} قطعة`;
+        addToast({
+          type: 'gift_earned',
+          title: `مبروك! هدية ترويجية (${prod.productName}) 🎁`,
+          message: `لقد طلبت ${orderedDesc} وتأهلت لـ ${totalGiftPieces} قطع هدية مجانية!`,
+          percentage: 100,
+          delegateName: currentUser?.name || ''
+        });
+      }
+    }
+  };
+
+  return (
+    <div className={`max-w-6xl mx-auto px-3 sm:px-4 py-4 space-y-6 animate-in fade-in duration-300 ${showQuickAdd ? 'pb-32 sm:pb-24' : ''}`}>
+      
+      {/* 1. Gifts Management Table at the Top of Products Page - Hidden for mohammedsauce */}
+      {!isSauceUser && (
+        <GiftsManagementTable
+          giftPromotions={giftPromotions}
+          productsList={productsList}
+          isAdmin={Boolean(isAdmin)}
+          isDarkMode={isDarkMode}
+          onAddGift={addGiftPromotion}
+          onUpdateGift={updateGiftPromotion}
+          onDeleteGift={deleteGiftPromotion}
+        />
+      )}
+
+      {/* Sauce User Dedicated Header Card */}
+      {isSauceUser && (
+        <div className={`p-4 rounded-2xl border shadow-md flex items-center justify-between gap-3 ${
+          isDarkMode ? 'bg-slate-900 border-amber-500/30 text-white' : 'bg-amber-50 border-amber-300 text-amber-950'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center font-black text-xl shadow-inner">
+              🥫
+            </div>
+            <div>
+              <h2 className="text-base font-black">منتجات الصلصات المتوفرة</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">متابعة وعرض أصناف الصلصات في المستودع والمخزن</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {renderStoreNotificationsButton('text-xs')}
+            <span className="px-3 py-1 bg-amber-500 text-slate-950 font-black text-xs rounded-full shadow-sm">
+              حساب الصلصات
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Top Store Notifications Header for Representatives & Non-Admin */}
+      {!isAdmin && !isRafat && !isSauceUser && (
+        <div className={`p-3.5 sm:p-4 rounded-2xl border shadow-md flex items-center justify-between gap-3 ${
+          isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
+        }`}>
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-500 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-black">قائمة المنتجات والأصناف</h2>
+              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
+                {productsList.length} منتج مسجل في النظام
+              </p>
+            </div>
+          </div>
+
+          {renderStoreNotificationsButton('text-xs sm:text-sm')}
+        </div>
+      )}
+
+      {/* Header Container for Admin & Data Entry (Rafat) */}
+      {(isAdmin || isRafat) && (
+        <div className="bg-slate-100/90 dark:bg-emerald-950/90 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 shadow-sm space-y-3">
+          {/* Header & Description */}
+          <div className={`p-5 rounded-2xl border shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-600/20 flex items-center justify-center border border-emerald-500/30">
+                <Package className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-black tracking-tight">قائمة المنتجات والأصناف</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isAdmin ? 'إدارة الأصناف، رفع الجرد، والتسعير' : 'إدارة المخزون ورفع الجرد'}
+                </p>
+              </div>
+            </div>
+
+            {/* Admin & Data Entry Action Buttons */}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Store Notifications Button */}
+              {renderStoreNotificationsButton('text-[10px] sm:text-xs')}
+
+              {!isRafat && (
+                <button
+                  onClick={exportProductCardsPdf}
+                  className="cursor-pointer px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                >
+                  <Package className="w-3 h-3" />
+                  <span>تصدير PDF (بطاقات)</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => document.getElementById('excel-upload')?.click()}
+                className="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <Upload className="w-3 h-3" />
+                <span>رفع جرد</span>
+              </button>
+              <input id="excel-upload" type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} />
+              
+              {!isRafat && (
+                <>
+                  <button
+                    onClick={() => setShowImageUploadModal(true)}
+                    className="cursor-pointer px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                  >
+                    <ImagePlus className="w-3 h-3" />
+                    <span>تغيير صورة</span>
+                  </button>
+
+                  <button
+                    onClick={addProduct}
+                    className="cursor-pointer px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>إضافة منتج</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Representative Gift Qualification Alert Notification Modal */}
+      {giftAlertNotification && giftAlertNotification.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[140] p-4 animate-in fade-in zoom-in-95 duration-200"
+          onClick={() => setGiftAlertNotification(null)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-amber-600/50 text-white' : 'bg-white border-amber-400 text-slate-900'
+            }`}
+          >
+            {/* Animated Icon */}
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 text-white flex items-center justify-center shadow-lg shadow-amber-500/30 animate-pulse">
+              <Gift className="w-9 h-9" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-700 inline-block mb-1">
+                تهانينا! تأهلت الفاتورة لهدايا مجانية 🎉
+              </span>
+              <h3 className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400">
+                إشعار استحقاق الهدايا الترويجية
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                تمت إضافة قطع الهدية تلقائياً كسطر مستقل في فاتورة الزبون!
+              </p>
+            </div>
+
+            {/* List of Earned Gifts */}
+            <div className="space-y-2.5 max-h-60 overflow-y-auto text-right">
+              {giftAlertNotification.earnedGifts.map((gift, idx) => (
+                <div 
+                  key={idx}
+                  className={`p-3.5 rounded-xl border flex flex-col gap-1.5 ${
+                    isDarkMode ? 'bg-amber-950/30 border-amber-800/60' : 'bg-amber-50/80 border-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-sm text-slate-900 dark:text-white">
+                      {gift.productName}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-amber-500 text-white shadow-xs">
+                      +{gift.giftPieces} قطع هدية 🎁
+                    </span>
+                  </div>
+
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    لقد طلبت {gift.orderedText} وتأهلت لـ {gift.giftPieces} قطع هدية مجانية!
+                  </p>
+
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                    شرط العرض: {gift.conditionText}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setGiftAlertNotification(null)}
+                className="w-full py-3 px-4 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl font-black text-sm shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+              >
+                رائع، تم تأكيد وإضافة الهدايا ✅
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search and Discount Bar */}
+      
+      {/* Minimum Invoice Alert Modal */}
+      {minInvoiceAlertData && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 animate-in fade-in duration-200"
+          onClick={() => setMinInvoiceAlertData(null)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center shadow-inner">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
+                تنبيه شروط حفظ الفاتورة
+              </h3>
+              <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-relaxed px-2">
+                تنبيه: يجب أن لا تقل قيمة الفاتورة عن 25000، ويجب أن تحتوي على 2 أصناف مختلفة على الأقل.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 space-y-2 text-right text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">المبلغ الحالي للفاتورة:</span>
+                <span className={`font-black ${minInvoiceAlertData.total < 25000 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.total.toLocaleString()} د.ع (المطلوب: 25,000 د.ع على الأقل)
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400 font-bold">عدد الأصناف المختارة:</span>
+                <span className={`font-black ${minInvoiceAlertData.count < 2 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {minInvoiceAlertData.count} أصناف (المطلوب: 2 أصناف على الأقل)
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setMinInvoiceAlertData(null)}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg transition-all active:scale-95"
+              >
+                حسناً، فهمت ذلك
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conditions Explanation Modal */}
+      {showConditionsModal && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in duration-200"
+          onClick={() => setShowConditionsModal(false)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border text-right space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2.5 rounded-xl ${isEditingInvoice ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                  <Info className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">حالة الفاتورة وشروط الحفظ</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">توضيح نظام الفواتير الجديدة مقابل التعديل والإضافة</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowConditionsModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg transition-colors"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Selected Customer Status Card */}
+            <div className={`p-3.5 rounded-xl border ${
+              isEditingInvoice 
+                ? 'bg-amber-500/10 border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200' 
+                : 'bg-emerald-500/10 border-emerald-300 dark:border-emerald-700/60 text-emerald-900 dark:text-emerald-200'
+            }`}>
+              <div className="flex items-center gap-2 font-black text-xs sm:text-sm mb-1.5">
+                <span className="text-base">{isEditingInvoice ? '✏️' : '🆕'}</span>
+                <span>الزبون: {customerName.trim() || 'غير محدد حتى الآن'}</span>
+              </div>
+              <div className="text-xs font-bold mb-2">
+                الحالة المطبقة: <span className="underline">
+                  {currentUser?.isAdmin 
+                    ? 'إدخال من قبل الإدارة (معفى بالكامل من الشروط 👑)'
+                    : isEditingInvoice 
+                      ? 'تعديل / إضافة مستثناة من الشروط' 
+                      : 'فاتورة جديدة خاضعة للشروط'}
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-xs leading-relaxed opacity-90">
+                {currentUser?.isAdmin
+                  ? `بصفتك مسؤول النظام (الأدمن)، تم رفع شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (2 أصناف) بالكامل. يمكنك حفظ أي فاتورة بأي كمية أو مبلغ بحرية تامّة.`
+                  : isEditingInvoice 
+                    ? `هذا الزبون لديه فاتورة مسجلة بالفعل اليوم، لذلك تُعامل هذه العملية كملحق أو تعديل، وهي معفية تماماً من شرط الحد الأدنى (25,000 د.ع) وشرط عدد الأصناف (2 أصناف). يمكنك حفظ أي كمية لأي صنف بحرية.`
+                    : `هذا الزبون لا يمتلك أي فاتورة مسجلة لليوم الحالي، لذا تُعتبر هذه فاتورة افتتاحية جديدة وتخضع إلزامياً لشرطي الحد الأدنى.`}
+              </p>
+            </div>
+
+            {/* Detailed Conditions Comparison */}
+            <div className="space-y-2.5 text-xs">
+              {currentUser?.isAdmin && (
+                <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-700 space-y-1.5 text-purple-900 dark:text-purple-200">
+                  <div className="flex items-center gap-1.5 font-black text-purple-700 dark:text-purple-300">
+                    <span>👑 إعفاء حساب الأدمن (مرفوع الشرط):</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed pr-2">
+                    تم رفع وتجاوز شرط الـ 25 ألف و 2 أصناف تلقائياً لحساب الإدارة (الأدمن)، مما يتيح إدخال أي فاتورة بحرية تامة دون قيود.
+                  </p>
+                </div>
+              )}
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-emerald-600 dark:text-emerald-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                  <span>1. الفاتورة الافتتاحية الجديدة (تخضع للشرطين): لجميع المندوبين</span>
+                </div>
+                <ul className="list-disc list-inside text-slate-600 dark:text-slate-300 pr-2 space-y-1 text-[11px] leading-relaxed">
+                  <li><strong>الحد الأدنى للمبلغ:</strong> لا يقل إجمالي قيمة الفاتورة عن <span className="font-black text-emerald-600 dark:text-emerald-400">25,000 د.ع</span>.</li>
+                  <li><strong>الحد الأدنى للأصناف:</strong> يجب أن تحتوي على <span className="font-black text-emerald-600 dark:text-emerald-400">2 أصناف مختلفة</span> على الأقل.</li>
+                  <li className="text-[10px] text-slate-500 dark:text-slate-400">الهدف: ضمان الكفاءة والجدوى البيعية لزيارة الزبون الأولى.</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-amber-600 dark:text-amber-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                  <span>2. التعديل والإضافة الملحقة (مستثناة بالكامل):</span>
+                </div>
+                <ul className="list-disc list-inside text-slate-600 dark:text-slate-300 pr-2 space-y-1 text-[11px] leading-relaxed">
+                  <li>تُطبّق تلقائياً عند طلب الزبون منتجاً إضافياً لاحقاً أو تعديل كمية مادة.</li>
+                  <li><strong>مستثناة تماماً:</strong> يُسمح بحفظ حتى صنف واحد وبأي مبلغ دون قيود.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button 
+                type="button"
+                onClick={() => setShowConditionsModal(false)}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all active:scale-95"
+              >
+                حسناً، فهمت ذلك
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {showConfirmDialog && saveSummary && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-white'}`}>
+            <h3 className="text-lg font-black mb-3">تأكيد حفظ المنتجات</h3>
+            
+            {/* Status indicator inside confirm modal */}
+            <div className={`p-3 rounded-xl border text-xs font-bold mb-4 flex items-center justify-between gap-2 ${
+              currentUser?.isAdmin
+                ? 'bg-purple-50 dark:bg-purple-950/30 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200'
+                : isEditingInvoice 
+                  ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200' 
+                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+            }`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="shrink-0 text-sm">{currentUser?.isAdmin ? '👑' : isEditingInvoice ? '✏️' : '🆕'}</span>
+                <span className="truncate">
+                  {currentUser?.isAdmin
+                    ? 'إدخال أدمن (مستثنى بالكامل من شرط الـ 25 ألف و 2 أصناف 👑)'
+                    : isEditingInvoice 
+                      ? 'تعديل / ملحق لفاتورة (مستثناة من الشروط)' 
+                      : 'فاتورة جديدة (مستوفية لشروط الـ 25 ألف و 2 أصناف ✅)'}
+                </span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowConditionsModal(true)} 
+                className="shrink-0 text-[11px] underline font-black text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                توضيح
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between items-center text-sm font-bold">
+                <span>عدد الأصناف:</span>
+                <span>{saveSummary.itemCount}</span>
+              </div>
+              <div className="flex justify-between items-center text-lg font-black text-emerald-500">
+                <span>الإجمالي:</span>
+                <span>{saveSummary.total.toLocaleString()} د.ع</span>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowConfirmDialog(false)} className={`flex-1 py-2.5 rounded-xl font-bold ${isDarkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>إلغاء</button>
+              <button onClick={handleSaveQuickAdd} className="flex-1 py-2.5 rounded-xl font-black bg-emerald-600 hover:bg-emerald-500 text-white">حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Customer Info Box */}
+      {showQuickAdd && !isSauceUser && (
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 shadow-sm relative">
+          <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${priceMode === 'wholesale' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                السعر المطبق: {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+              </span>
+              
+              {/* Clickable Status Badge with Info Icon */}
+              <button
+                type="button"
+                onClick={() => setShowConditionsModal(true)}
+                className={`cursor-pointer px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all shadow-xs ${
+                  currentUser?.isAdmin
+                    ? 'bg-purple-100 text-purple-900 border border-purple-300 hover:bg-purple-200 dark:bg-purple-900/50 dark:text-purple-300 dark:border-purple-700'
+                    : isEditingInvoice 
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700' 
+                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700'
+                }`}
+                title="انقر لفتح توضيح شروط الفاتورة"
+              >
+                <span>
+                  {currentUser?.isAdmin
+                    ? '👑 إدخال أدمن (مستثنى من الشروط)'
+                    : isEditingInvoice 
+                      ? '✏️ تعديل / إضافة (مستثناة من الشروط)' 
+                      : '🆕 فاتورة جديدة (شرط الـ 25 ألف و 2 أصناف)'}
+                </span>
+                <HelpCircle className="w-3.5 h-3.5 opacity-80" />
+              </button>
+            </div>
+            <button onClick={() => setShowQuickAdd(false)} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200" title="إغلاق">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {errorMessage && (
+            <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
+              <span>{errorMessage}</span>
+              <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+            </div>
+          )}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+            <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              إضافة سريعة للمنتجات
+            </h3>
+            <button
+              onClick={prepareSave}
+              className="w-1/2 mx-auto sm:mx-0 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-black text-xs sm:text-sm shadow-md transition-all active:scale-95"
+            >
+              حفظ المنتجات
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div>
+              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">اسم الزبون (إلزامي)</label>
+              <input
+                type="text"
+                value={customerName}
+                readOnly={!!prefilledEntryData}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="اسم الزبون..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">كود الزبون</label>
+              <input
+                type="text"
+                value={customerCode}
+                readOnly={!!prefilledEntryData}
+                onChange={(e) => setCustomerCode(e.target.value)}
+                placeholder="الكود..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300">العنوان</label>
+                <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded-md">
+                    <span className={`px-2 py-0.5 rounded-sm text-[8px] font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        {customerType}
+                    </span>
+                </div>
+              </div>
+              <input
+                type="text"
+                value={customerAddress}
+                readOnly={!!prefilledEntryData}
+                onChange={(e) => setCustomerAddress(e.target.value)}
+                placeholder="العنوان..."
+                className="w-full px-2 py-1.5 sm:px-3 sm:py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-[10px] sm:text-xs font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discount and Search Bar */}
+      <div className="flex flex-col gap-3">
+        
+        {/* Search Bar */}
+        {showSearch && (
+          <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+             <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+             <input 
+               type="text"
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               placeholder="بحث عن منتج (اسم، كود، صنف)..."
+               className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+               autoFocus
+             />
+          </div>
+        )}
+        
+        
+        {suggestedProducts.length > 0 && (
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+             <h4 className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-2">اقتراحات للزبون:</h4>
+             <div className="flex gap-2 overflow-x-auto pb-1">
+               {suggestedProducts.map(p => (
+                 <button key={p.id} className="px-3 py-1 bg-white dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-full text-xs font-bold shrink-0">
+                   {p.productName}
+                 </button>
+               ))}
+             </div>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-1 items-center justify-between">
+          {/* Price toggle moved up */}
+          <div className="hidden"></div>
+          
+          {categoriesList.length > 2 && !isSauceUser && (
+            <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button 
+                  onClick={() => setShowSearch(!showSearch)}
+                  className={`p-2 rounded-lg ${showSearch ? 'bg-emerald-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700')}`}
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">الصنف:</span>
+                {categoriesList.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategoryFilter(cat)}
+                    className={`px-2 py-1 rounded text-[8px] sm:text-[9px] font-extrabold transition-all ${
+                      selectedCategoryFilter === cat
+                        ? 'bg-emerald-600 text-white shadow-md'
+                        : isDarkMode
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 mr-auto flex-wrap justify-end">
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0">طريقة العرض:</span>
+                <select
+                  value={mobileGridCols}
+                  onChange={(e) => setMobileGridCols(e.target.value)}
+                  className={`text-[9px] sm:text-xs font-bold rounded p-1 focus:outline-none ${
+                    isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  <option value="1">عرض 1 بطاقة</option>
+                  <option value="2">عرض 2 بطاقة</option>
+                  <option value="3">عرض 3 بطاقات</option>
+                </select>
+
+                <span className="text-[9px] sm:text-[10px] font-bold shrink-0 mr-2">الترتيب حسب:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className={`text-[9px] sm:text-xs font-bold rounded p-1 focus:outline-none ${
+                    isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  <option value="name">الاسم</option>
+                  <option value="category">الصنف</option>
+                  <option value="weight">الوزن</option>
+                  <option value="price">سعر الكارتون</option>
+                  <option value="stock">الكمية المتوفرة</option>
+                  <option value="most_sold">الأكثر مبيعاً</option>
+                  <option value="file_order">ترتيب الملف المرفوع</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Products Grid */}
+      <div className="mt-4 pb-12">
+        {filteredProducts.length === 0 ? (
+          <div className={`rounded-2xl border shadow-xl flex flex-col items-center justify-center py-12 px-4 text-center ${
+            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <Package className="w-12 h-12 text-slate-500 opacity-40 mb-3" />
+            <p className="font-bold text-slate-400">لا توجد منتجات مسجلة حالياً.</p>
+            {isAdmin && (
+              <p className="text-xs text-slate-500 mt-1">
+                قم بإضافة منتج جديد أو رفع ملف إكسل.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className={`grid ${mobileGridCols === '1' ? 'grid-cols-1' : mobileGridCols === '3' ? 'grid-cols-3' : 'grid-cols-2'} sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2`}>
+            {filteredProducts.map((prod, idx) => {
+              const isEditing = editingId === prod.id;
+              const hasQuantity = !!selectedQuantities[prod.id];
+              const norm = (s: any) => 
+                String(s || '')
+                  .trim()
+                  .toLowerCase()
+                  .replace(/[أإآ]/g, 'ا')
+                  .replace(/ة/g, 'ه')
+                  .replace(/ى/g, 'ي')
+                  .replace(/\s+/g, ' ');
+
+              const pCode = String(prod.productCode || '').trim().toLowerCase();
+              const pName = norm(prod.productName);
+
+              const matchingGiftPromotion = giftPromotions.find(gp => {
+                const gCode = String(gp.productCode || '').trim().toLowerCase();
+                const gName = norm(gp.productName);
+
+                const matchCode = Boolean(pCode && gCode && (pCode === gCode || pCode.includes(gCode) || gCode.includes(pCode)));
+                const matchName = Boolean(pName && gName && (pName === gName || pName.includes(gName) || gName.includes(pName)));
+
+                return matchCode || matchName;
+              });
+
+              const today = new Date().toISOString().split('T')[0];
+              const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+
+              const isGiftActiveAndRunning = Boolean(
+                matchingGiftPromotion &&
+                matchingGiftPromotion.isActive !== false &&
+                (!matchingGiftPromotion.startDate || today >= matchingGiftPromotion.startDate || baghdadToday >= matchingGiftPromotion.startDate) &&
+                (!matchingGiftPromotion.endDate || today <= matchingGiftPromotion.endDate || baghdadToday <= matchingGiftPromotion.endDate)
+              );
+
+              const isProductInGiftsTable = isGiftActiveAndRunning || Boolean(matchingGiftPromotion && matchingGiftPromotion.isActive !== false);
+
+              const { totalUnits, cartons: remainingCartons, unitsPerCarton } = getProductLiveStock(prod);
+
+              return (
+                <div
+                  key={prod.id || idx}
+                  onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
+                  className={`relative overflow-hidden flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
+                    isDarkMode 
+                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : 'border-slate-800'}` 
+                      : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'}`
+                  } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''} sm:hover:shadow-md sm:cursor-pointer`}
+                >
+                    {/* Dynamic Real-time Stock Header at Top of Product Card */}
+                    <div 
+                      className={`w-full py-1 px-2 rounded-md mb-0.5 flex items-center justify-between font-black text-[9px] sm:text-[10px] transition-colors shadow-xs ${
+                        totalUnits <= 0
+                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
+                          : totalUnits < (6 * unitsPerCarton)
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
+                          : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                      }`}
+                      title={`المخزون المتوفر: ${remainingCartons} كارتون`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Package className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">
+                          {remainingCartons} كارتون
+                        </span>
+                      </div>
+                      {totalUnits <= 0 && (
+                        <span className="text-[9px] font-black text-rose-600 dark:text-rose-400">
+                          نفد المخزون
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Slanted Gift Ribbon / Banner */}
+                    {isProductInGiftsTable && (
+                      <div className="absolute top-0 left-0 overflow-hidden w-20 h-20 pointer-events-none z-10 rounded-tl-lg">
+                        <div className="absolute transform -rotate-45 bg-amber-400 text-slate-950 font-black text-[9px] py-0.5 left-[-28px] top-[14px] w-[85px] text-center shadow-xs uppercase tracking-wider border-y border-amber-500">
+                          هدية
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Category Label and Stock */}
+                    <div className="flex items-center justify-between gap-1 shrink-0">
+                      <div className="flex items-center gap-1">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editCategoryName}
+                            onChange={(e) => setEditCategoryName(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="w-16 px-1 py-0.5 text-[8px] rounded border border-emerald-500 bg-slate-800 text-white font-bold text-center"
+                            placeholder="الصنف"
+                          />
+                        ) : (
+                          <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                            isDarkMode ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                          }`}>
+                            {prod.categoryName}
+                          </span>
+                        )}
+                        {isProductInGiftsTable && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isAdmin && !isRafat && matchingGiftPromotion) {
+                                updateGiftPromotion(matchingGiftPromotion.id, { isActive: false });
+                              }
+                            }}
+                            title={isAdmin && !isRafat ? "اضغط لإلغاء تفعيل الهدية من جدول الهدايا" : "هدية ترويجية مفعلة"}
+                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 transition-all bg-amber-500 text-slate-950 border border-amber-600 shadow-xs ${isAdmin && !isRafat ? 'cursor-pointer hover:bg-amber-400' : 'cursor-default'}`}
+                          >
+                            <span>🎁 هدية</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                  {/* Actions / Edit buttons below category box */}
+                  {isAdmin && !isRafat && (
+                    <div className="flex items-center justify-end my-1">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1 w-full justify-end">
+                          <button
+                            onClick={() => saveEditing(prod.id)}
+                            title="حفظ"
+                            className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] rounded shadow save-btn transition-all flex items-center gap-1 font-bold"
+                          >
+                            <Check className="w-3 h-3" /> حفظ
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            title="إلغاء"
+                            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] rounded shadow transition-all flex items-center gap-1 font-bold"
+                          >
+                            <X className="w-3 h-3" /> إلغاء
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditing(prod);
+                            }}
+                            title="تعديل تفاصيل المنتج"
+                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 transition-all ${
+                              isDarkMode
+                                ? 'bg-slate-800 hover:bg-emerald-950 text-slate-300 hover:text-emerald-300 border border-slate-700'
+                                : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-300'
+                            }`}
+                          >
+                            <Edit3 className="w-3 h-3 text-emerald-500" /> تعديل
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+                                deleteProduct(prod.id);
+                              }
+                            }}
+                            title="حذف المنتج"
+                            className={`p-1 rounded transition-all ${
+                              isDarkMode
+                                ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700'
+                                : 'bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-300'
+                            }`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Product Code & Stock Cartons */}
+                  <div className="text-right flex items-center justify-between">
+                    <div>
+                      {isEditing && (
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[8px] text-slate-400">عدد كارتون بالمخزن:</label>
+                          <input
+                            type="number"
+                            value={editStockCartons}
+                            onChange={(e) => setEditStockCartons(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
+                            placeholder="المخزن"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editProductCode}
+                        onChange={(e) => setEditProductCode(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        className="w-20 px-2 py-1 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-mono text-right"
+                        placeholder="كود المنتج"
+                      />
+                    ) : (
+                      <div className="font-mono text-[9px] sm:text-[10px] font-black text-cyan-600 dark:text-cyan-400 opacity-80">
+                        {prod.productCode}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Product Name & Image */}
+                  <div className="flex flex-col gap-1.5 items-center justify-center my-1.5 w-full min-h-[56px]">
+                    <div className="text-center w-full">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editProductName}
+                          onChange={(e) => setEditProductName(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          className="w-full px-2 py-1.5 text-sm rounded border border-emerald-500 bg-slate-800 text-white font-bold text-center"
+                          placeholder="اسم المنتج"
+                        />
+                      ) : (
+                        <h3 id="product-name-label" className="font-black leading-tight text-orange-500 dark:text-white text-center text-xs sm:text-sm">
+                          {prod.productName}
+                        </h3>
+                      )}
+                    </div>
+                    
+                    {/* Image Display */}
+                    {!isEditing && (
+                      <div className="shrink-0 animate-in fade-in zoom-in-95 duration-200">
+                        {prod.imageUrl ? (
+                          <img 
+                            key={prod.imageUpdatedAt || prod.id}
+                            src={prod.imageUrl} 
+                            alt={prod.productName} 
+                            loading="lazy"
+                            className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white`}
+                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                          />
+                        ) : (
+                          <div className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
+                            <span className="text-5xl font-black opacity-90 drop-shadow-md">{getAvatarProps(prod.productName).initial}</span>
+                            <span className="text-[10px] font-bold opacity-75 mt-2 bg-black/20 px-2 py-0.5 rounded">بدون صورة</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats Grid */}
+                  <div className={`grid grid-cols-2 gap-2 p-1.5 rounded-md border ${
+                    isDarkMode ? 'bg-slate-950/50 border-slate-800/80' : 'bg-slate-50 border-slate-100'
+                  }`}>
+                    <div className="flex flex-col items-center justify-center text-center border-l border-slate-200 dark:border-slate-800">
+                      <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 mb-0.5">العدد بالكرتون</span>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editCartonQuantity}
+                          onChange={(e) => setEditCartonQuantity(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          className="w-10 px-0.5 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
+                        />
+                      ) : (
+                        <span className="font-black text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
+                          {prod.cartonQuantity}
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 mb-0.5">وزن القطعة</span>
+                      {isEditing ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editPieceWeightKg}
+                            onChange={(e) => setEditPieceWeightKg(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="w-10 px-0.5 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
+                          />
+                        </div>
+                      ) : (
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                          {Math.round(Number(prod.pieceWeightKg) * 1000)} غ
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Price Section - Hidden for mohammedsauce */}
+                  {!isSauceUser && (
+                    <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}>
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] font-bold text-slate-400 mb-0.5">سعر ({priceMode === 'retail' ? 'مفرد' : 'جملة'})</span>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={priceMode === 'retail' ? editRetailPrice : editWholesalePrice}
+                            onChange={(e) => priceMode === 'retail' ? setEditRetailPrice(e.target.value) : setEditWholesalePrice(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
+                          />
+                        ) : (
+                          <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-[15px]">
+                            {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
+                        <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
+                        <span className="font-black text-indigo-600 dark:text-indigo-400 text-xs sm:text-[15px]">
+                          {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Quick Add Section - Hidden for mohammedsauce */}
+                  {!isEditing && showQuickAdd && !isSauceUser && (
+                    <div className="mt-0.5 flex flex-col gap-1 w-full">
+                      {(() => {
+                        const { totalUnits: cardTotalUnits, unitsPerCarton } = getProductLiveStock(prod);
+                        const cardQtyVal = parseInt(selectedQuantities[prod.id] || '0', 10);
+                        const cardMode = entryModes[prod.id] || 'piece';
+                        const cardReqPieces = cardMode === 'carton' ? (cardQtyVal * unitsPerCarton) : cardQtyVal;
+                        const isCardOversold = cardQtyVal > 0 && cardReqPieces > cardTotalUnits;
+
+                        return addingQuantityId === prod.id ? (
+                          <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                            {/* عمود إدخال العدد وفوقه زر التبديل بين قطعة وكارتون - أوسع وأطول */}
+                            <div className="col-span-5 flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const nextMode = entryModes[prod.id] === 'carton' ? 'piece' : 'carton';
+                                  setEntryModes(prev => ({...prev, [prod.id]: nextMode}));
+                                  if (selectedQuantities[prod.id]) {
+                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], nextMode);
+                                  }
+                                }}
+                                className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
+                                  entryModes[prod.id] === 'carton'
+                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-600/30'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-emerald-600/30'
+                                }`}
+                                title="تبديل بين قطعة وكارتون"
+                              >
+                                <span>{entryModes[prod.id] === 'carton' ? 'كارتون' : 'قطعة'}</span>
+                              </button>
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="العدد"
+                                value={selectedQuantities[prod.id] || ''}
+                                onChange={(e) => handleUpdateQuantity(prod.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.stopPropagation();
+                                    if (isCardOversold) {
+                                      setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر (${totalUnits} قطعة متاحة)`);
+                                      return;
+                                    }
+                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
+                                    setAddingQuantityId(null);
+                                  }
+                                }}
+                                className={`w-full h-10 px-2 py-2 text-sm sm:text-base font-extrabold rounded-md border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none text-center shadow-sm transition-all ${
+                                  isCardOversold 
+                                    ? 'border-rose-500 focus:ring-2 focus:ring-rose-500' 
+                                    : 'border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:scale-[1.02]'
+                                }`}
+                                autoFocus
+                              />
+                            </div>
+
+                            {/* زر الصح - تأكيد الإدخال وإظهار تنبيه الهدية إن كان مؤهلاً */}
+                            <button
+                              type="button"
+                              disabled={isCardOversold || !cardQtyVal}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isCardOversold) {
+                                  setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}).`);
+                                  return;
+                                }
+                                triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
+                                setAddingQuantityId(null);
+                              }}
+                              className={`col-span-2 w-full h-full min-h-[58px] flex items-center justify-center rounded-md transition-all shadow-md ${
+                                isCardOversold || !cardQtyVal
+                                  ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-60'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white cursor-pointer'
+                              }`}
+                              title={isCardOversold ? "الكمية المطلوبة تتجاوز المخزون المتوفر" : "تأكيد إضافة المنتج للطلب"}
+                            >
+                              <Check className="w-5 h-5 stroke-[2.5]" />
+                            </button>
+
+                            {/* Inline error message if oversold */}
+                            {isCardOversold && (
+                              <div className="col-span-7 p-1 text-[9px] font-black text-rose-700 bg-rose-50 dark:bg-rose-950/80 dark:text-rose-300 rounded border border-rose-300 dark:border-rose-800 text-center flex items-center justify-center gap-1">
+                                <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                                <span>الكمية المطلوبة تتجاوز المخزون المتوفر ({cardTotalUnits} قطعة متاحة)</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : selectedQuantities[prod.id] ? (
+                          <div 
+                            className={`flex items-center justify-between w-full p-1.5 rounded-lg cursor-pointer border ${
+                              isCardOversold 
+                                ? 'bg-rose-100 dark:bg-rose-950/50 border-rose-500 text-rose-800 dark:text-rose-200' 
+                                : 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-500 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAddingQuantityId(prod.id);
+                            }}
+                          >
+                            <span className="text-[10px] font-bold">
+                              {entryModes[prod.id] === 'carton' ? 
+                                `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
+                                `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون`}
+                              {isCardOversold && ' (يتجاوز المخزون ⚠️)'}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateQuantity(prod.id, '');
+                              }}
+                              className="text-slate-600 hover:text-red-600 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAddingQuantityId(prod.id);
+                            }}
+                            className="w-full py-1.5 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg flex items-center justify-center gap-1 transition-all relative"
+                          >
+                            <Plus className="w-4 h-4" />
+                            {totalUnits < (5 * unitsPerCarton) && (
+                              <span title="الكمية قاربت على النفاد بالمخزن" className="absolute left-2">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Expanded Details Section */}
+                  {(expandedId === prod.id || isEditing) && (
+                    <div className={`mt-2 pt-2 border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-200'} flex flex-col gap-2 animate-in slide-in-from-top-1 fade-in duration-200`}>
+                      {isEditing ? (
+                        <>
+                        <div className="flex flex-col gap-2 w-full">
+                          <label className="text-[9px] font-bold text-slate-400">صورة المنتج (رابط أو رفع)</label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={editImageUrl}
+                              onChange={(e) => setEditImageUrl(e.target.value)}
+                              onKeyDown={handleKeyDown}
+                              className="flex-1 px-2 py-1.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white text-right"
+                              placeholder="رابط الصورة (URL)"
+                            />
+                            <label className="cursor-pointer px-2 py-1.5 bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 flex items-center justify-center transition-colors" title="رفع من الجهاز">
+                              <ImagePlus className="w-3.5 h-3.5 text-emerald-400" />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageUpload}
+                              />
+                            </label>
+                            <label className="cursor-pointer px-2 py-1.5 bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 flex items-center justify-center transition-colors" title="التقاط بالكاميرا">
+                              <Camera className="w-3.5 h-3.5 text-amber-400" />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                onChange={handleImageUpload}
+                              />
+                            </label>
+                          </div>
+                          {editImageUrl && (
+                            <img src={editImageUrl} alt="Preview" className="w-16 h-16 object-contain mx-auto mt-1 rounded border border-slate-700 bg-white" />
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center justify-between p-2 rounded-md border border-slate-700 bg-slate-800/50 mt-1">
+                          <span className="text-[10px] font-bold text-white">حالة المنتج</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditIsAvailable(!editIsAvailable)}
+                            className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                              editIsAvailable ? 'bg-emerald-500' : 'bg-slate-600'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                editIsAvailable ? '-translate-x-2' : 'translate-x-2'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Footer Summary */}
+        <div className={`mt-6 p-4 rounded-xl border flex items-center justify-between text-xs font-bold ${
+          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'
+        }`}>
+          <span>إجمالي المنتجات: <strong className="text-emerald-500">{filteredProducts.length}</strong></span>
+          {isAdmin && !isRafat && (
+            <span className="text-amber-500 dark:text-amber-400">✨ يمكنك تعديل أي منتج بالضغط على أيقونة التعديل</span>
+          )}
+        </div>
+      </div>
+
+      {showImageUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`font-black text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>إضافة صورة لمنتج</h3>
+              <button onClick={() => setShowImageUploadModal(false)} className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            {imageUploadError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl text-red-500 text-xs font-bold">
+                {imageUploadError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>كود المنتج</label>
+                <input
+                  type="text"
+                  value={imageUploadCode}
+                  onChange={(e) => setImageUploadCode(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border text-sm font-bold text-center ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-emerald-500'} focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all`}
+                  placeholder="مثال: PRD-1234"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>صورة المنتج</label>
+                <div className="flex flex-col items-center gap-3">
+                  {imageUploadBase64 ? (
+                    <div className="relative">
+                      <img src={imageUploadBase64} alt="Preview" className="w-32 h-32 object-contain rounded-xl border border-slate-300 dark:border-slate-700 bg-white" />
+                      <button onClick={() => setImageUploadBase64('')} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full shadow-lg hover:bg-rose-600">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={`w-full flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${isDarkMode ? 'border-slate-700 hover:border-emerald-500 bg-slate-800/50 hover:bg-slate-800' : 'border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50'}`}>
+                      <ImagePlus className={`w-8 h-8 mb-2 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
+                      <span className={`text-xs font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>اضغط لاختيار صورة</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleStandaloneImageUpload} />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleStandaloneImageSubmit}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98]"
+              >
+                حفظ الصورة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Bottom Bar for Current Invoice Totals */}
+      {showQuickAdd && (
+        <div className="fixed bottom-[56px] sm:bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t-2 border-emerald-500/40 dark:border-emerald-500/30 shadow-[0_-4px_25px_rgba(0,0,0,0.15)] px-3 sm:px-6 py-2.5 sm:py-3 transition-all">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+            
+            {/* Right side: Current Weight */}
+            <div className="flex items-center gap-2 sm:gap-3 text-right">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 shadow-inner">
+                <Scale className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                  الوزن الحالي للإدخالات
+                </span>
+                <span className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white">
+                  {currentInvoiceTotals.totalWeightKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span className="text-[10px] sm:text-xs font-bold text-slate-500">كغم</span>
+                  {currentInvoiceTotals.totalWeightKg >= 1000 && (
+                    <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold mr-1">
+                      ({(currentInvoiceTotals.totalWeightKg / 1000).toFixed(2)} طن)
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Center: Save Invoice Quick Button & Summary */}
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={prepareSave}
+                disabled={hasAnyOversoldProduct || currentInvoiceTotals.itemCount === 0}
+                className={`px-3.5 sm:px-6 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-black shadow-lg flex items-center gap-1.5 transition-all ${
+                  hasAnyOversoldProduct || currentInvoiceTotals.itemCount === 0
+                    ? 'bg-slate-400 dark:bg-slate-700 text-slate-200 dark:text-slate-400 cursor-not-allowed opacity-75'
+                    : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white shadow-emerald-600/20 cursor-pointer'
+                }`}
+                title={hasAnyOversoldProduct ? "الكمية المطلوبة تتجاوز المخزون المتوفر" : "معاينة وحفظ الفاتورة"}
+              >
+                <span>حفظ الفاتورة</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-700/60 text-[10px] font-bold">
+                  {currentInvoiceTotals.itemCount}
+                </span>
+              </button>
+              {hasAnyOversoldProduct && (
+                <span className="text-[10px] sm:text-xs font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 animate-pulse">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>الكمية المطلوبة تتجاوز المخزون المتوفر</span>
+                </span>
+              )}
+            </div>
+
+            {/* Left side: Current Total Amount */}
+            <div className="flex items-center gap-2 sm:gap-3 text-left flex-row-reverse sm:flex-row">
+              <div className="flex flex-col text-left">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                  المبلغ الكلي الحالي
+                </span>
+                <span className="text-xs sm:text-sm md:text-base font-black text-emerald-600 dark:text-emerald-400">
+                  {currentInvoiceTotals.totalAmount.toLocaleString()} <span className="text-[10px] sm:text-xs font-bold text-slate-500">د.ع</span>
+                </span>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 shadow-inner">
+                <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Store Notifications Modal (إشعارات وسجل عمليات الجرد بالمخزن) */}
+      <StoreNotificationsModal
+        isOpen={showStoreNotificationsModal}
+        onClose={() => setShowStoreNotificationsModal(false)}
+        inventoryLogs={inventoryLogs}
+        isDarkMode={isDarkMode}
+        productsList={productsList}
+        isSauceUser={isSauceUser}
+        isAdmin={isAdminUser}
+        onDeleteLog={deleteInventoryLog}
+      />
+    </div>
+  );
+};
