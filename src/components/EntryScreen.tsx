@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, Clock, RotateCcw, UserCheck, Shield, Calendar } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
@@ -80,6 +80,7 @@ export const EntryScreen: React.FC = () => {
     }
   }, [prefilledEntryData, setPrefilledEntryData]);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [selectedProductFilter, setSelectedProductFilter] = useState<string>('الكل');
   const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
   const [savedEntriesFilterPriceMode, setSavedEntriesFilterPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
@@ -383,6 +384,23 @@ export const EntryScreen: React.FC = () => {
   const safeDelegateTargets = Array.isArray(delegateTargets) ? delegateTargets : [];
   const safeSavedEntries = Array.isArray(savedEntries) ? savedEntries : [];
   const uniqueCustomerNames = Array.from(new Set(safeSavedEntries.map(e => e.customerName).filter(Boolean))).sort();
+  // Unique list of product names extracted from products database and invoices
+  const availableProductNames = useMemo(() => {
+    const namesSet = new Set<string>();
+    if (Array.isArray(productsList)) {
+      productsList.forEach((p) => {
+        const name = (p?.productName || '').trim();
+        if (name) namesSet.add(name);
+      });
+    }
+    if (Array.isArray(safeSavedEntries)) {
+      safeSavedEntries.forEach((e) => {
+        const name = (e?.productName || '').trim();
+        if (name) namesSet.add(name);
+      });
+    }
+    return Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [productsList, safeSavedEntries]);
   const activeAccountObj = safeDelegateAccounts.find((a) => a.delegateName === activeDelegateName);
 
   // Active delegate targets
@@ -1140,29 +1158,109 @@ export const EntryScreen: React.FC = () => {
         setShowCustomExportModal(false);
     };
 
-  const filteredSavedEntries = safeSavedEntries.filter(
-    (e) => {
-      const matchSearch = !customerSearchTerm || (e.customerName && e.customerName.includes(customerSearchTerm));
-      const matchDelegate = savedEntriesFilterDelegate === 'الكل' || e.delegateName === savedEntriesFilterDelegate;
-      const matchPrice = savedEntriesFilterPriceMode === 'الكل' || e.priceMode === savedEntriesFilterPriceMode;
-      return matchSearch && matchDelegate && matchPrice;
-    }
-  );
-  
-  const uniqueDelegatesForFilter = Array.from(new Set(safeSavedEntries.map(e => e.delegateName || 'غير محدد'))).sort();
+  const isProductFilterActive = Boolean(selectedProductFilter && selectedProductFilter !== 'الكل');
 
+  // Filter entries based on customer search, delegate, and price mode
+  const baseFilteredSavedEntries = safeSavedEntries.filter((e) => {
+    const matchSearch = !customerSearchTerm || (e.customerName && e.customerName.includes(customerSearchTerm));
+    const matchDelegate = savedEntriesFilterDelegate === 'الكل' || e.delegateName === savedEntriesFilterDelegate;
+    const matchPrice = savedEntriesFilterPriceMode === 'الكل' || e.priceMode === savedEntriesFilterPriceMode;
+    return matchSearch && matchDelegate && matchPrice;
+  });
 
-  const groupedEntries: Record<string, typeof safeSavedEntries> = {};
-  filteredSavedEntries.forEach((entry) => {
+  // Group base entries into full invoices
+  const fullGroupedInvoices: Record<string, typeof safeSavedEntries> = {};
+  baseFilteredSavedEntries.forEach((entry) => {
     let groupKey = entry.customerName || 'بدون اسم زبون';
     if (currentUser?.isAdmin && selectedDelegate === 'الكل') {
       groupKey = `${entry.delegateName || 'مندوب غير محدد'} | الزبون: ${groupKey}`;
     }
-    if (!groupedEntries[groupKey]) {
-      groupedEntries[groupKey] = [];
+    if (!fullGroupedInvoices[groupKey]) {
+      fullGroupedInvoices[groupKey] = [];
     }
-    groupedEntries[groupKey].push(entry);
+    fullGroupedInvoices[groupKey].push(entry);
   });
+
+  // Apply product filter:
+  // 1. Only include invoices that contain the selected product
+  // 2. Inside each invoice, show ONLY the line item corresponding to the selected product (hide other items)
+  // When "All Products" is selected, restore full view with all original line items intact
+  const groupedEntries: Record<string, typeof safeSavedEntries> = {};
+  const invoiceOriginalCounts: Record<string, number> = {};
+
+  Object.entries(fullGroupedInvoices).forEach(([groupKey, allInvoiceEntries]) => {
+    invoiceOriginalCounts[groupKey] = allInvoiceEntries.length;
+
+    if (!isProductFilterActive) {
+      groupedEntries[groupKey] = allInvoiceEntries;
+    } else {
+      const matchingItems = allInvoiceEntries.filter(
+        (e) => (e.productName || '').trim() === selectedProductFilter.trim()
+      );
+      if (matchingItems.length > 0) {
+        groupedEntries[groupKey] = matchingItems;
+      }
+    }
+  });
+
+  // Calculate total weight of currently displayed entries
+  const displayedEntriesList = Object.values(groupedEntries).flat();
+  const currentDisplayedWeight = displayedEntriesList.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+
+  // Calculate cartons & pieces for displayed entries
+  const { totalDisplayedPieces, totalDisplayedCartons, displayedRemainderPieces } = useMemo(() => {
+    let pieces = 0;
+    let cartons = 0;
+
+    if (isProductFilterActive) {
+      const normalizedFilter = (selectedProductFilter || '').trim().toLowerCase();
+      const matchedProd = productsList.find(
+        (p) => (p.productName || '').trim().toLowerCase() === normalizedFilter
+      );
+      const cartonQty = Number(matchedProd?.cartonQuantity) || 1;
+
+      pieces = displayedEntriesList.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+
+      if (cartonQty > 1) {
+        cartons = Math.floor(pieces / cartonQty);
+        const remainder = pieces % cartonQty;
+        return {
+          totalDisplayedPieces: pieces,
+          totalDisplayedCartons: cartons,
+          displayedRemainderPieces: remainder,
+        };
+      } else {
+        return {
+          totalDisplayedPieces: pieces,
+          totalDisplayedCartons: pieces,
+          displayedRemainderPieces: 0,
+        };
+      }
+    } else {
+      displayedEntriesList.forEach((e) => {
+        const q = Number(e.quantity) || 0;
+        pieces += q;
+        const normalizedName = (e.productName || '').trim().toLowerCase();
+        const prod = productsList.find(
+          (p) => (p.productName || '').trim().toLowerCase() === normalizedName
+        );
+        const cq = Number(prod?.cartonQuantity) || 1;
+        if (e.entryUnit === 'carton') {
+          cartons += Number(e.enteredQuantity) || (cq > 1 ? Math.floor(q / cq) : q);
+        } else if (cq > 1 && q >= cq) {
+          cartons += Math.floor(q / cq);
+        }
+      });
+
+      return {
+        totalDisplayedPieces: pieces,
+        totalDisplayedCartons: cartons,
+        displayedRemainderPieces: 0,
+      };
+    }
+  }, [displayedEntriesList, isProductFilterActive, selectedProductFilter, productsList]);
+  
+  const uniqueDelegatesForFilter = Array.from(new Set(safeSavedEntries.map(e => e.delegateName || 'غير محدد'))).sort();
 
   const delegateStats: Record<string, { retail: Set<string>, wholesale: Set<string>, total: Set<string> }> = {};
   safeSavedEntries.forEach((entry) => {
@@ -1519,17 +1617,123 @@ export const EntryScreen: React.FC = () => {
               </>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="بحث باسم الزبون..."
-              value={customerSearchTerm}
-              onChange={(e) => setCustomerSearchTerm(e.target.value)}
-              className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full sm:w-64"
-            />
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* Customer Search Bar */}
+            <div className="relative flex-1 sm:w-56 min-w-[140px]">
+              <input
+                type="text"
+                placeholder="بحث باسم الزبون..."
+                value={customerSearchTerm}
+                onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                className={`w-full pr-3 pl-7 py-1.5 border rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all ${
+                  isDarkMode 
+                    ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-400' 
+                    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400'
+                }`}
+              />
+              {customerSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setCustomerSearchTerm('')}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer font-bold"
+                  title="مسح البحث"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Product Filter Dropdown Component */}
+            <div className="relative flex-1 sm:w-60 min-w-[180px]">
+              <div className="relative flex items-center">
+                <select
+                  value={selectedProductFilter}
+                  onChange={(e) => setSelectedProductFilter(e.target.value)}
+                  className={`w-full py-1.5 pr-8 pl-7 border rounded-lg text-xs font-black transition-all appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs ${
+                    isProductFilterActive
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/70 dark:text-emerald-200 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : isDarkMode
+                      ? 'bg-slate-800 border-slate-700 text-slate-200'
+                      : 'bg-white border-slate-300 text-slate-700'
+                  }`}
+                  title="فلترة الفواتير حسب منتج محدد"
+                >
+                  <option value="الكل">📦 جميع المنتجات (عرض كامل)</option>
+                  {availableProductNames.map((pName) => (
+                    <option key={`prod_filter_${pName}`} value={pName}>
+                      {pName}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Leading Package Icon */}
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-emerald-600 dark:text-emerald-400">
+                  <Package className="w-3.5 h-3.5" />
+                </div>
+
+                {/* Trailing Clear Button or Arrow */}
+                {isProductFilterActive ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedProductFilter('الكل');
+                    }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-700 dark:text-emerald-300 hover:text-red-500 dark:hover:text-red-400 text-xs font-black cursor-pointer p-0.5 rounded-full"
+                    title="إلغاء فلترة المنتج وعرض كافة المنتجات"
+                  >
+                    ✕
+                  </button>
+                ) : (
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Total weight display */}
             {safeSavedEntries.length > 0 && (
-              <span className="text-xs font-bold text-emerald-700 shrink-0">
-                الإجمالي: {formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم
+              <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+                isProductFilterActive
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/60 dark:text-emerald-200 dark:border-emerald-700 shadow-xs'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-slate-800 dark:text-emerald-400 dark:border-slate-700'
+              }`}>
+                <Scale className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  {isProductFilterActive ? `وزن (${selectedProductFilter}): ` : 'الوزن الكلي: '}
+                  <strong className="font-mono">{formatWithCommas(parseFloat(currentDisplayedWeight.toFixed(2)), true)}</strong> كجم
+                </span>
+              </span>
+            )}
+
+            {/* فقرة جديدة: عدد الكارتون وعدد القطع المطلوبة */}
+            {safeSavedEntries.length > 0 && (
+              <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+                isProductFilterActive
+                  ? 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-200 dark:border-indigo-700 shadow-xs'
+                  : 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-slate-800 dark:text-indigo-300 dark:border-slate-700'
+              }`}>
+                <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>
+                  عدد الكارتون وعدد القطع المطلوبة:{' '}
+                  <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                    {formatWithCommas(totalDisplayedCartons)}
+                  </strong>{' '}
+                  كارتون
+                  {displayedRemainderPieces > 0 ? (
+                    <>
+                      {' '}و{' '}
+                      <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                        {formatWithCommas(displayedRemainderPieces)}
+                      </strong>{' '}
+                      قطعة
+                    </>
+                  ) : null}
+                  <span className="text-[10px] sm:text-[11px] opacity-80 font-bold mr-1 font-mono">
+                    ({formatWithCommas(totalDisplayedPieces)} قطعة)
+                  </span>
+                </span>
               </span>
             )}
           </div>
@@ -1560,6 +1764,29 @@ export const EntryScreen: React.FC = () => {
         {safeSavedEntries.length === 0 ? (
           <div className="p-4 bg-slate-100 border border-slate-300 rounded-xl text-center text-xs text-slate-600 font-bold">
             لا توجد مبيعات محفوظة اليوم
+          </div>
+        ) : Object.keys(groupedEntries).length === 0 ? (
+          <div className={`p-6 border rounded-xl text-center space-y-2 ${
+            isDarkMode ? 'bg-slate-800/60 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-300 text-slate-600'
+          }`}>
+            <div className="text-2xl">📦</div>
+            <div className="text-xs font-black">
+              {isProductFilterActive
+                ? `لا توجد فواتير تحتوي على منتج "${selectedProductFilter}" ${customerSearchTerm ? `مع اسم الزبون "${customerSearchTerm}"` : ''}`
+                : 'لا توجد فواتير مطابقة لمعايير البحث الحالية'}
+            </div>
+            {(isProductFilterActive || customerSearchTerm) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProductFilter('الكل');
+                  setCustomerSearchTerm('');
+                }}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs inline-block"
+              >
+                إلغاء التصفية وعرض جميع الفواتير
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -1699,14 +1926,15 @@ export const EntryScreen: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              const allEntriesToDelete = fullGroupedInvoices[customerName] || entries;
                               setDeleteConfirmation({
                                 isOpen: true,
                                 title: 'حذف الفاتورة بالكامل',
                                 message: 'هل تريد حذف هذه الفاتورة ؟',
-                                subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${entries.length} سجل).`,
+                                subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${allEntriesToDelete.length} سجل).`,
                                 confirmButtonText: 'نعم، حذف الفاتورة',
                                 onConfirm: () => {
-                                  entries.forEach((e) => deleteSalesEntry(e.id));
+                                  allEntriesToDelete.forEach((e) => deleteSalesEntry(e.id));
                                   setDeleteConfirmation(null);
                                 },
                               });
@@ -1730,7 +1958,13 @@ export const EntryScreen: React.FC = () => {
 
                       <div className="hidden sm:flex items-center gap-1.5 shrink-0">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="text-[11px] font-bold text-slate-400">#{entries.length} مواد</span>
+                        {isProductFilterActive ? (
+                          <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-700">
+                            مفلتر: {selectedProductFilter}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-slate-400">#{entries.length} مواد</span>
+                        )}
                       </div>
                     </div>
 
@@ -1797,6 +2031,25 @@ export const EntryScreen: React.FC = () => {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Active Product Filter Info Banner inside the invoice card */}
+                    {isProductFilterActive && (
+                      <div className="px-3 py-1.5 bg-emerald-50/90 dark:bg-emerald-950/50 border-b border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                        <div className="flex items-center gap-1.5">
+                          <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span>
+                            يتم عرض مادة: <strong className="font-black underline">{selectedProductFilter}</strong> فقط في هذه الفاتورة (تم إخفاء باقي المواد مؤقتاً)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProductFilter('الكل')}
+                          className="text-[10px] text-emerald-700 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline cursor-pointer font-bold shrink-0 mr-2"
+                        >
+                          إلغاء التصفية وعرض جميع المواد
+                        </button>
+                      </div>
+                    )}
 
                     {/* Main Invoice Table matching attached image with compact responsive layout */}
                     <div className="overflow-x-auto">

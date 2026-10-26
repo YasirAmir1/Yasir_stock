@@ -106,13 +106,17 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200 dir-rtl">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200 dir-rtl"
+      onClick={onClose}
+    >
       <div
         className={`w-full max-w-sm rounded-3xl border shadow-2xl p-5 space-y-4 ${
           isDarkMode
             ? 'bg-white border-slate-200 text-slate-900'
             : 'bg-white border-slate-200 text-slate-900'
         }`}
+        onClick={e => e.stopPropagation()}
       >
         {/* Header - Sticky on scroll */}
         <div className="sticky top-0 z-20 bg-white dark:bg-slate-900 pb-3 border-b border-slate-700/30 flex items-center justify-between">

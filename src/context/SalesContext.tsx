@@ -789,16 +789,16 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const newTotalPieces = newProd.totalPieces;
           const unitsPerCarton = newProd.unitsPerCarton;
           
-          // شرط الظهور للمندوبين: متاح و 6 كارتون فأكثر
-          // أي منتج يتم تنفيذ شرط حجب المندوبين عليه (< 6 كارتون أو غير متاح) لا يتم عرضه في إشعارات المخزن
-          const meetsDelegateCondition = newProd.isAvailable !== false && newTotalPieces >= (6 * unitsPerCarton) && newProd.isVisible !== false;
+          // شرط الظهور للمندوبين: متاح و 3 كارتون فأكثر
+          // أي منتج يتم تنفيذ شرط حجب المندوبين عليه (< 3 كارتون أو غير متاح) لا يتم عرضه في إشعارات المخزن
+          const meetsDelegateCondition = newProd.isAvailable !== false && newTotalPieces >= (3 * unitsPerCarton) && newProd.isVisible !== false;
           if (!meetsDelegateCondition) {
             return;
           }
 
           if (prevProd) {
             const prevTotalPieces = prevProd.totalPieces || 0;
-            const prevMetDelegate = prevProd.isAvailable !== false && prevTotalPieces >= (6 * (prevProd.unitsPerCarton || 12)) && prevProd.isVisible !== false;
+            const prevMetDelegate = prevProd.isAvailable !== false && prevTotalPieces >= (3 * (prevProd.unitsPerCarton || 12)) && prevProd.isVisible !== false;
 
             // كان محجوباً أو غير متاح للمندوبين، والآن أصبح ظاهراً لهم بوصول كمية كافية
             if (!prevMetDelegate) {

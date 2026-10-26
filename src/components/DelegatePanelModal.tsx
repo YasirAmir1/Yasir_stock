@@ -358,8 +358,15 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" dir="rtl">
-      <div className={`w-[95%] sm:w-full max-w-md sm:max-w-xl h-[75vh] sm:h-[82vh] max-h-[620px] sm:max-h-[800px] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}>
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+      onClick={onClose}
+      dir="rtl"
+    >
+      <div 
+        className={`w-[95%] sm:w-full max-w-md sm:max-w-xl h-[75vh] sm:h-[82vh] max-h-[620px] sm:max-h-[800px] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}
+        onClick={e => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className={`flex items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3.5 border-b shrink-0 ${isDarkMode ? 'border-slate-800 bg-slate-800/60' : 'border-slate-100 bg-slate-50'}`}>

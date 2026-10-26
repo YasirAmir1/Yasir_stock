@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
-  XCircle
+  XCircle,
+  Scale
 } from 'lucide-react';
 import { formatWithCommas } from '../utils/numberUtils';
 import logoImg from '../assets/images/logo.png';
@@ -98,6 +99,7 @@ export const OldInvoicesScreen: React.FC = () => {
   const [selectedPriceMode, setSelectedPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
   const [selectedMonth, setSelectedMonth] = useState<string>('الكل');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedProduct, setSelectedProduct] = useState<string>('الكل');
   const [visibleCount, setVisibleCount] = useState<number>(30);
   const [archivedEntries, setArchivedEntries] = useState<SalesEntry[]>([]);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
@@ -402,6 +404,24 @@ export const OldInvoicesScreen: React.FC = () => {
     return delegatesList.filter((name) => isDelegateCompletedToday(name)).length;
   }, [delegatesList, completedDelegates]);
 
+  // Dynamic list of unique product names from catalog and entries
+  const availableProductsList = useMemo(() => {
+    const set = new Set<string>();
+    if (Array.isArray(productsList)) {
+      productsList.forEach(p => {
+        const name = (p?.productName || '').trim();
+        if (name) set.add(name);
+      });
+    }
+    if (Array.isArray(allEntriesCombined)) {
+      allEntriesCombined.forEach(e => {
+        const name = (e?.productName || '').trim();
+        if (name) set.add(name);
+      });
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [productsList, allEntriesCombined]);
+
   // Product Code lookup helper
   const getProductCode = (productName: string) => {
     const prod = productsList.find(p => p.productName === productName);
@@ -449,6 +469,13 @@ export const OldInvoicesScreen: React.FC = () => {
       // 5. Filter by Month
       if (!selectedDate && selectedMonth !== 'الكل') {
         if (!e.dateString || !e.dateString.startsWith(selectedMonth)) {
+          return false;
+        }
+      }
+
+      // 6. Filter by Product
+      if (selectedProduct !== 'الكل') {
+        if ((e.productName || '').trim() !== selectedProduct.trim()) {
           return false;
         }
       }
@@ -1508,6 +1535,66 @@ export const OldInvoicesScreen: React.FC = () => {
 
   const displayedInvoices = groupedOldInvoices.slice(0, visibleCount);
 
+  const displayedFilteredEntries = useMemo(() => {
+    return displayedInvoices.flatMap((inv) => inv.entries);
+  }, [displayedInvoices]);
+
+  const displayedProductWeight = useMemo(() => {
+    return displayedFilteredEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+  }, [displayedFilteredEntries]);
+
+  const { oldTotalPieces, oldTotalCartons, oldRemainderPieces } = useMemo(() => {
+    let pieces = 0;
+    let cartons = 0;
+
+    if (selectedProduct !== 'الكل') {
+      const normalizedFilter = (selectedProduct || '').trim().toLowerCase();
+      const matchedProd = productsList.find(
+        (p) => (p.productName || '').trim().toLowerCase() === normalizedFilter
+      );
+      const cartonQty = Number(matchedProd?.cartonQuantity) || 1;
+
+      pieces = displayedFilteredEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+
+      if (cartonQty > 1) {
+        cartons = Math.floor(pieces / cartonQty);
+        const remainder = pieces % cartonQty;
+        return {
+          oldTotalPieces: pieces,
+          oldTotalCartons: cartons,
+          oldRemainderPieces: remainder,
+        };
+      } else {
+        return {
+          oldTotalPieces: pieces,
+          oldTotalCartons: pieces,
+          oldRemainderPieces: 0,
+        };
+      }
+    } else {
+      displayedFilteredEntries.forEach((e) => {
+        const q = Number(e.quantity) || 0;
+        pieces += q;
+        const normalizedName = (e.productName || '').trim().toLowerCase();
+        const prod = productsList.find(
+          (p) => (p.productName || '').trim().toLowerCase() === normalizedName
+        );
+        const cq = Number(prod?.cartonQuantity) || 1;
+        if (e.entryUnit === 'carton') {
+          cartons += Number(e.enteredQuantity) || (cq > 1 ? Math.floor(q / cq) : q);
+        } else if (cq > 1 && q >= cq) {
+          cartons += Math.floor(q / cq);
+        }
+      });
+
+      return {
+        oldTotalPieces: pieces,
+        oldTotalCartons: cartons,
+        oldRemainderPieces: 0,
+      };
+    }
+  }, [displayedFilteredEntries, selectedProduct, productsList]);
+
   return (
     <div className="max-w-5xl mx-auto p-3 sm:p-4 space-y-4">
       {renderMonthlyCustomerReports()}
@@ -1639,29 +1726,120 @@ export const OldInvoicesScreen: React.FC = () => {
 
       {/* Filter & Search Bar */}
       <div className={`p-3 sm:p-4 rounded-xl border shadow-xs space-y-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        {/* Primary Search by Store / Shop Name (اسم المحل) */}
-        <div className="relative w-full">
-          <div className="absolute right-3 top-2.5 text-emerald-600 dark:text-emerald-400">
-            <Search className="w-4 h-4" />
+        {/* Primary Search by Store / Shop Name & Product Filter Dropdown */}
+        <div className="flex flex-col sm:flex-row items-center gap-2">
+          <div className="relative flex-1 w-full">
+            <div className="absolute right-3 top-2.5 text-emerald-600 dark:text-emerald-400">
+              <Search className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              value={shopSearchTerm}
+              onChange={(e) => setShopSearchTerm(e.target.value)}
+              placeholder="🔍 بحث باسم المحل / الزبون، كود الزبون..."
+              className={`w-full pr-9 pl-7 py-2 rounded-xl border text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                isDarkMode 
+                  ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-400' 
+                  : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
+              }`}
+            />
+            {shopSearchTerm && (
+              <button
+                onClick={() => setShopSearchTerm('')}
+                className="absolute left-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer font-bold"
+              >
+                ✕
+              </button>
+            )}
           </div>
-          <input
-            type="text"
-            value={shopSearchTerm}
-            onChange={(e) => setShopSearchTerm(e.target.value)}
-            placeholder="🔍 بحث باسم المحل / الزبون، كود الزبون، أو اسم المنتج..."
-            className={`w-full pr-9 pl-3 py-2 rounded-xl border text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-              isDarkMode 
-                ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-400' 
-                : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
-            }`}
-          />
-          {shopSearchTerm && (
-            <button
-              onClick={() => setShopSearchTerm('')}
-              className="absolute left-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              ✕ مسح
-            </button>
+
+          {/* Product Filter Dropdown */}
+          <div className="relative w-full sm:w-64">
+            <div className="relative flex items-center">
+              <select
+                value={selectedProduct}
+                onChange={(e) => setSelectedProduct(e.target.value)}
+                className={`w-full py-2 pr-8 pl-7 rounded-xl border text-xs font-black transition-all appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs ${
+                  selectedProduct !== 'الكل'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/70 dark:text-emerald-200 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                    : isDarkMode
+                    ? 'bg-slate-800 border-slate-700 text-white'
+                    : 'bg-slate-50 border-slate-300 text-slate-800'
+                }`}
+                title="تصفية الفواتير القديمة حسب منتج محدد"
+              >
+                <option value="الكل">📦 جميع المنتجات (عرض كامل)</option>
+                {availableProductsList.map((pName) => (
+                  <option key={`old_prod_${pName}`} value={pName}>
+                    {pName}
+                  </option>
+                ))}
+              </select>
+
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-emerald-600 dark:text-emerald-400">
+                <Package className="w-3.5 h-3.5" />
+              </div>
+
+              {selectedProduct !== 'الكل' ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedProduct('الكل')}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:text-red-500 cursor-pointer p-0.5 rounded-full"
+                  title="إلغاء فلترة المنتج وعرض الكل"
+                >
+                  ✕
+                </button>
+              ) : (
+                <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Weight Badge */}
+          {displayedInvoices.length > 0 && (
+            <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+              selectedProduct !== 'الكل'
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/60 dark:text-emerald-200 dark:border-emerald-700 shadow-xs'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-slate-800 dark:text-emerald-400 dark:border-slate-700'
+            }`}>
+              <Scale className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>
+                {selectedProduct !== 'الكل' ? `وزن (${selectedProduct}): ` : 'الوزن الكلي: '}
+                <strong className="font-mono">{formatWithCommas(parseFloat(displayedProductWeight.toFixed(2)), true)}</strong> كجم
+              </span>
+            </span>
+          )}
+
+          {/* فقرة جديدة: عدد الكارتون وعدد القطع المطلوبة */}
+          {displayedInvoices.length > 0 && (
+            <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+              selectedProduct !== 'الكل'
+                ? 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-200 dark:border-indigo-700 shadow-xs'
+                : 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-slate-800 dark:text-indigo-300 dark:border-slate-700'
+            }`}>
+              <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span>
+                عدد الكارتون وعدد القطع المطلوبة:{' '}
+                <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                  {formatWithCommas(oldTotalCartons)}
+                </strong>{' '}
+                كارتون
+                {oldRemainderPieces > 0 ? (
+                  <>
+                    {' '}و{' '}
+                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                      {formatWithCommas(oldRemainderPieces)}
+                    </strong>{' '}
+                    قطعة
+                  </>
+                ) : null}
+                <span className="text-[10px] sm:text-[11px] opacity-80 font-bold mr-1 font-mono">
+                  ({formatWithCommas(oldTotalPieces)} قطعة)
+                </span>
+              </span>
+            </span>
           )}
         </div>
 
@@ -1893,6 +2071,25 @@ export const OldInvoicesScreen: React.FC = () => {
                     </div>
                   </div>
                 </h4>
+
+                {/* Active Product Filter Info Banner */}
+                {selectedProduct !== 'الكل' && (
+                  <div className="px-3 py-1.5 bg-emerald-50/90 dark:bg-emerald-950/50 border-b border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                    <div className="flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>
+                        عرض مادة: <strong className="font-black underline">{selectedProduct}</strong> فقط (تم إخفاء باقي المواد مؤقتاً)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProduct('الكل')}
+                      className="text-[10px] text-emerald-700 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline cursor-pointer font-bold shrink-0 mr-2"
+                    >
+                      إلغاء التصفية وعرض جميع المواد
+                    </button>
+                  </div>
+                )}
 
                 {/* Items List - Exactly matching EntryScreen layout */}
                 <div className="flex flex-col px-2 pb-1 pt-0.5">

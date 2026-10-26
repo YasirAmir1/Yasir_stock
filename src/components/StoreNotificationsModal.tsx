@@ -46,7 +46,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
       return false;
     }
     const itemStock = Number(item.stockCartons) || 0;
-    if (itemStock < 6 || item.isAvailable === false || item.isVisible === false) {
+    if (itemStock < 3 || item.isAvailable === false || item.isVisible === false) {
       return false;
     }
 
@@ -57,7 +57,16 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
       );
       if (liveProd) {
         if (isSauceUser && liveProd.categoryName?.trim() !== 'صلصات') return false;
-        if (liveProd.isAvailable === false || liveProd.isVisible === false || (liveProd.stockCartons || 0) < 6) {
+        const unitsPerCarton = Number(liveProd.unitsPerCarton || liveProd.cartonQuantity) || 12;
+        const baselineUnits = Number(
+          liveProd.totalUnits !== undefined 
+            ? liveProd.totalUnits 
+            : (liveProd.totalPieces !== undefined 
+                ? liveProd.totalPieces 
+                : ((Number(liveProd.totalCartons ?? liveProd.stockCartons ?? 0)) * unitsPerCarton))
+        );
+        const liveCartons = Math.floor(baselineUnits / unitsPerCarton);
+        if (liveProd.isAvailable === false || liveProd.isVisible === false || liveCartons < 3) {
           return false;
         }
       }

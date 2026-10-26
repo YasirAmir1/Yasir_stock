@@ -859,7 +859,6 @@ export const RoutesScreen: React.FC = () => {
   const [routeFilterDay, setRouteFilterDay] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [displayLimit, setDisplayLimit] = useState(20);
 
   // Available delegates for the filter dropdown
@@ -1191,33 +1190,6 @@ export const RoutesScreen: React.FC = () => {
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0], 'ar'));
   }, [finalRoutes, searchQuery, displayLimit]);
 
-  const todayOrders = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const orders: Record<string, any> = {};
-    allSalesEntries
-      .filter(e => e.dateString === today)
-      .forEach(entry => {
-        const key = entry.customerCode || entry.customerName;
-        if (!orders[key]) {
-            orders[key] = {
-                customerName: entry.customerName,
-                customerCode: entry.customerCode || '',
-                totalWeight: 0,
-                totalAmount: 0,
-                customerType: entry.customerType || 'مفرد',
-                customerAddress: entry.customerAddress || ''
-            };
-        }
-        orders[key].totalWeight += entry.totalWeightKg;
-        
-        // Find product price
-        const prod = productsList.find(p => p.productName === entry.productName);
-        const price = prod ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-        orders[key].totalAmount += (price * entry.quantity);
-      });
-    return Object.values(orders);
-  }, [allSalesEntries]);
-
   // Optionally keep a check, but inform instead of block, or just rely on the effective code
   if (!currentUser?.isAdmin && !isDataEntry && !effectiveDelegateCode) {
       return (
@@ -1230,10 +1202,6 @@ export const RoutesScreen: React.FC = () => {
 
   const handleRowClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
-  };
-
-  const handleRowClickOrder = (order: any) => {
-    setSelectedInvoice(order);
   };
 
   const moveToTop = async (r: RouteItem) => {
@@ -1561,39 +1529,6 @@ export const RoutesScreen: React.FC = () => {
         {renderDebtsTable()}
       </div>
 
-      {/* Today's Orders Table */}
-      <div className="mt-8">
-            <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg mb-4 text-center">طلبات اليوم للمندوبين</h3>
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap">
-                    <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-                        <tr>
-                            <th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th>
-                            <th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th>
-                            <th className="px-3 py-2 border-b dark:border-slate-700">الوزن الكلي للفاتورة (كجم)</th>
-                            <th className="px-3 py-2 border-b dark:border-slate-700">عنوان الزبون</th>
-                        </tr>
-                    </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-                        {todayOrders.length === 0 ? (
-                            <tr>
-                                <td colSpan={4} className="text-center py-6 text-slate-500 font-bold">لا توجد طلبات اليوم.</td>
-                            </tr>
-                        ) : (
-                            todayOrders.map((order: any, idx: number) => (
-                                <tr key={idx} onClick={() => handleRowClickOrder(order)} className={`cursor-pointer transition-all hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} ${selectedInvoice?.customerCode === order.customerCode ? 'bg-red-100 dark:bg-red-900/30' : ''}`}>
-                                    <td className="px-3 py-2">{order.customerName}</td>
-                                    <td className="px-3 py-2">{order.customerCode}</td>
-                                    <td className="px-3 py-2">{order.totalWeight.toFixed(2)}</td>
-                                    <td className="px-3 py-2">{order.customerAddress}</td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
       {/* Admin Monthly Stats Card */}
       {currentUser?.isAdmin && (() => {
         const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
@@ -1618,33 +1553,6 @@ export const RoutesScreen: React.FC = () => {
         );
       })()}
 
-      {/* Invoice Details Modal */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedInvoice(null)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-black text-emerald-800 dark:text-emerald-200 mb-4">تفاصيل الفاتورة</h3>
-            <div className="space-y-3 text-sm">
-                <p className="flex items-center gap-2"><span className="font-bold text-slate-500">اسم الزبون:</span> {selectedInvoice.customerName}
-                {selectedInvoice.customerPhone && (
-                  <a href={`tel:${selectedInvoice.customerPhone}`} className="text-emerald-600 hover:text-emerald-500">
-                    <Phone className="w-4 h-4" />
-                  </a>
-                )}</p>
-                <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedInvoice.customerCode}</p>
-                <p><span className="font-bold text-slate-500">الوزن الكلي:</span> {selectedInvoice.totalWeight.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} كجم</p>
-                <p><span className="font-bold text-slate-500">مبلغ الفاتورة الكلي:</span> {selectedInvoice.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                <p><span className="font-bold text-slate-500">العنوان:</span> {selectedInvoice.customerAddress}</p>
-            </div>
-            <button 
-                onClick={() => setSelectedInvoice(null)}
-                className="w-full mt-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors"
-            >
-                إغلاق
-            </button>
-          </div>
-        </div>
-      )}
-      
       {/* Debt Details Modal */}
       {selectedDebt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={() => setSelectedDebt(null)}>

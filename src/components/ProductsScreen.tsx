@@ -460,9 +460,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         return false;
       }
 
-      // Hide unavailable products and low stock products (< 6 cartons) for non-admins (مندوبين)
-      const stock = Number(p.stockCartons) || 0;
-      if (!isAdmin && (p.isAvailable === false || stock < 6)) return false;
+      // Hide unavailable products and low stock products (< 3 cartons) for non-admins (مندوبين) using live stock
+      const liveStock = getProductLiveStock(p);
+      if (!isAdmin && (p.isAvailable === false || liveStock.cartons < 3)) return false;
 
       const term = (searchTerm || '').toLowerCase();
       const matchSearch = 
