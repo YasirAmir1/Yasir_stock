@@ -208,7 +208,7 @@ const MainAppContent: React.FC = () => {
             <div className="flex items-center justify-between w-full sm:w-auto shrink-0 gap-1.5">
               {/* Brand Logo & App Title */}
               <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-                <AppLogo size="sm" />
+                <AppLogo size="sm" isPulsing={isLoading || isDataRefreshing} />
                 <div className="flex flex-col">
                   <h1
                     className={`font-black text-xs sm:text-lg tracking-tight leading-none ${

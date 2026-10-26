@@ -48,7 +48,7 @@ export const LoginScreen: React.FC = () => {
       {/* Top Header Controls */}
       <div className="absolute top-4 right-4 left-4 max-w-5xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <AppLogo size="md" />
+          <AppLogo size="md" isPulsing={isSubmitting} />
           <div>
             <h1 className={`font-black text-2xl tracking-tighter ${isDarkMode ? 'text-emerald-400' : 'text-emerald-900'}`}>
               Tikrit Sales
@@ -94,7 +94,7 @@ export const LoginScreen: React.FC = () => {
           {/* Card Header Icon */}
           <div className="text-center space-y-2">
             <div className="flex items-center justify-center py-2">
-              <AppLogo size="lg" className="drop-shadow-xl" />
+              <AppLogo size="lg" className="drop-shadow-xl" isPulsing={isSubmitting} />
             </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight">تسجيل الدخول للنظام</h2>
             <p className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>

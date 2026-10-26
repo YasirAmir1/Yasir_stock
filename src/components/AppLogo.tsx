@@ -4,9 +4,10 @@ import appLogo from '../assets/images/logo.png';
 interface AppLogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  isPulsing?: boolean;
 }
 
-export const AppLogo: React.FC<AppLogoProps> = ({ className = '', size = 'md' }) => {
+export const AppLogo: React.FC<AppLogoProps> = ({ className = '', size = 'md', isPulsing = false }) => {
   const sizeMap = {
     sm: 'h-10 sm:h-12 w-auto',
     md: 'h-16 sm:h-20 w-auto',
@@ -22,7 +23,7 @@ export const AppLogo: React.FC<AppLogoProps> = ({ className = '', size = 'md' })
       <img
         src={appLogo}
         alt="كالة تكريت - Tikrit Sales Logo"
-        className="h-full w-auto object-contain rounded-full shadow-lg border border-emerald-900/30"
+        className={`h-full w-auto object-contain rounded-full shadow-lg border border-emerald-900/30 ${isPulsing ? 'animate-pulse' : ''}`}
       />
     </div>
   );
