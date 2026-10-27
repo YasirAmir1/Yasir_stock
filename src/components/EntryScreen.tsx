@@ -179,6 +179,11 @@ export const EntryScreen: React.FC = () => {
 
   // Edit Saved Entry State
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [transferModal, setTransferModal] = useState<{
+    isOpen: boolean;
+    invoiceId: string;
+    currentDelegate: string;
+  } | null>(null);
   const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{
     total: number;
     count: number;
@@ -1856,10 +1861,11 @@ export const EntryScreen: React.FC = () => {
                 }, 0);
 
                 const invoiceDelegateName = (entries[0]?.delegateName || activeDelegateName || '').trim();
+                const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
                 const isInvoiceSalesCompleted = Boolean(
-                  (invoiceDelegateName && completedDelegates[invoiceDelegateName]) ||
+                  ((invoiceDelegateName && completedDelegates[invoiceDelegateName]) ||
                   isCompleted ||
-                  isPastClosing
+                  isPastClosing) && !isAdminUser
                 );
                 // عمود إجراءات يختفي بعدما يضغط المندوب زر لقد أكملت مبيعات اليوم أو ينتهي توقيت ووقت المبيعات
                 const showActionsColumn = !isInvoiceSalesCompleted;
@@ -1984,7 +1990,20 @@ export const EntryScreen: React.FC = () => {
                           <span className="font-black text-[#1f4e78] dark:text-blue-300">وقت وتاريخ:</span>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-[9px]" dir="ltr">{invoiceDateTimeStr}</span>
                         </div>
-                        <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700">
+                        <div 
+                          className={`flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 ${
+                            currentUser?.isAdmin ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/50' : ''
+                          }`}
+                          onClick={() => {
+                            if (currentUser?.isAdmin) {
+                              setTransferModal({
+                                isOpen: true,
+                                invoiceId: entries[0]?.invoiceId || '',
+                                currentDelegate: entries[0]?.delegateName || 'غير محدد'
+                              });
+                            }
+                          }}
+                        >
                           <span className="font-black text-[#1f4e78] dark:text-blue-300">اسم المندوب:</span>
                           <span className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[85px]">{entries[0]?.delegateName || 'غير محدد'}</span>
                         </div>
@@ -2024,7 +2043,20 @@ export const EntryScreen: React.FC = () => {
                             <th className="py-1.5 px-2 bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-300 font-black whitespace-nowrap">
                               اسم المندوب:
                             </th>
-                            <td className="py-1.5 px-2 font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                            <td 
+                              className={`py-1.5 px-2 font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap ${
+                                currentUser?.isAdmin ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/50' : ''
+                              }`}
+                              onClick={() => {
+                                if (currentUser?.isAdmin) {
+                                  setTransferModal({
+                                    isOpen: true,
+                                    invoiceId: entries[0]?.invoiceId || '',
+                                    currentDelegate: entries[0]?.delegateName || 'غير محدد'
+                                  });
+                                }
+                              }}
+                            >
                               {entries[0]?.delegateName || 'غير محدد'}
                             </td>
                           </tr>
@@ -2663,6 +2695,68 @@ export const EntryScreen: React.FC = () => {
                 <span>{deleteConfirmation.confirmButtonText}</span>
               </button>
             </div>
+          </div>
+    
+      {/* Delegate Transfer Modal */}
+      {transferModal?.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setTransferModal(null)}>
+          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ring-1 ring-black/10 dark:ring-white/10 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-lg text-slate-800 dark:text-white">نقل الفاتورة إلى مندوب آخر</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">اختر المندوب الجديد لنقل جميع محتويات الفاتورة له:</p>
+            <select
+              className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold text-sm"
+              onChange={(e) => {
+                const newDelegate = e.target.value;
+                if (newDelegate && newDelegate !== transferModal.currentDelegate) {
+                  // Perform transfer
+                  const affectedEntries = safeSavedEntries.filter(e => e.invoiceId === transferModal.invoiceId);
+                  affectedEntries.forEach(entry => {
+                    updateSalesEntry(entry.id, { delegateName: newDelegate });
+                  });
+                  setTransferModal(null);
+                  addToast?.({ title: 'تم تحويل الفاتورة', message: `تم تحويل الفاتورة للمندوب: ${newDelegate}`, type: 'success' });
+                }
+              }}
+            >
+              <option value="">اختر مندوباً...</option>
+              {delegatesList.map(del => (
+                <option key={del} value={del}>{del}</option>
+              ))}
+            </select>
+            <button onClick={() => setTransferModal(null)} className="w-full py-2.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">إلغاء</button>
+          </div>
+        </div>
+      )}
+    </div>
+      )}
+
+      {/* Delegate Transfer Modal */}
+      {transferModal?.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setTransferModal(null)}>
+          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ring-1 ring-black/10 dark:ring-white/10 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-lg text-slate-800 dark:text-white">نقل الفاتورة إلى مندوب آخر</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">اختر المندوب الجديد لنقل جميع محتويات الفاتورة له:</p>
+            <select
+              className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold text-sm"
+              onChange={(e) => {
+                const newDelegate = e.target.value;
+                if (newDelegate && newDelegate !== transferModal.currentDelegate) {
+                  // Perform transfer
+                  const affectedEntries = safeSavedEntries.filter(e => e.invoiceId === transferModal.invoiceId);
+                  affectedEntries.forEach(entry => {
+                    updateSalesEntry(entry.id, { delegateName: newDelegate });
+                  });
+                  setTransferModal(null);
+                  addToast?.({ title: 'تم تحويل الفاتورة', message: `تم تحويل الفاتورة للمندوب: ${newDelegate}`, type: 'success' });
+                }
+              }}
+            >
+              <option value="">اختر مندوباً...</option>
+              {delegatesList.map(del => (
+                <option key={del} value={del}>{del}</option>
+              ))}
+            </select>
+            <button onClick={() => setTransferModal(null)} className="w-full py-2.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">إلغاء</button>
           </div>
         </div>
       )}

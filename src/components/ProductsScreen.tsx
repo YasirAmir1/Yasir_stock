@@ -104,33 +104,17 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     return () => unsub();
   }, [userKey]);
 
-  // Latest price update timestamp across all products updated within the last 5 days
-  const latestPriceUpdateTimestamp = useMemo(() => {
-    if (!productsList || productsList.length === 0) return 0;
-    const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const validTimestamps = productsList
-      .filter(p => p.priceUpdatedAt && (now - p.priceUpdatedAt) <= fiveDaysMs)
-      .map(p => p.priceUpdatedAt || 0);
-    return validTimestamps.length > 0 ? Math.max(...validTimestamps) : 0;
-  }, [productsList]);
-
   // Latest upload timestamp across all inventory logs
   const latestUploadTimestamp = useMemo(() => {
     if (!inventoryLogs || inventoryLogs.length === 0) return 0;
     return Math.max(...inventoryLogs.map(l => l.timestamp || 0));
   }, [inventoryLogs]);
 
-  // Combined latest notification timestamp
-  const latestActivityTimestamp = useMemo(() => {
-    return Math.max(latestUploadTimestamp, latestPriceUpdateTimestamp);
-  }, [latestUploadTimestamp, latestPriceUpdateTimestamp]);
-
   // Determine if pulse / glow effect is active:
-  // Active when there is a new upload or price change that occurred after the user's last read timestamp
+  // Active when there is a new upload that occurred after the user's last read timestamp
   const hasUnreadInventory = useMemo(() => {
-    return latestActivityTimestamp > userLastReadTimestamp;
-  }, [latestActivityTimestamp, userLastReadTimestamp]);
+    return latestUploadTimestamp > userLastReadTimestamp;
+  }, [latestUploadTimestamp, userLastReadTimestamp]);
 
   const totalRestockedCount = useMemo(() => {
     return inventoryLogs.reduce((acc, log) => acc + (log.restockedCount || 0), 0);
@@ -447,11 +431,37 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const categoriesList = useMemo(() => {
     if (isSauceUser) return ['صلصات'];
     const cats = new Set<string>();
+
     productsList.forEach(p => {
-      if (p.categoryName) cats.add(p.categoryName);
+      const cat = (p.categoryName || '').trim();
+      if (!cat) return;
+
+      const liveStock = getProductLiveStock(p);
+      // التصنيفات تظهر أو تختفي حسب المتوفر في المخزن:
+      // للمندوب: المنتج متوفر إذا كانت حالته متاح ولديه 3 كراتين فأكثر بالمخزن
+      // للأدمن: المنتج متوفر إذا كانت حالته متاح ولديه رصيد وحدات/كراتين في المخزن أكبر من صفر
+      const isAvailableInWarehouse = isAdmin
+        ? (p.isAvailable !== false && liveStock.totalUnits > 0)
+        : (p.isAvailable !== false && liveStock.cartons >= 3);
+
+      if (isAvailableInWarehouse) {
+        cats.add(cat);
+      }
     });
-    return ['الكل', ...Array.from(cats)];
-  }, [productsList, isSauceUser]);
+
+    const sortedCats = Array.from(cats).sort((a, b) => a.localeCompare(b, 'ar'));
+    return ['الكل', ...sortedCats];
+  }, [productsList, isSauceUser, isAdmin, getProductLiveStock]);
+
+  // في حال اختفى تصنيف محدد لعدم توفره في المخزن، يتم إعادة ضبط الفلتر تلقائياً إلى "الكل"
+  React.useEffect(() => {
+    if (selectedCategoryFilter !== 'الكل' && !categoriesList.includes(selectedCategoryFilter)) {
+      setSelectedCategoryFilter('الكل');
+      try {
+        localStorage.setItem('pref_categoryFilter', 'الكل');
+      } catch {}
+    }
+  }, [categoriesList, selectedCategoryFilter]);
 
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
@@ -1628,7 +1638,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
           {/* Price toggle moved up */}
           <div className="hidden"></div>
           
-          {categoriesList.length > 2 && !isSauceUser && (
+          {categoriesList.length > 1 && !isSauceUser && (
             <div className="flex items-center gap-2 w-full flex-wrap pb-1 sm:pb-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button 
@@ -1641,7 +1651,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                 {categoriesList.map(cat => (
                   <button
                     key={cat}
-                    onClick={() => setSelectedCategoryFilter(cat)}
+                    onClick={() => {
+                      setSelectedCategoryFilter(cat);
+                      try {
+                        localStorage.setItem('pref_categoryFilter', cat);
+                      } catch {}
+                    }}
                     className={`px-2 py-1 rounded text-[8px] sm:text-[9px] font-extrabold transition-all ${
                       selectedCategoryFilter === cat
                         ? 'bg-emerald-600 text-white shadow-md'

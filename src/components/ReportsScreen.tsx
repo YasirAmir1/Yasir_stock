@@ -3135,6 +3135,31 @@ export const ReportsScreen: React.FC = () => {
     return categoryReports.filter((r) => r.isAchieved && r.dailyTargetWeightKg > 0);
   }, [categoryReports]);
 
+  // فرز تقارير الأصناف: الأقل تحقيقاً في الهدف الشهري في أعلى الجدول، والأعلى تحقيقاً في أسفل الجدول
+  const sortedCategoryReports = useMemo(() => {
+    return [...categoryReports].sort((a, b) => {
+      const statsA = getMonthlyCategoryStats(a.categoryName);
+      const statsB = getMonthlyCategoryStats(b.categoryName);
+
+      const pctA = statsA.percentage || 0;
+      const pctB = statsB.percentage || 0;
+
+      // ترتيب تصاعدي: الأقل تحقيقاً في الأعلى والأعلى تحقيقاً في الأسفل
+      if (pctA !== pctB) {
+        return pctA - pctB;
+      }
+
+      // في حال تساوي نسبة الإنجاز: الأقل مبيعات شهرياً يظهر أولاً
+      const salesA = statsA.monthlySales || 0;
+      const salesB = statsB.monthlySales || 0;
+      if (salesA !== salesB) {
+        return salesA - salesB;
+      }
+
+      return (a.categoryName || '').localeCompare(b.categoryName || '', 'ar');
+    });
+  }, [categoryReports, monthlyItemTargets, remainingWorkingDays, currentUser.isAdmin, currentUser.name, selectedDelegate]);
+
   // Overall totals
   const activeDelegateName = currentUser.isAdmin ? selectedDelegate : currentUser.name;
 
@@ -3924,7 +3949,7 @@ export const ReportsScreen: React.FC = () => {
               </tr>
             </thead>
             <tbody className={isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-700'}>
-              {categoryReports.map((item, idx) => {
+              {sortedCategoryReports.map((item, idx) => {
                 const monthlyStats = getMonthlyCategoryStats(item.categoryName);
                 const isMonthlyAchieved = monthlyStats.monthlyTarget > 0 && monthlyStats.percentage >= 100;
 
@@ -4168,7 +4193,7 @@ export const ReportsScreen: React.FC = () => {
                     </tr>
 
                     {/* فاصل كبير وفراغ بارز بين كل صنف والآخر بنفس العرض وبدون نقاط */}
-                    {idx < categoryReports.length - 1 && (
+                    {idx < sortedCategoryReports.length - 1 && (
                       <tr key={`spacer-${item.categoryName}`} className="select-none pointer-events-none" aria-hidden="true">
                         <td colSpan={4} className="p-0 border-0">
                           <div className={`h-5 sm:h-6 w-full ${
