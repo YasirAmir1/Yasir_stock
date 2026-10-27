@@ -3,8 +3,8 @@ import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { RouteItem } from '../types';
 import { db } from '../lib/firebase';
-import { collection, writeBatch, doc, getDocs, setDoc, query, onSnapshot, deleteDoc, where } from 'firebase/firestore';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { collection, writeBatch, doc, getDocs, setDoc, query, deleteDoc, where } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import { CollapsibleCard } from './admin/CollapsibleCard';
@@ -113,14 +113,15 @@ export const AdminScreen: React.FC = () => {
   useEffect(() => {
     if (isGlobalQuotaExceeded()) return;
     const q = query(collection(db, 'debts'));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const arr: DebtItem[] = [];
-        snap.forEach(d => arr.push({ id: d.id, ...d.data() } as DebtItem));
+        snap.forEach((d: any) => arr.push({ id: d.id, ...d.data() } as DebtItem));
         setDebts(arr);
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_debts')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_debts'),
+      'admin_debts'
     );
     return unsub;
   }, []);
@@ -303,37 +304,40 @@ export const AdminScreen: React.FC = () => {
     // Make sure we are fetching ALL routes for admin to display in list,
     // and correctly filtering for delegates
     const q = query(collection(db, 'routes'));
-    const unsubRoutes = onSnapshot(
+    const unsubRoutes = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const arr: RouteItem[] = [];
-        snap.forEach(d => arr.push({ id: d.id, ...d.data() } as RouteItem));
+        snap.forEach((d: any) => arr.push({ id: d.id, ...d.data() } as RouteItem));
         console.log('Fetched routes:', arr.length);
         setRoutes(arr);
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_routes')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_routes'),
+      'admin_routes'
     );
 
     const alertsQ = query(collection(db, 'delegate_alerts'));
-    const unsubAlerts = onSnapshot(
+    const unsubAlerts = safeOnSnapshot(
       alertsQ, 
-      (snap) => {
+      (snap: any) => {
         const arr: AlertItem[] = [];
-        snap.forEach(d => arr.push(d.data() as AlertItem));
+        snap.forEach((d: any) => arr.push(d.data() as AlertItem));
         setAllAlerts(arr);
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_delegate_alerts')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_delegate_alerts'),
+      'admin_delegate_alerts'
     );
 
     const notesQ = query(collection(db, 'delegate_notes'));
-    const unsubNotes = onSnapshot(
+    const unsubNotes = safeOnSnapshot(
       notesQ, 
-      (snap) => {
+      (snap: any) => {
         const arr: NoteItem[] = [];
-        snap.forEach(d => arr.push(d.data() as NoteItem));
+        snap.forEach((d: any) => arr.push(d.data() as NoteItem));
         setAllNotes(arr);
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_delegate_notes')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_delegate_notes'),
+      'admin_delegate_notes'
     );
 
     return () => {

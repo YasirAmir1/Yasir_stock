@@ -23,6 +23,8 @@ export const AppLogo: React.FC<AppLogoProps> = ({ className = '', size = 'md', i
       <img
         src={appLogo}
         alt="كالة تكريت - Tikrit Sales Logo"
+        loading="lazy"
+        decoding="async"
         className={`h-full w-auto object-contain rounded-full shadow-lg border border-emerald-900/30 ${isPulsing ? 'animate-pulse' : ''}`}
       />
     </div>

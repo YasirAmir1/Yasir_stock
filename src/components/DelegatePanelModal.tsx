@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Bell, FileText, Info, Trash2, Edit2 } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, query, where, getDocs, getDoc } from 'firebase/firestore';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { collection, doc, setDoc, deleteDoc, updateDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 
 interface DelegatePanelModalProps {
   onClose: () => void;
@@ -92,31 +92,31 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   useEffect(() => {
     if (!currentUser) return;
 
-    if (isGlobalQuotaExceeded()) return;
-
     if (isAdminOrDataEntry) {
       // Shared real-time Alerts for Admin & Data Entry
       const alertsQ = collection(db, 'admin_data_entry_alerts');
-      const unsubAlerts = onSnapshot(
+      const unsubAlerts = safeOnSnapshot(
         alertsQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: AlertItem[] = [];
-          snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as AlertItem));
+          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as AlertItem));
           setAlerts(loaded.sort((a, b) => a.targetTime - b.targetTime));
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts')
+        (err: any) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts'),
+        'DelegatePanel-admin-alerts'
       );
 
       // Shared real-time Notes for Admin & Data Entry
       const notesQ = collection(db, 'admin_data_entry_notes');
-      const unsubNotes = onSnapshot(
+      const unsubNotes = safeOnSnapshot(
         notesQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: NoteItem[] = [];
-          snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as NoteItem));
+          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as NoteItem));
           setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_notes')
+        (err: any) => logFirestoreErrorGracefully(err, 'admin_data_entry_notes'),
+        'DelegatePanel-admin-notes'
       );
 
       return () => {
@@ -129,52 +129,56 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
       
       // Load Alerts
       const alertsQ = query(collection(db, 'delegate_alerts'), where('delegateName', '==', delegateName));
-      const unsubAlerts = onSnapshot(
+      const unsubAlerts = safeOnSnapshot(
         alertsQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: AlertItem[] = [];
-          snap.forEach(d => loaded.push(d.data() as AlertItem));
+          snap.forEach((d: any) => loaded.push(d.data() as AlertItem));
           setAlerts(loaded.sort((a, b) => a.targetTime - b.targetTime));
         },
-        (err) => logFirestoreErrorGracefully(err, 'delegate_alerts')
+        (err: any) => logFirestoreErrorGracefully(err, 'delegate_alerts'),
+        'DelegatePanel-delegate-alerts'
       );
 
       // Load Notes
       const notesQ = query(collection(db, 'delegate_notes'), where('delegateName', '==', delegateName));
-      const unsubNotes = onSnapshot(
+      const unsubNotes = safeOnSnapshot(
         notesQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: NoteItem[] = [];
-          snap.forEach(d => loaded.push(d.data() as NoteItem));
+          snap.forEach((d: any) => loaded.push(d.data() as NoteItem));
           setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
         },
-        (err) => logFirestoreErrorGracefully(err, 'delegate_notes')
+        (err: any) => logFirestoreErrorGracefully(err, 'delegate_notes'),
+        'DelegatePanel-delegate-notes'
       );
 
       // Load Reads
       const readsQ = query(collection(db, 'delegate_notification_reads'), where('delegateName', '==', delegateName));
-      const unsubReads = onSnapshot(
+      const unsubReads = safeOnSnapshot(
         readsQ, 
-        (snap) => {
+        (snap: any) => {
           const rm: Record<string, number> = {};
-          snap.forEach(d => {
+          snap.forEach((d: any) => {
             rm[d.data().notificationId] = d.data().readAt;
           });
           setReadsMap(rm);
         },
-        (err) => logFirestoreErrorGracefully(err, 'delegate_notification_reads')
+        (err: any) => logFirestoreErrorGracefully(err, 'delegate_notification_reads'),
+        'DelegatePanel-delegate-reads'
       );
 
       // Load Global Notifications
       const notifsQ = query(collection(db, 'admin_notifications'));
-      const unsubNotifs = onSnapshot(
+      const unsubNotifs = safeOnSnapshot(
         notifsQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: any[] = [];
-          snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
+          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() }));
           setGlobalNotifs(loaded.sort((a, b) => b.timestamp - a.timestamp));
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_notifications')
+        (err: any) => logFirestoreErrorGracefully(err, 'admin_notifications'),
+        'DelegatePanel-global-notifs'
       );
 
       return () => {
@@ -187,12 +191,12 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   }, [currentUser, isAdminOrDataEntry]);
 
   useEffect(() => {
-    if (currentUser?.name && !isAdminOrDataEntry && !isGlobalQuotaExceeded()) {
+    if (currentUser?.name && !isAdminOrDataEntry) {
       const taskDocRef = doc(db, 'admin_daily_tasks', currentUser.name);
       
-      const unsub = onSnapshot(
+      const unsub = safeOnSnapshot(
         taskDocRef, 
-        (dSnap) => {
+        (dSnap: any) => {
           if (dSnap.exists()) {
             const data = dSnap.data();
             setDailyTask(data.taskText || '');
@@ -204,7 +208,8 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
             setCompletionTimes({});
           }
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_daily_tasks')
+        (err: any) => logFirestoreErrorGracefully(err, 'admin_daily_tasks'),
+        'DelegatePanel-daily-tasks'
       );
       
       return () => unsub();

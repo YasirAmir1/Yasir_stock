@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
+import { logFirestoreErrorGracefully, safeOnSnapshot } from '../lib/firestoreUtils';
 
 export const UnreadBadge: React.FC<{ 
   delegateName: string; 
@@ -24,22 +24,24 @@ export const UnreadBadge: React.FC<{
       let alertsCount = 0;
       let notesCount = 0;
 
-      const unsubAlerts = onSnapshot(
+      const unsubAlerts = safeOnSnapshot(
         collection(db, 'admin_data_entry_alerts'), 
         (snap) => {
           alertsCount = snap.size;
           setUnreadCount(alertsCount + notesCount);
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts')
+        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts'),
+        'unread_badge_alerts'
       );
 
-      const unsubNotes = onSnapshot(
+      const unsubNotes = safeOnSnapshot(
         collection(db, 'admin_data_entry_notes'), 
         (snap) => {
           notesCount = snap.size;
           setUnreadCount(alertsCount + notesCount);
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_notes')
+        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_notes'),
+        'unread_badge_notes'
       );
 
       return () => {
@@ -76,45 +78,49 @@ export const UnreadBadge: React.FC<{
       setUnreadCount(count);
     };
 
-    const unsubNotifs = onSnapshot(
+    const unsubNotifs = safeOnSnapshot(
       collection(db, 'admin_notifications'), 
-      (snap) => {
-        notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      (snap: any) => {
+        notifs = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
         updateCount();
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_notifications')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_notifications'),
+      'unread_badge_notifs'
     );
 
     const readsQ = query(collection(db, 'delegate_notification_reads'), where('delegateName', '==', delegateName));
-    const unsubReads = onSnapshot(
+    const unsubReads = safeOnSnapshot(
       readsQ, 
-      (snap) => {
+      (snap: any) => {
         reads = {};
-        snap.forEach(d => {
+        snap.forEach((d: any) => {
           const data = d.data();
           reads[data.notificationId] = data.readAt;
         });
         updateCount();
       },
-      (err) => logFirestoreErrorGracefully(err, 'delegate_notification_reads')
+      (err: any) => logFirestoreErrorGracefully(err, 'delegate_notification_reads'),
+      'unread_badge_reads'
     );
 
-    const unsubTask = onSnapshot(
+    const unsubTask = safeOnSnapshot(
       doc(db, 'admin_daily_tasks', delegateName), 
-      (d) => {
+      (d: any) => {
         taskTime = d.exists() ? (d.data().timestamp || 0) : 0;
         updateCount();
       },
-      (err) => logFirestoreErrorGracefully(err, 'admin_daily_tasks')
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_daily_tasks'),
+      'unread_badge_task'
     );
 
-    const unsubTaskRead = onSnapshot(
+    const unsubTaskRead = safeOnSnapshot(
       doc(db, 'delegate_task_reads', delegateName), 
-      (d) => {
+      (d: any) => {
         taskReadTime = d.exists() ? (d.data().lastReadTimestamp || 0) : 0;
         updateCount();
       },
-      (err) => logFirestoreErrorGracefully(err, 'delegate_task_reads')
+      (err: any) => logFirestoreErrorGracefully(err, 'delegate_task_reads'),
+      'unread_badge_task_read'
     );
 
     return () => {

@@ -647,6 +647,8 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
               <img
                 src={previewImage.url}
                 alt="معاينة المنتج التالف"
+                loading="lazy"
+                decoding="async"
                 className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
               />
             </div>
@@ -701,6 +703,8 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                   <img
                     src={imageToDelete.imageUrl}
                     alt="صورة للحذف"
+                    loading="lazy"
+                    decoding="async"
                     className="w-14 h-14 object-cover rounded-lg border border-slate-300 dark:border-slate-600 shadow-sm shrink-0"
                   />
                 )}

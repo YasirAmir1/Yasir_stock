@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
-import { collection, getDocs, query, doc, writeBatch, onSnapshot, where, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, doc, writeBatch, where, setDoc } from 'firebase/firestore';
+import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { SalesEntry, RouteItem, DebtItem } from '../types';
 import { 
   FileText, 
@@ -125,48 +126,51 @@ export const OldInvoicesScreen: React.FC = () => {
 
   useEffect(() => {
     const q = query(collection(db, 'routes'));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const loaded: RouteItem[] = [];
-        snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as RouteItem));
+        snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as RouteItem));
         setRoutes(loaded);
       },
-      (err) => {
+      (err: any) => {
         logFirestoreErrorGracefully(err, 'routes in OldInvoicesScreen');
-      }
+      },
+      'OldInvoices-routes'
     );
     return () => unsub();
   }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'debts'));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const loaded: DebtItem[] = [];
-        snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as DebtItem));
+        snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as DebtItem));
         setDebts(loaded);
       },
-      (err) => {
+      (err: any) => {
         logFirestoreErrorGracefully(err, 'debts in OldInvoicesScreen');
-      }
+      },
+      'OldInvoices-debts'
     );
     return () => unsub();
   }, []);
 
   // Real-time listener for configurable auto_lock_time setting
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
-      (docSnap) => {
+      (docSnap: any) => {
         if (docSnap.exists() && docSnap.data()?.time) {
           setTargetAutoLockTime(docSnap.data().time);
         }
       },
-      (err) => {
+      (err: any) => {
         console.error('Error listening to auto_lock_time in OldInvoicesScreen:', err);
-      }
+      },
+      'OldInvoices-auto-lock'
     );
     return () => unsub();
   }, []);
@@ -240,11 +244,11 @@ export const OldInvoicesScreen: React.FC = () => {
     const baghdadToday = baghdadStatus.todayBaghdad;
     const queryDates = Array.from(new Set([today, baghdadToday]));
     const q = query(collection(db, 'daily_sales_completion'), where('date', 'in', queryDates));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q,
-      (snap) => {
+      (snap: any) => {
         const completed: Record<string, boolean> = {};
-        snap.forEach((d) => {
+        snap.forEach((d: any) => {
           completed[d.id] = true;
           const data = d.data();
           if (data.delegate) completed[data.delegate] = true;
@@ -253,9 +257,10 @@ export const OldInvoicesScreen: React.FC = () => {
         });
         setCompletedDelegates(completed);
       },
-      (err) => {
+      (err: any) => {
         console.error('Error listening to daily_sales_completion in OldInvoicesScreen:', err);
-      }
+      },
+      'OldInvoices-completion'
     );
     return () => unsub();
   }, [baghdadStatus.todayBaghdad]);
@@ -263,20 +268,21 @@ export const OldInvoicesScreen: React.FC = () => {
   // Real-time listener for `sales_entries_archive` to ensure full live coverage of archived invoices
   useEffect(() => {
     setIsLoadingArchive(true);
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       collection(db, 'sales_entries_archive'),
-      (snap) => {
+      (snap: any) => {
         const list: SalesEntry[] = [];
-        snap.forEach((d) => {
+        snap.forEach((d: any) => {
           list.push({ id: d.id, ...d.data() } as SalesEntry);
         });
         setArchivedEntries(list);
         setIsLoadingArchive(false);
       },
-      (err) => {
+      (err: any) => {
         console.error('Error reading sales_entries_archive in OldInvoicesScreen:', err);
         setIsLoadingArchive(false);
-      }
+      },
+      'OldInvoices-archive'
     );
     return () => unsub();
   }, []);

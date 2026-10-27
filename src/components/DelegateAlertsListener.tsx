@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useSales } from '../context/SalesContext';
 import { DebtItem } from '../types';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 
 interface AlertData {
   id: string;
@@ -31,11 +31,11 @@ export const DelegateAlertsListener: React.FC = () => {
     let unsub: (() => void) | undefined;
     if (isAdminOrDataEntry) {
       const alertsQ = collection(db, 'admin_data_entry_alerts');
-      unsub = onSnapshot(
+      unsub = safeOnSnapshot(
         alertsQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: AlertData[] = [];
-          snap.forEach(d => {
+          snap.forEach((d: any) => {
             const data = d.data() as AlertData;
             if (!data.notified) {
               loaded.push({ ...data, id: d.id });
@@ -43,16 +43,17 @@ export const DelegateAlertsListener: React.FC = () => {
           });
           setActiveAlerts(loaded);
         },
-        (err) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts')
+        (err: any) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts'),
+        'delegate_alerts_admin'
       );
     } else {
       const delegateName = currentUser.name;
       const alertsQ = query(collection(db, 'delegate_alerts'), where('delegateName', '==', delegateName));
-      unsub = onSnapshot(
+      unsub = safeOnSnapshot(
         alertsQ, 
-        (snap) => {
+        (snap: any) => {
           const loaded: AlertData[] = [];
-          snap.forEach(d => {
+          snap.forEach((d: any) => {
             const data = d.data() as AlertData;
             if (!data.notified) {
               loaded.push({ ...data, id: d.id });
@@ -60,7 +61,8 @@ export const DelegateAlertsListener: React.FC = () => {
           });
           setActiveAlerts(loaded);
         },
-        (err) => logFirestoreErrorGracefully(err, 'delegate_alerts')
+        (err: any) => logFirestoreErrorGracefully(err, 'delegate_alerts'),
+        'delegate_alerts_user'
       );
     }
 

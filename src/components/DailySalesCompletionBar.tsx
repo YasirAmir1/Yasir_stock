@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, doc, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil } from 'lucide-react';
 
 export const DailySalesCompletionBar: React.FC = () => {
@@ -52,11 +53,11 @@ export const DailySalesCompletionBar: React.FC = () => {
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q,
-      (snap) => {
+      (snap: any) => {
         const completed: Record<string, boolean> = {};
-        snap.forEach((d) => {
+        snap.forEach((d: any) => {
           const data = d.data();
           if (data.delegate) {
             completed[data.delegate] = true;
@@ -65,28 +66,30 @@ export const DailySalesCompletionBar: React.FC = () => {
         setCompletedDelegates(completed);
         setIsCompletedLoaded(true);
       },
-      (err) => {
-        console.error('Error listening to daily_sales_completion:', err);
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'daily_sales_completion');
         setIsCompletedLoaded(true);
-      }
+      },
+      'CompletionBar-completion'
     );
     return () => unsub();
   }, []);
 
   // Real-time listener for configurable auto_lock_time setting
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
-      (docSnap) => {
+      (docSnap: any) => {
         if (docSnap.exists() && docSnap.data()?.time) {
           const t = docSnap.data().time;
           setTargetAutoLockTime(t);
           setNewTimeInput(t);
         }
       },
-      (err) => {
-        console.error('Error listening to auto_lock_time:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'auto_lock_time');
+      },
+      'CompletionBar-auto-lock'
     );
     return () => unsub();
   }, []);

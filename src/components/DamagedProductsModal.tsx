@@ -626,6 +626,8 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                       <img
                         src={imgUrl}
                         alt={`صورة ${idx + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover transition-transform group-hover:scale-105"
                       />
                       <div className="absolute top-1 right-1 bg-black/70 text-white rounded-md text-[9px] px-1 font-mono">
@@ -705,6 +707,8 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
                     <img
                       src={invoiceImage}
                       alt="فاتورة الزبون"
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                     />
                   </div>

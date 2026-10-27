@@ -4,19 +4,25 @@
  * and ensures the application falls back gracefully to local IndexedDB and localStorage caches.
  */
 
+import { onSnapshot } from 'firebase/firestore';
+
 export const setGlobalQuotaExceeded = () => {
   try {
     sessionStorage.setItem('fs_quota_exceeded', 'true');
     sessionStorage.setItem('fs_quota_exceeded_time', String(Date.now()));
+    localStorage.setItem('fs_quota_exceeded_time', String(Date.now()));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('firestore-quota-exceeded'));
+    }
   } catch {}
 };
 
 export const isGlobalQuotaExceeded = (): boolean => {
   try {
     const val = sessionStorage.getItem('fs_quota_exceeded');
-    if (val === 'true') {
-      const time = Number(sessionStorage.getItem('fs_quota_exceeded_time') || '0');
-      if (Date.now() - time < 2 * 60 * 60 * 1000) {
+    const time = Number(sessionStorage.getItem('fs_quota_exceeded_time') || localStorage.getItem('fs_quota_exceeded_time') || '0');
+    if (val === 'true' || time > 0) {
+      if (Date.now() - time < 12 * 60 * 60 * 1000) {
         return true;
       }
     }
@@ -26,8 +32,8 @@ export const isGlobalQuotaExceeded = (): boolean => {
 
 export const isQuotaExceededError = (err: any): boolean => {
   if (!err) return false;
-  const code = String(err.code || '');
-  const message = String(err.message || err);
+  const code = String(err?.code || '');
+  const message = String(err?.message || err || '');
   return (
     code === 'resource-exhausted' ||
     message.includes('resource-exhausted') ||
@@ -49,6 +55,55 @@ export const logFirestoreErrorGracefully = (err: any, context = 'Firestore') => 
   } else {
     console.error(`[Firestore Error] in ${context}:`, err);
   }
+};
+
+/**
+ * Safe wrapper around Firestore onSnapshot.
+ * Suppresses subscriptions when quota is exceeded, handles quota errors gracefully,
+ * and immediately unsubscribes to prevent exponential backoff loops.
+ */
+export const safeOnSnapshot = (
+  refOrQuery: any,
+  onNext: (snapshot: any) => void,
+  onError?: (err: any) => void,
+  contextName = 'Firestore'
+): (() => void) => {
+  if (isGlobalQuotaExceeded()) {
+    return () => {};
+  }
+
+  let unsubInternal: (() => void) | null = null;
+  try {
+    unsubInternal = onSnapshot(
+      refOrQuery,
+      onNext,
+      (err) => {
+        logFirestoreErrorGracefully(err, contextName);
+        if (isQuotaExceededError(err)) {
+          if (unsubInternal) {
+            try {
+              unsubInternal();
+            } catch {}
+            unsubInternal = null;
+          }
+        }
+        if (onError) onError(err);
+      }
+    );
+  } catch (err) {
+    logFirestoreErrorGracefully(err, contextName);
+    if (onError) onError(err);
+    return () => {};
+  }
+
+  return () => {
+    if (unsubInternal) {
+      try {
+        unsubInternal();
+      } catch {}
+      unsubInternal = null;
+    }
+  };
 };
 
 /**

@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { collection, query, where, doc, setDoc } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
 import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
@@ -91,14 +91,15 @@ export const EntryScreen: React.FC = () => {
   const [isPastClosing, setIsPastClosing] = useState<boolean>(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
-      (snap) => {
+      (snap: any) => {
         if (snap.exists() && snap.data()?.targetTime) {
           setTargetAutoLockTime(snap.data().targetTime);
         }
       },
-      (err) => console.error('Error listening to auto_lock_time in EntryScreen:', err)
+      (err: any) => console.error('Error listening to auto_lock_time in EntryScreen:', err),
+      'auto_lock_time_entry'
     );
     return () => unsub();
   }, []);
@@ -139,16 +140,17 @@ export const EntryScreen: React.FC = () => {
     if (isGlobalQuotaExceeded()) return;
     const today = new Date().toISOString().split('T')[0];
     const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const completed: Record<string, boolean> = {};
-        snap.forEach(d => {
+        snap.forEach((d: any) => {
           completed[d.id] = true;
         });
         setCompletedDelegates(completed);
       },
-      (err) => logFirestoreErrorGracefully(err, 'daily_sales_completion')
+      (err: any) => logFirestoreErrorGracefully(err, 'daily_sales_completion_entry'),
+      'daily_sales_completion_entry'
     );
     return () => unsub();
   }, []);

@@ -3,7 +3,8 @@ import { useSales } from '../context/SalesContext';
 import { ProductItem, GiftPromotion } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { showConfirm } from '../utils/dialogService';
 import { GiftsManagementTable } from './GiftsManagementTable';
 import { StoreNotificationsModal } from './StoreNotificationsModal';
@@ -83,10 +84,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
   // Real-time listener for user's read state document from Firestore
   React.useEffect(() => {
-    if (!userKey) return;
-    const unsub = onSnapshot(
+    if (!userKey || isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
       doc(db, 'store_notification_reads', userKey),
-      (snapshot) => {
+      (snapshot: any) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
           if (typeof data?.lastReadTimestamp === 'number') {
@@ -97,9 +98,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
           }
         }
       },
-      (err) => {
-        console.warn('Could not sync store_notification_reads from Firestore:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'store_notification_reads');
+      },
+      'store_notification_reads'
     );
     return () => unsub();
   }, [userKey]);
@@ -2220,7 +2222,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                             </label>
                           </div>
                           {editImageUrl && (
-                            <img src={editImageUrl} alt="Preview" className="w-16 h-16 object-contain mx-auto mt-1 rounded border border-slate-700 bg-white" />
+                            <img src={editImageUrl} alt="Preview" loading="lazy" decoding="async" className="w-16 h-16 object-contain mx-auto mt-1 rounded border border-slate-700 bg-white" />
                           )}
                         </div>
                         
@@ -2296,7 +2298,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                 <div className="flex flex-col items-center gap-3">
                   {imageUploadBase64 ? (
                     <div className="relative">
-                      <img src={imageUploadBase64} alt="Preview" className="w-32 h-32 object-contain rounded-xl border border-slate-300 dark:border-slate-700 bg-white" />
+                      <img src={imageUploadBase64} alt="Preview" loading="lazy" decoding="async" className="w-32 h-32 object-contain rounded-xl border border-slate-300 dark:border-slate-700 bg-white" />
                       <button onClick={() => setImageUploadBase64('')} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full shadow-lg hover:bg-rose-600">
                         <X className="w-3 h-3" />
                       </button>

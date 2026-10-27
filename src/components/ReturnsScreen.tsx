@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSales, isExcludedReportDelegate } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, writeBatch, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { MonthlyDelegateReturn } from '../types';
 import { formatWithCommas, parseArabicNumber } from '../utils/numberUtils';
 import { showConfirm, showAlert } from '../utils/dialogService';
@@ -311,9 +312,9 @@ export const ReturnsScreen: React.FC = () => {
 
   // Realtime Firestore synchronization for returns config (working days, allowed percentage, penalty rules, custom targets)
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'app_settings', 'returns_config'),
-      (docSnap) => {
+      (docSnap: any) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data.workingDays !== undefined && Number(data.workingDays) > 0) {
@@ -338,7 +339,8 @@ export const ReturnsScreen: React.FC = () => {
           }
         }
       },
-      (err) => console.warn('Could not listen to returns_config:', err)
+      (err: any) => console.warn('Could not listen to returns_config:', err),
+      'ReturnsScreen-config'
     );
     return () => unsub();
   }, []);
@@ -386,11 +388,11 @@ export const ReturnsScreen: React.FC = () => {
   useEffect(() => {
     setIsLoading(true);
     const colRef = collection(db, 'monthly_delegate_returns');
-    const unsubscribe = onSnapshot(
+    const unsubscribe = safeOnSnapshot(
       colRef,
-      (snapshot) => {
+      (snapshot: any) => {
         const items: MonthlyDelegateReturn[] = [];
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as MonthlyDelegateReturn;
           items.push({
             ...data,
@@ -407,10 +409,11 @@ export const ReturnsScreen: React.FC = () => {
         localStorage.setItem('app_monthly_delegate_returns', JSON.stringify(items));
         setIsLoading(false);
       },
-      (error) => {
+      (error: any) => {
         console.error('Error listening to monthly_delegate_returns:', error);
         setIsLoading(false);
-      }
+      },
+      'ReturnsScreen-returns'
     );
 
     return () => unsubscribe();

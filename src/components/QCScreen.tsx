@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { DamagedProductItem, DamagedProductStatus, RouteItem, ProductItem } from '../types';
 import { DamagedProductsQCSection } from './DamagedProductsQCSection';
 import { DamagedProductsModal } from './DamagedProductsModal';
@@ -31,33 +32,34 @@ export const QCScreen: React.FC = () => {
 
   useEffect(() => {
     const q = query(collection(db, 'damaged_products'));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q,
-      (snap) => {
+      (snap: any) => {
         const list: DamagedProductItem[] = [];
-        snap.forEach((d) => {
+        snap.forEach((d: any) => {
           list.push({ id: d.id, ...d.data() } as DamagedProductItem);
         });
         list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         setDamagedProducts(list);
       },
-      (err) => {
+      (err: any) => {
         console.error('Damaged products listener error in QCScreen:', err);
-      }
+      },
+      'QCScreen-damaged-products'
     );
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'routes'), (snapshot) => {
+    const unsub = safeOnSnapshot(collection(db, 'routes'), (snapshot: any) => {
       const items: RouteItem[] = [];
-      snapshot.forEach((doc) => {
+      snapshot.forEach((doc: any) => {
         items.push({ id: doc.id, ...doc.data() } as RouteItem);
       });
       setRoutes(items);
-    }, (err) => {
+    }, (err: any) => {
       console.error('Error fetching routes in QCScreen:', err);
-    });
+    }, 'QCScreen-routes');
     return () => unsub();
   }, []);
 

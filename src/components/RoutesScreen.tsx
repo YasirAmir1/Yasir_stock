@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
-import { collection, onSnapshot, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus } from '../types';
 import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
@@ -104,15 +105,15 @@ export const RoutesScreen: React.FC = () => {
       debtsQ = query(collection(db, 'debts'), where('delegateCode', '==', 'NONE_MATCH'));
     }
     
-    const unsubDebts = onSnapshot(debtsQ, (snap) => {
+    const unsubDebts = safeOnSnapshot(debtsQ, (snap: any) => {
       const loaded: DebtItem[] = [];
-      snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as DebtItem));
+      snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as DebtItem));
       setDebts(loaded);
       setDebtsLoaded(true);
-    }, (err) => {
-      console.error('Debts listener error:', err);
+    }, (err: any) => {
+      logFirestoreErrorGracefully(err, 'debts in RoutesScreen');
       setDebtsLoaded(true);
-    });
+    }, 'RoutesScreen-debts');
     return () => unsubDebts();
   }, [currentUser, effectiveDelegateCode]);
 
@@ -231,16 +232,17 @@ export const RoutesScreen: React.FC = () => {
   const [timeTick, setTimeTick] = useState<number>(Date.now());
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
-      (docSnap) => {
+      (docSnap: any) => {
         if (docSnap.exists() && docSnap.data()?.time) {
           setTargetAutoLockTime(docSnap.data().time);
         }
       },
-      (err) => {
-        console.error('Error listening to auto_lock_time in RoutesScreen:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'auto_lock_time in RoutesScreen');
+      },
+      'RoutesScreen-auto-lock'
     );
     return () => unsub();
   }, []);
@@ -814,11 +816,11 @@ export const RoutesScreen: React.FC = () => {
     const baghdadToday = baghdadStatus.todayBaghdad;
     const queryDates = Array.from(new Set([today, baghdadToday]));
     const q = query(collection(db, 'daily_sales_completion'), where('date', 'in', queryDates));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const completed: Record<string, boolean> = {};
-        snap.forEach(d => {
+        snap.forEach((d: any) => {
           completed[d.id] = true;
           const data = d.data();
           if (data.delegate) completed[data.delegate] = true;
@@ -827,33 +829,35 @@ export const RoutesScreen: React.FC = () => {
         });
         setCompletedDelegates(completed);
       },
-      (err) => {
+      (err: any) => {
         logFirestoreErrorGracefully(err, 'daily_sales_completion in RoutesScreen');
-      }
+      },
+      'RoutesScreen-completion'
     );
     
     // Load manual visits
     const delegateCode = String(effectiveDelegateCode || '').trim();
     if (delegateCode) {
         const visitsQ = query(collection(db, 'daily_visits'), where('date', '==', today), where('delegateCode', '==', delegateCode));
-        const unsubVisits = onSnapshot(
+        const unsubVisits = safeOnSnapshot(
           visitsQ, 
-          (snap) => {
+          (snap: any) => {
             const v: Record<string, boolean> = {};
-            snap.forEach(d => {
+            snap.forEach((d: any) => {
               v[d.data().customerCode] = true;
             });
             setManualVisits(v);
           },
-          (err) => {
+          (err: any) => {
             logFirestoreErrorGracefully(err, 'daily_visits in RoutesScreen');
-          }
+          },
+          'RoutesScreen-manual-visits'
         );
         return () => { unsub(); unsubVisits(); };
     }
     
     return () => unsub();
-  }, [currentUser]);
+  }, [currentUser, effectiveDelegateCode, baghdadStatus.todayBaghdad]);
 
   const [routeFilterDelegate, setRouteFilterDelegate] = useState((currentUser?.isAdmin || isDataEntry) ? '' : currentUser?.delegateCode || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
@@ -914,9 +918,9 @@ export const RoutesScreen: React.FC = () => {
     // Always load all routes; permissions are granted in rules and delegate filtering is handled securely in memory
     const routesQ = query(collection(db, 'routes'));
 
-    const unsubRoutes = onSnapshot(routesQ, (snap) => {
+    const unsubRoutes = safeOnSnapshot(routesQ, (snap: any) => {
       const loaded: RouteItem[] = [];
-      snap.forEach(d => {
+      snap.forEach((d: any) => {
         const data = d.data();
         loaded.push({
           id: d.id,
@@ -934,10 +938,10 @@ export const RoutesScreen: React.FC = () => {
       });
       setRoutes(loaded);
       setRoutesLoaded(true);
-    }, (err) => {
-      console.error('Routes listener error:', err);
+    }, (err: any) => {
+      logFirestoreErrorGracefully(err, 'routes in RoutesScreen');
       setRoutesLoaded(true);
-    });
+    }, 'RoutesScreen-routes');
     return () => unsubRoutes();
   }, [currentUser]);
 

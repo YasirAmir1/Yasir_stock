@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas-pro';
 import * as XLSX from 'xlsx';
-import { useSales, DEFAULT_CATEGORIES_LIST, isExcludedReportDelegate } from '../context/SalesContext';
+import { useSales, DEFAULT_CATEGORIES_LIST, isExcludedReportDelegate, isExcludedDelegateCategory } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { Award, RotateCcw, AlertTriangle, Shield, Check, Filter, Calendar, TrendingUp, Pencil, Trash2, X, Package, Upload, Download, Crown, Coins, Store, PackagePlus, Users, ShoppingBag, CheckCircle2, ChevronDown, ChevronUp, Share2, MessageCircle, Save } from 'lucide-react';
 import {
@@ -18,6 +18,7 @@ import {
 } from 'recharts';
 import { PullToRefresh } from './PullToRefresh';
 import { DailySalesCompletionBar } from './DailySalesCompletionBar';
+import { MonthlyWeightReport } from './MonthlyWeightReport';
 
 export interface SpecificProductTarget {
   id?: string;
@@ -171,8 +172,10 @@ const DailyAdminReport: React.FC<{
   isDownloading: string | null,
   setIsDownloading: React.Dispatch<React.SetStateAction<string | null>>,
   completedDelegates: Record<string, boolean>,
-  remainingWorkingDays: number
-}> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates, remainingWorkingDays }) => {
+  remainingWorkingDays: number,
+  monthlyItemTargets: MonthlyItemTarget[],
+  delegateTargets: any[]
+}> = ({ salesEntries, productsList, currentUser, delegatesList = [], reportRef, isDownloading, setIsDownloading, completedDelegates, remainingWorkingDays, monthlyItemTargets, delegateTargets }) => {
   const { isDarkMode } = useSales();
   const isAdmin = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن');
   const isDataEntry = Boolean(currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.name?.includes('مدخل'));
@@ -837,8 +840,23 @@ const DailyAdminReport: React.FC<{
   const totalRetail = useMemo(() => retailSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [retailSales]);
   const totalWholesale = useMemo(() => wholesaleSales.reduce((acc, s) => ({ weight: acc.weight + s.weight, amount: acc.amount + s.amount }), { weight: 0, amount: 0 }), [wholesaleSales]);
 
+
+
   return (
     <div className="space-y-3 sm:space-y-4 px-0 sm:px-2 py-1.5 sm:py-4 w-full max-w-5xl mx-auto">
+        {isAdmin && (
+          <MonthlyWeightReport
+            salesEntries={salesEntries}
+            delegatesList={delegatesList}
+            monthlyItemTargets={monthlyItemTargets}
+            delegateTargets={delegateTargets}
+            currentUser={currentUser}
+            isDarkMode={isDarkMode}
+          />
+        )}
+
+
+
         <div 
           ref={threeTablesCaptureRef} 
           id="daily-three-reports-container"
@@ -1438,6 +1456,35 @@ export const ReportsScreen: React.FC = () => {
     setActiveTab,
   } = useSales();
 
+
+
+
+
+  // Monthly Item Targets State & Subscription
+  const [monthlyItemTargets, setMonthlyItemTargets] = useState<MonthlyItemTarget[]>([]);
+
+  useEffect(() => {
+    if (isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
+      collection(db, 'monthly_item_targets'),
+      (snapshot: any) => {
+        const list: MonthlyItemTarget[] = [];
+        snapshot.forEach((docSnap: any) => {
+          const data = docSnap.data() as MonthlyItemTarget;
+          if (data) {
+            list.push({ ...data, id: docSnap.id });
+          }
+        });
+        setMonthlyItemTargets(list);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'monthly_item_targets in ReportsScreen');
+      },
+      'monthly_item_targets'
+    );
+    return () => unsub();
+  }, []);
+
   const inventoryReportFileInputRef = useRef<HTMLInputElement>(null);
 
   // Remaining working days in current month - initialized from localStorage and synced via Firestore
@@ -1477,7 +1524,13 @@ export const ReportsScreen: React.FC = () => {
     }
   };
 
+
+
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+
+
+
+
   const [completedDelegatesList, setCompletedDelegatesList] = useState<{ delegate: string, completedAt: string, systemType?: string }[]>([]);
   const [savingStatusMap, setSavingStatusMap] = useState<Record<string, boolean>>({});
   const [showCompletionConfirmModal, setShowCompletionConfirmModal] = useState(false);
@@ -1488,16 +1541,18 @@ export const ReportsScreen: React.FC = () => {
 
   // Real-time listener for configurable auto_lock_time setting
   useEffect(() => {
-    const unsub = onSnapshot(
+    if (isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
-      (docSnap) => {
+      (docSnap: any) => {
         if (docSnap.exists() && docSnap.data()?.time) {
           setTargetAutoLockTime(docSnap.data().time);
         }
       },
-      (err) => {
-        console.error('Error listening to auto_lock_time in ReportsScreen:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'auto_lock_time in ReportsScreen');
+      },
+      'auto_lock_time'
     );
     return () => unsub();
   }, []);
@@ -1558,7 +1613,6 @@ export const ReportsScreen: React.FC = () => {
   const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
 
   // Monthly Item Targets & Sales State from Admin Excel Upload
-  const [monthlyItemTargets, setMonthlyItemTargets] = useState<MonthlyItemTarget[]>([]);
   const [delegateIncentives, setDelegateIncentives] = useState<DelegateIncentive[]>([]);
   const [extraTargetsList, setExtraTargetsList] = useState<DelegateMonthlyExtraTargets[]>([]);
   const [showEditExtraTargetsModal, setShowEditExtraTargetsModal] = useState(false);
@@ -1594,35 +1648,17 @@ export const ReportsScreen: React.FC = () => {
   const [editSpecificActualShops, setEditSpecificActualShops] = useState<string>('');
   const [isSavingSpecificProductModal, setIsSavingSpecificProductModal] = useState<boolean>(false);
 
-  // Subscribe to monthly_item_targets collection in Firestore
-  useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, 'monthly_item_targets'),
-      (snapshot) => {
-        const list: MonthlyItemTarget[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as MonthlyItemTarget;
-          if (data) {
-            list.push({ ...data, id: docSnap.id });
-          }
-        });
-        setMonthlyItemTargets(list);
-      },
-      (err) => {
-        console.error('Error fetching monthly_item_targets:', err);
-      }
-    );
-    return () => unsub();
-  }, []);
+
 
   // Subscribe to delegate_incentives collection in Firestore
   useEffect(() => {
-    const unsub = onSnapshot(
+    if (isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
       collection(db, 'delegate_incentives'),
-      (snapshot) => {
+      (snapshot: any) => {
         const list: DelegateIncentive[] = [];
         const myNorm = normalizeText(currentUser.name || '');
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as DelegateIncentive;
           if (data) {
             // For admin, load all delegates. For delegate, strictly load ONLY their own incentives!
@@ -1641,21 +1677,23 @@ export const ReportsScreen: React.FC = () => {
         });
         setDelegateIncentives(list);
       },
-      (err) => {
-        console.error('Error fetching delegate_incentives:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'delegate_incentives in ReportsScreen');
+      },
+      'delegate_incentives'
     );
     return () => unsub();
   }, [currentUser.isAdmin, currentUser.name]);
 
   // Subscribe to delegate_monthly_extra_targets collection in Firestore
   useEffect(() => {
-    const unsub = onSnapshot(
+    if (isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
       collection(db, 'delegate_monthly_extra_targets'),
-      (snapshot) => {
+      (snapshot: any) => {
         const list: DelegateMonthlyExtraTargets[] = [];
         const myNorm = normalizeText(currentUser.name || '');
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as DelegateMonthlyExtraTargets;
           if (data) {
             if (currentUser.isAdmin) {
@@ -1673,18 +1711,20 @@ export const ReportsScreen: React.FC = () => {
         });
         setExtraTargetsList(list);
       },
-      (err) => {
-        console.error('Error fetching delegate_monthly_extra_targets:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'delegate_monthly_extra_targets in ReportsScreen');
+      },
+      'delegate_monthly_extra_targets'
     );
     return () => unsub();
   }, [currentUser.isAdmin, currentUser.name]);
 
   // Subscribe to specific_product_config and working_days_config in app_settings
   useEffect(() => {
-    const unsubProduct = onSnapshot(
+    if (isGlobalQuotaExceeded()) return;
+    const unsubProduct = safeOnSnapshot(
       doc(db, 'app_settings', 'specific_product_config'),
-      (snap) => {
+      (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data?.productName) {
@@ -1693,12 +1733,13 @@ export const ReportsScreen: React.FC = () => {
           }
         }
       },
-      (err) => console.error('Error fetching specific_product_config:', err)
+      (err: any) => logFirestoreErrorGracefully(err, 'specific_product_config'),
+      'specific_product_config'
     );
 
-    const unsubDays = onSnapshot(
+    const unsubDays = safeOnSnapshot(
       doc(db, 'app_settings', 'working_days_config'),
-      (snap) => {
+      (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data?.days !== undefined && typeof data.days === 'number') {
@@ -1709,7 +1750,8 @@ export const ReportsScreen: React.FC = () => {
           }
         }
       },
-      (err) => console.error('Error fetching working_days_config:', err)
+      (err: any) => logFirestoreErrorGracefully(err, 'working_days_config'),
+      'working_days_config'
     );
 
     return () => {
@@ -1720,12 +1762,13 @@ export const ReportsScreen: React.FC = () => {
 
   // Subscribe to specific_product_targets collection in Firestore
   useEffect(() => {
-    const unsub = onSnapshot(
+    if (isGlobalQuotaExceeded()) return;
+    const unsub = safeOnSnapshot(
       collection(db, 'specific_product_targets'),
-      (snapshot) => {
+      (snapshot: any) => {
         const list: SpecificProductTarget[] = [];
         const myNorm = normalizeText(currentUser.name || '');
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as SpecificProductTarget;
           if (data) {
             if (currentUser.isAdmin) {
@@ -1743,9 +1786,10 @@ export const ReportsScreen: React.FC = () => {
         });
         setSpecificProductTargets(list);
       },
-      (err) => {
-        console.error('Error fetching specific_product_targets:', err);
-      }
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'specific_product_targets in ReportsScreen');
+      },
+      'specific_product_targets'
     );
     return () => unsub();
   }, [currentUser.isAdmin, currentUser.name]);
@@ -2256,12 +2300,12 @@ export const ReportsScreen: React.FC = () => {
     if (isGlobalQuotaExceeded()) return;
     const today = new Date().toISOString().split('T')[0];
     const q = query(collection(db, 'daily_sales_completion'), where('date', '==', today));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q, 
-      (snap) => {
+      (snap: any) => {
         const completed: Record<string, boolean> = {};
         const list: { delegate: string, completedAt: string, systemType?: string }[] = [];
-        snap.forEach(d => {
+        snap.forEach((d: any) => {
           completed[d.id] = true;
           const data = d.data();
           if (data.delegate && data.completedAt) {
@@ -2276,7 +2320,8 @@ export const ReportsScreen: React.FC = () => {
         setCompletedDelegates(completed);
         setCompletedDelegatesList(list);
       },
-      (err) => logFirestoreErrorGracefully(err, 'reports_daily_sales_completion')
+      (err: any) => logFirestoreErrorGracefully(err, 'reports_daily_sales_completion'),
+      'reports_daily_sales_completion'
     );
     return () => unsub();
   }, []);
@@ -3243,9 +3288,10 @@ export const ReportsScreen: React.FC = () => {
       const start = new Date(startDate);
       const end = new Date(endDate);
       const diffDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+      const catsList = DEFAULT_CATEGORIES_LIST.filter(c => !isExcludedDelegateCategory(c));
       const targets = activeDelegateName === 'الكل'
         ? delegatesList.reduce((sum, del) => {
-            return sum + DEFAULT_CATEGORIES_LIST.reduce((catSum, cat) => {
+            return sum + catsList.reduce((catSum, cat) => {
               const found = delegateTargets.find(t => 
                 t.delegateName?.trim().toLowerCase() === del.trim().toLowerCase() &&
                 t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
@@ -3253,7 +3299,7 @@ export const ReportsScreen: React.FC = () => {
               return catSum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
             }, 0);
           }, 0)
-        : DEFAULT_CATEGORIES_LIST.reduce((sum, cat) => {
+        : catsList.reduce((sum, cat) => {
             const found = delegateTargets.find(t => 
               t.delegateName?.trim().toLowerCase() === activeDelegateName.trim().toLowerCase() &&
               t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
@@ -3263,7 +3309,7 @@ export const ReportsScreen: React.FC = () => {
       return targets * diffDays;
     }
     return categoryReports.reduce((sum, r) => sum + r.dailyTargetWeightKg, 0);
-  }, [useRange, startDate, endDate, activeDelegateName, delegateTargets, categoryReports, delegatesList]);
+  }, [useRange, startDate, endDate, activeDelegateName, delegateTargets, categoryReports, delegatesList, currentUser.isAdmin]);
 
   const totalPct = totalTargetWeight > 0 ? (totalSalesWeight / totalTargetWeight) * 100 : 0;
 
@@ -3479,7 +3525,7 @@ export const ReportsScreen: React.FC = () => {
                       const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
                       return sum + (price * e.quantity);
                     }, 0);
-                    const targetWeight = DEFAULT_CATEGORIES_LIST.reduce((sum, cat) => {
+                    const targetWeight = DEFAULT_CATEGORIES_LIST.filter(c => !isExcludedDelegateCategory(c)).reduce((sum, cat) => {
                       const found = delegateTargets.find(t => 
                         isDelMatch(t.delegateName, delName) &&
                         t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
@@ -3488,8 +3534,18 @@ export const ReportsScreen: React.FC = () => {
                     }, 0);
                     const pct = targetWeight > 0 ? (totalWeight / targetWeight) * 100 : 0;
 
+                    const delMonthlyTargets = monthlyItemTargets.filter(t => isDelMatch(t.delegateName, delName));
+                    const totalMonthlyTarget = delMonthlyTargets.reduce((sum, t) => sum + (Number(t.monthlyTarget) || 0), 0);
+                    const totalMonthlySales = delMonthlyTargets.reduce((sum, t) => sum + (Number(t.monthlySales) || 0), 0);
+                    const monthlyPct = totalMonthlyTarget > 0 ? (totalMonthlySales / totalMonthlyTarget) * 100 : 0;
+                    const isLowMonthlyAchievement = totalMonthlyTarget > 0 && monthlyPct < 30;
+
                     return (
-                      <tr key={delName} className="hover:bg-slate-800/50">
+                      <tr key={delName} className={`transition-all ${
+                        isLowMonthlyAchievement 
+                          ? 'bg-rose-950/50 hover:bg-rose-900/60 border-b border-rose-500/40 shadow-[inset_0_0_10px_rgba(244,63,94,0.15)]' 
+                          : 'hover:bg-slate-800/50'
+                      }`}>
                         <td 
                           className="p-2 text-center cursor-pointer"
                           onClick={(e) => {
@@ -3524,7 +3580,14 @@ export const ReportsScreen: React.FC = () => {
                         </td>
                         <td className="p-2 font-bold text-white">
                           <div className="flex flex-col items-center justify-center">
-                            <span>{delName}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                              <span>{delName}</span>
+                              {isLowMonthlyAchievement && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black text-[9px] shadow-sm animate-pulse" title={`إنجاز شهري أقل من 30% (${monthlyPct.toFixed(1)}%)`}>
+                                  ⚠️ منخفض (<strong className="font-mono">{monthlyPct.toFixed(0)}%</strong>)
+                                </span>
+                              )}
+                            </div>
                             {item.hasManuallyCompleted && item.completedAt ? (
                               <span className="text-[9px] text-emerald-400 font-bold mt-0.5">
                                 أتم المبيعات: {formatCompletionTime(item.completedAt)}
@@ -3551,7 +3614,7 @@ export const ReportsScreen: React.FC = () => {
         )}
 
       <div className="space-y-3 sm:space-y-4 p-0 sm:p-2 w-full">
-        {currentUser.isAdmin && <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} remainingWorkingDays={remainingWorkingDays} />}
+        <DailyAdminReport salesEntries={salesEntries} productsList={productsList} currentUser={currentUser} isDownloading={isDownloading} setIsDownloading={setIsDownloading} completedDelegates={completedDelegates} remainingWorkingDays={remainingWorkingDays} monthlyItemTargets={monthlyItemTargets} delegateTargets={delegateTargets} />
       </div>
       {/* 100% Achievement Notification Banner */}
       {achievedCategories.length > 0 && (

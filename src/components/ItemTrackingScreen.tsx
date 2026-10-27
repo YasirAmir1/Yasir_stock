@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
 import { SalesEntry } from '../types';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
+import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { formatWithCommas } from '../utils/numberUtils';
 import { showAlert } from '../utils/dialogService';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas-pro';
+
 import {
   Layers,
   Calendar,
@@ -299,11 +301,11 @@ export const ItemTrackingScreen: React.FC = () => {
 
   // Load monthly_item_targets and working_days_config from Firestore
   useEffect(() => {
-    const unsubTargets = onSnapshot(
+    const unsubTargets = safeOnSnapshot(
       collection(db, 'monthly_item_targets'),
-      (snapshot) => {
+      (snapshot: any) => {
         const list: MonthlyItemTarget[] = [];
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as MonthlyItemTarget;
           if (data) {
             list.push({ ...data, id: docSnap.id });
@@ -311,12 +313,13 @@ export const ItemTrackingScreen: React.FC = () => {
         });
         setMonthlyItemTargets(list);
       },
-      (err) => console.error('Error fetching monthly_item_targets:', err)
+      (err: any) => console.error('Error fetching monthly_item_targets:', err),
+      'ItemTracking-monthly-targets'
     );
 
-    const unsubDays = onSnapshot(
+    const unsubDays = safeOnSnapshot(
       doc(db, 'app_settings', 'working_days_config'),
-      (snap) => {
+      (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data?.days !== undefined && typeof data.days === 'number') {
@@ -324,7 +327,8 @@ export const ItemTrackingScreen: React.FC = () => {
           }
         }
       },
-      (err) => console.error('Error fetching working_days_config:', err)
+      (err: any) => console.error('Error fetching working_days_config:', err),
+      'ItemTracking-working-days'
     );
 
     return () => {

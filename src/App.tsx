@@ -25,7 +25,6 @@ const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').
 const CalculatorModal = lazy(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
 const DelegatePanelModal = lazy(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
 const AccountSwitcherModal = lazy(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
-const LowAchievementWidget = lazy(() => import('./components/LowAchievementWidget').then(m => ({ default: m.LowAchievementWidget })));
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -70,6 +69,7 @@ const MainAppContent: React.FC = () => {
     fetchUnifiedDataFromFirestore,
     isDataRefreshing,
     isNetworkDelayed,
+    isFirestoreQuotaExceeded,
   } = useSales();
   const [isLoading, setIsLoading] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -148,6 +148,34 @@ const MainAppContent: React.FC = () => {
       {isOnline && pendingSyncCount > 0 && (
         <div className="bg-emerald-600 text-white px-4 py-2 text-center font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md z-50 animate-pulse">
           <span>🔄 جاري مزامنة ({pendingSyncCount}) من المدخلات المعلقة مع قاعدة البيانات...</span>
+        </div>
+      )}
+      {/* Firestore Quota Exceeded Notification Banner */}
+      {isFirestoreQuotaExceeded && (
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-3 sm:px-4 py-2 text-center text-xs sm:text-sm font-bold shadow-lg z-50 border-b border-amber-300/30 flex flex-col md:flex-row items-center justify-center gap-1.5 sm:gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-base sm:text-lg">⚠️</span>
+            <span>
+              تم الوصول إلى الحد الأقصى للحصة اليومية المجانية لـ Firestore (Daily Read Quota Exceeded).
+              يعمل التطبيق حالياً بسلاسة بالاعتماد على الذاكرة المحلية والنسخ الاحتياطية (Cache Mode).
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] opacity-90">
+              (تتجدد الحصة تلقائياً يومياً عند منتصف الليل بتوقيت PST)
+            </span>
+            {currentUser?.isAdmin && (
+              <a
+                href="https://console.firebase.google.com/project/gen-lang-client-0813045373/firestore/databases/ai-studio-yam-a1e04888-c7a0-42eb-8316-f369aa12539e/data?openUpgradeDialog=true"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-white text-orange-900 hover:bg-orange-50 font-black px-2.5 py-1 rounded-md text-[11px] sm:text-xs shadow inline-flex items-center gap-1 transition-all"
+              >
+                <span>ترقية الحصة في Firebase Console</span>
+                <span>↗</span>
+              </a>
+            )}
+          </div>
         </div>
       )}
       {/* Toast Notifications Overlay */}
@@ -533,7 +561,6 @@ const MainAppContent: React.FC = () => {
               onClick={() => handleTabChange('reports')}
               onMouseEnter={() => {
                 import('./components/ReportsScreen');
-                import('./components/LowAchievementWidget');
               }}
               className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
                 activeTab === 'reports'
@@ -688,12 +715,7 @@ const MainAppContent: React.FC = () => {
         
 
 
-      {/* Products Under 50% Widget - Visible in Reports Tab Only (Lazy Loaded) */}
-      {!isSauceUser && activeTab === 'reports' && (
-        <Suspense fallback={null}>
-          <LowAchievementWidget />
-        </Suspense>
-      )}
+
 
       {/* Global Message Toast */}
       {userMessage && (

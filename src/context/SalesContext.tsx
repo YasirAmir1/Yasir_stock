@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, query, where, getDocs, getDoc, runTransaction, increment } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, writeBatch, query, where, getDocs, getDoc, runTransaction, increment } from 'firebase/firestore';
 import { db, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { isQuotaExceededError, cleanFirestoreData, setGlobalQuotaExceeded, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
+import { isQuotaExceededError, cleanFirestoreData, setGlobalQuotaExceeded, isGlobalQuotaExceeded, safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
 import { parseArabicDigits, parseArabicNumber, getInvoiceKey } from '../utils/numberUtils';
@@ -48,6 +48,28 @@ export const DEFAULT_CATEGORIES_LIST = [
   'حليب دنو',
   'ماء اطفال',
 ];
+
+export const EXCLUDED_DELEGATE_REPORT_CATEGORIES = [
+  'الكل',
+  'مربى',
+  'بروميلك',
+  'سولاتا',
+  'عصير برتين',
+  'عصير بروتين',
+  'برو شيك',
+  'حليب دنو',
+  'ماء اطفال'
+];
+
+export const isExcludedDelegateCategory = (catName: string) => {
+  if (!catName) return false;
+  const norm = catName.trim().toLowerCase();
+  return EXCLUDED_DELEGATE_REPORT_CATEGORIES.some(exc => 
+    exc.trim().toLowerCase() === norm ||
+    norm.includes(exc.trim().toLowerCase()) ||
+    exc.trim().toLowerCase().includes(norm)
+  );
+};
 
 export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'YASIR', password: '377377', delegateName: 'الأدمن', monthlyTargetKg: 0, isAdmin: true },
@@ -297,6 +319,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return isGlobalQuotaExceeded();
   });
 
+  useEffect(() => {
+    const handleQuota = () => {
+      setIsFirestoreQuotaExceeded(true);
+    };
+    window.addEventListener('firestore-quota-exceeded', handleQuota);
+    return () => window.removeEventListener('firestore-quota-exceeded', handleQuota);
+  }, []);
+
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
   const addToast = (
@@ -369,24 +399,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
     const q = query(collection(db, 'routes'));
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q,
-      (snap) => {
+      (snap: any) => {
         const loaded: RouteItem[] = [];
-        snap.forEach(d => loaded.push({ id: d.id, ...d.data() } as RouteItem));
+        snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as RouteItem));
         setRoutes(loaded);
         try {
           localStorage.setItem('cache_routes', JSON.stringify(loaded));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'routes');
-      }
+      },
+      'routes'
     );
     return () => unsub();
-  }, [isPowerSavingMode]);
+  }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
 
   useEffect(() => {
+    if (isFirestoreQuotaExceeded) return;
     // Seed and guarantee rafatdata exists in Firestore
     const rafatSeed: DelegateAccount = {
       username: 'rafatdata',
@@ -397,7 +429,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       role: 'dataEntry',
     };
     setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true })
-      .catch((err) => console.error('Failed to seed rafatdata to Firestore:', err));
+      .catch((err) => handleFirestoreError(err, 'seed_rafatdata'));
 
     // Seed and guarantee mohammedsauce exists in Firestore as sauceOnly view account
     const mohammedSeed: DelegateAccount = {
@@ -409,8 +441,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       role: 'sauceOnly',
     };
     setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true })
-      .catch((err) => console.error('Failed to seed mohammedsauce to Firestore:', err));
-  }, []);
+      .catch((err) => handleFirestoreError(err, 'seed_mohammedsauce'));
+  }, [isFirestoreQuotaExceeded]);
 
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', unitsPerCarton: 12, totalPieces: 120, totalUnits: 120, totalCartons: 10, cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
@@ -429,12 +461,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (isFirestoreQuotaExceeded) return;
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       collection(db, 'products_catalog'),
-      (snapshot) => {
+      (snapshot: any) => {
         const products: ProductItem[] = [];
         if (!snapshot.empty) {
-          snapshot.forEach((docSnap) => {
+          snapshot.forEach((docSnap: any) => {
             const data = docSnap.data() as any;
             if (data) {
               const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || 12;
@@ -471,9 +503,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('app_products_catalog', JSON.stringify(products));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'products_catalog');
-      }
+      },
+      'products_catalog'
     );
     return () => unsub();
   }, [isFirestoreQuotaExceeded]);
@@ -489,11 +522,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       collection(db, 'inventory_notifications'),
-      (snapshot) => {
+      (snapshot: any) => {
         const logs: InventoryLogRecord[] = [];
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const d = docSnap.data();
           if (d) {
             logs.push({
@@ -513,12 +546,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('app_inventory_logs', JSON.stringify(logs));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'inventory_notifications');
-      }
+      },
+      'inventory_notifications'
     );
     return () => unsub();
-  }, [isPowerSavingMode]);
+  }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
 
   const [inventoryStockByCode, setInventoryStockByCode] = useState<Record<string, number>>(() => {
     try {
@@ -530,9 +564,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       doc(db, 'app_settings', 'inventory_stock'),
-      (snap) => {
+      (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data && data.stockByCode) {
@@ -543,9 +577,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }
       },
-      (err) => {
+      (err: any) => {
         console.error('Error fetching inventory_stock setting:', err);
-      }
+      },
+      'inventory_stock'
     );
     return () => unsub();
   }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
@@ -787,44 +822,65 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const prevProd = prevProductsByCode.get(codeKey) || prevProductsByName.get(nameKey);
 
           const newTotalPieces = newProd.totalPieces;
-          const unitsPerCarton = newProd.unitsPerCarton;
-          
-          // شرط الظهور للمندوبين: متاح و 3 كارتون فأكثر
-          // أي منتج يتم تنفيذ شرط حجب المندوبين عليه (< 3 كارتون أو غير متاح) لا يتم عرضه في إشعارات المخزن
-          const meetsDelegateCondition = newProd.isAvailable !== false && newTotalPieces >= (3 * unitsPerCarton) && newProd.isVisible !== false;
-          if (!meetsDelegateCondition) {
-            return;
-          }
+          const unitsPerCarton = newProd.unitsPerCarton || 12;
+          const newCartons = Math.floor(newTotalPieces / unitsPerCarton);
+
+          let prevBaseCartons = 0;
+          let prevRemainingCartons = 0;
+          let isNewProduct = true;
 
           if (prevProd) {
-            const prevTotalPieces = prevProd.totalPieces || 0;
-            const prevMetDelegate = prevProd.isAvailable !== false && prevTotalPieces >= (3 * (prevProd.unitsPerCarton || 12)) && prevProd.isVisible !== false;
+            isNewProduct = false;
+            const prevUnitsPerCarton = Number(prevProd.unitsPerCarton || prevProd.cartonQuantity) || 12;
+            prevBaseCartons = Number(
+              prevProd.initialStockCartons ??
+              prevProd.totalCartons ??
+              prevProd.stockCartons ??
+              Math.floor((prevProd.totalPieces || prevProd.totalUnits || 0) / prevUnitsPerCarton)
+            ) || 0;
 
-            // كان محجوباً أو غير متاح للمندوبين، والآن أصبح ظاهراً لهم بوصول كمية كافية
-            if (!prevMetDelegate) {
-              restockedList.push({
-                productName: newProd.productName,
-                productCode: newProd.productCode,
-                categoryName: newProd.categoryName,
-                stockCartons: Math.floor(newTotalPieces / unitsPerCarton),
-                previousStock: Math.floor(prevTotalPieces / (prevProd.unitsPerCarton || 12)),
-                addedCartons: Math.floor((newTotalPieces - prevTotalPieces) / unitsPerCarton),
-                imageUrl: newProd.imageUrl || '',
-                pieceWeightKg: newProd.pieceWeightKg,
-                isAvailable: newProd.isAvailable,
-                isVisible: newProd.isVisible,
-              });
-            }
+            const prevLive = getProductLiveStock(prevProd);
+            prevRemainingCartons = prevLive.cartons;
+          }
+
+          let addedCartons = 0;
+          let previousStock = 0;
+
+          if (isNewProduct) {
+            // منتج جديد بالكامل يضاف لأول مرة للمخزن
+            addedCartons = newCartons;
+            previousStock = 0;
           } else {
-            // منتج جديد مضاف للمخزن يحقق شرط الظهور للمندوبين
-            const addedStockCartons = Math.floor(newTotalPieces / unitsPerCarton);
+            // منتج كان مسجلاً مسبقاً بالمخزن: حساب الكمية الواصلة الجديدة بدقة
+            const diffRem = newCartons - prevRemainingCartons;
+            const diffBase = newCartons - prevBaseCartons;
+
+            if (diffRem > 0 || diffBase > 0) {
+              if (diffBase > 0 && (diffBase % 10 === 0 || diffBase % 5 === 0) && (diffRem % 10 !== 0 && diffRem % 5 !== 0)) {
+                addedCartons = diffBase;
+                previousStock = prevBaseCartons;
+              } else if (diffRem > 0 && (diffRem % 10 === 0 || diffRem % 5 === 0) && (diffBase % 10 !== 0 && diffBase % 5 !== 0)) {
+                addedCartons = diffRem;
+                previousStock = prevRemainingCartons;
+              } else if (diffRem > 0) {
+                addedCartons = diffRem;
+                previousStock = prevRemainingCartons;
+              } else {
+                addedCartons = diffBase;
+                previousStock = prevBaseCartons;
+              }
+            }
+          }
+
+          // توثيق وصول الكمية الجديدة للمنتج في سجل الإشعارات
+          if (addedCartons > 0 && newProd.isAvailable !== false) {
             restockedList.push({
               productName: newProd.productName,
               productCode: newProd.productCode,
               categoryName: newProd.categoryName,
-              stockCartons: addedStockCartons,
-              previousStock: 0,
-              addedCartons: addedStockCartons,
+              stockCartons: newCartons,
+              previousStock: Math.max(0, previousStock),
+              addedCartons: addedCartons,
               imageUrl: newProd.imageUrl || '',
               pieceWeightKg: newProd.pieceWeightKg,
               isAvailable: newProd.isAvailable,
@@ -1262,12 +1318,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       collection(db, 'gift_promotions'),
-      (snapshot) => {
+      (snapshot: any) => {
         const list: GiftPromotion[] = [];
         if (!snapshot.empty) {
-          snapshot.forEach((docSnap) => {
+          snapshot.forEach((docSnap: any) => {
             const data = docSnap.data() as GiftPromotion;
             if (data) {
               list.push({ ...data, id: docSnap.id });
@@ -1279,12 +1335,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('app_gift_promotions', JSON.stringify(list));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'gift_promotions');
-      }
+      },
+      'gift_promotions'
     );
     return () => unsub();
-  }, [isPowerSavingMode]);
+  }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
 
   const addGiftPromotion = async (giftData: Omit<GiftPromotion, 'id' | 'createdAt'>) => {
     const newId = `gift_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -1521,27 +1578,32 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(err, 'sales_entries_archive');
     });
 
-    const unsubAll = onSnapshot(collection(db, 'sales_entries'), (snapshot) => {
-      const entriesMap = new globalThis.Map<string, SalesEntry>();
-      // First populate archived records
-      archiveMap.forEach((entry, id) => {
-        entriesMap.set(id, entry);
-      });
-      // Merge live sales entries (overrides archive if present)
-      snapshot.forEach((doc) => {
-        const data = doc.data() as SalesEntry;
-        if (data && data.id) {
-          entriesMap.set(data.id, data);
-        }
-      });
-      const allArr = Array.from(entriesMap.values());
-      setAllSalesEntries(allArr);
-      try {
-        localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
-      } catch {}
-    }, (err) => {
-      handleFirestoreError(err, 'sales_entries_all');
-    });
+    const unsubAll = safeOnSnapshot(
+      collection(db, 'sales_entries'),
+      (snapshot: any) => {
+        const entriesMap = new globalThis.Map<string, SalesEntry>();
+        // First populate archived records
+        archiveMap.forEach((entry, id) => {
+          entriesMap.set(id, entry);
+        });
+        // Merge live sales entries (overrides archive if present)
+        snapshot.forEach((doc: any) => {
+          const data = doc.data() as SalesEntry;
+          if (data && data.id) {
+            entriesMap.set(data.id, data);
+          }
+        });
+        const allArr = Array.from(entriesMap.values());
+        setAllSalesEntries(allArr);
+        try {
+          localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
+        } catch {}
+      },
+      (err: any) => {
+        handleFirestoreError(err, 'sales_entries_all');
+      },
+      'sales_entries_all'
+    );
     return () => unsubAll();
   }, [isFirestoreQuotaExceeded]);
 
@@ -1637,11 +1699,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // 1. Independent listener for delegate accounts (only once on mount, immune to date/delegate switching)
   useEffect(() => {
     if (isFirestoreQuotaExceeded) return;
-    const unsubAccounts = onSnapshot(
+    const unsubAccounts = safeOnSnapshot(
       collection(db, 'delegate_accounts'),
-      (snapshot) => {
+      (snapshot: any) => {
         const accs: DelegateAccount[] = [];
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as DelegateAccount;
           if (data && data.username) {
             accs.push(data);
@@ -1666,10 +1728,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setDelegateAccounts(mergedAccs);
         }
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'delegate_accounts');
         setDelegateAccounts((prev) => (prev.length > 0 ? prev : DEFAULT_DELEGATE_ACCOUNTS_ENTITIES));
-      }
+      },
+      'delegate_accounts'
     );
 
     return () => unsubAccounts();
@@ -1693,11 +1756,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
     }
 
-    const unsubTargets = onSnapshot(
+    const unsubTargets = safeOnSnapshot(
       targetsQuery,
-      (snapshot) => {
+      (snapshot: any) => {
         const targets: DelegateTarget[] = [];
-        snapshot.forEach((doc) => {
+        snapshot.forEach((doc: any) => {
           const data = doc.data() as DelegateTarget;
           if (data) {
             targets.push({ ...data, id: doc.id });
@@ -1708,9 +1771,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('cache_delegate_targets', JSON.stringify(targets));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'delegate_targets');
-      }
+      },
+      'delegate_targets'
     );
 
     let locksQuery;
@@ -1723,11 +1787,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
     }
 
-    const unsubLocks = onSnapshot(
+    const unsubLocks = safeOnSnapshot(
       locksQuery,
-      (snapshot) => {
+      (snapshot: any) => {
         const locks: Record<string, number> = {};
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data();
           const delName = data.delegateName || docSnap.id;
           if (delName && data.lockTimestamp) {
@@ -1739,9 +1803,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('cache_target_locks', JSON.stringify(locks));
         } catch {}
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'target_locks');
-      }
+      },
+      'target_locks'
     );
 
     return () => {
@@ -1777,11 +1842,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
     }
 
-    const unsubSales = onSnapshot(
+    const unsubSales = safeOnSnapshot(
       salesQuery,
-      (snapshot) => {
+      (snapshot: any) => {
         const entriesMap = new globalThis.Map<string, SalesEntry>();
-        snapshot.forEach((doc) => {
+        snapshot.forEach((doc: any) => {
           const data = doc.data() as SalesEntry;
           if (data && data.id) {
             entriesMap.set(data.id, data);
@@ -1803,7 +1868,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
         setSalesEntries(Array.from(entriesMap.values()));
       },
-      (err) => {
+      (err: any) => {
         handleFirestoreError(err, 'sales_entries');
         const entriesMap = new globalThis.Map<string, SalesEntry>();
         const pending = getPendingQueue();
@@ -1821,7 +1886,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         });
         setSalesEntries(Array.from(entriesMap.values()));
-      }
+      },
+      'sales_entries_today'
     );
 
     return () => {
@@ -2078,7 +2144,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     filteredEntries = filteredEntries.filter((e) => !isExcludedReportDelegate(e.delegateName));
 
-    const reports = DEFAULT_CATEGORIES_LIST.map((displayName, index) => {
+    const categoriesToUse = DEFAULT_CATEGORIES_LIST.filter(c => !isExcludedDelegateCategory(c));
+
+    const reports = categoriesToUse.map((displayName, index) => {
       const salesWeightForCategory = filteredEntries
         .filter(
           (e) => (e.categoryName || '').trim().toLowerCase() === (displayName || '').trim().toLowerCase()

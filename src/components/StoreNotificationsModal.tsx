@@ -10,7 +10,9 @@ import {
   ChevronDown, 
   ChevronUp, 
   Sparkles,
-  Trash2
+  Trash2,
+  Truck,
+  ArrowLeft
 } from 'lucide-react';
 
 interface StoreNotificationsModalProps {
@@ -76,16 +78,24 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
       setExpandedLogId(null);
     } else {
       setExpandedLogId(logId);
-      // Track view time for expiry logic
-      const storageKey = `opened_log_${logId}`;
-      if (!localStorage.getItem(storageKey)) {
-        localStorage.setItem(storageKey, Date.now().toString());
+      // Track view time for expiry logic (only for regular delegates; admins keep full history)
+      if (!isAdmin) {
+        const storageKey = `opened_log_${logId}`;
+        if (!localStorage.getItem(storageKey)) {
+          localStorage.setItem(storageKey, Date.now().toString());
+        }
       }
     }
   };
 
-  // Sort all logs descending by timestamp and filter out logs opened more than 1 hour ago
+  // Sort all logs descending by timestamp
+  // For Admin: display ALL logs (including old operations) without 1-hour expiration
+  // For Delegates: filter out logs opened more than 1 hour ago
   const sortedLogs = useMemo(() => {
+    if (isAdmin) {
+      return [...inventoryLogs].sort((a, b) => b.timestamp - a.timestamp);
+    }
+
     const now = Date.now();
     const oneHourMs = 1 * 60 * 60 * 1000;
     
@@ -100,7 +110,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
       // If not opened, show it
       return true;
     }).sort((a, b) => b.timestamp - a.timestamp);
-  }, [inventoryLogs]);
+  }, [inventoryLogs, isAdmin]);
 
   if (!isOpen) return null;
 
@@ -130,11 +140,13 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                   إشعارات المخزن والتحديثات
                 </h3>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs">
-                  متابعة مباشرة
+                  {isAdmin ? 'سجل الأرشيف الكامل للأدمن' : 'متابعة مباشرة'}
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-                سجل وتفاصيل عمليات رفع الجرد وتتبع وصول المنتجات الحديثة
+                {isAdmin 
+                  ? 'سجل وتفاصيل كافة عمليات رفع الجرد (الحديثة والقديمة) وتتبع وصول المنتجات' 
+                  : 'سجل وتفاصيل عمليات رفع الجرد وتتبع وصول المنتجات الحديثة'}
               </p>
             </div>
           </div>
@@ -169,7 +181,19 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
             ) : (
               sortedLogs.map((log, idx) => {
                 const isExpanded = expandedLogId === log.id;
-                const eligibleRestocked = (log.restockedProducts || []).filter(isEligibleForDelegate);
+                const eligibleRestocked = isAdmin 
+                  ? (log.restockedProducts || []) 
+                  : (log.restockedProducts || []).filter(isEligibleForDelegate);
+
+                // حساب إجمالي الكراتين الواصلة حديثاً في عملية الجرد هذه
+                const totalArrivedCartons = eligibleRestocked.reduce((acc, p) => {
+                  const curr = Math.floor(Number(p.stockCartons || 0));
+                  const prev = p.previousStock !== undefined ? Math.floor(Number(p.previousStock)) : 0;
+                  const arrived = p.addedCartons !== undefined 
+                    ? Math.floor(Number(p.addedCartons)) 
+                    : (curr > prev ? curr - prev : curr);
+                  return acc + Math.max(0, arrived);
+                }, 0);
 
                 return (
                   <div
@@ -196,13 +220,21 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                               عملية رفع جرد #{sortedLogs.length - idx}
                             </h4>
                             {eligibleRestocked.length > 0 ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs flex items-center gap-1">
-                                <Sparkles className="w-3 h-3" />
-                                <span>{eligibleRestocked.length} منتج وصل حديثاً</span>
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs flex items-center gap-1">
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>{eligibleRestocked.length} منتج وصل حديثاً</span>
+                                </span>
+                                {totalArrivedCartons > 0 && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-mono flex items-center gap-1">
+                                    <Truck className="w-3 h-3" />
+                                    <span>+{totalArrivedCartons.toLocaleString('en-US')} كارتون وارد</span>
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                تحديث كميات
+                                مطابقة كميات
                               </span>
                             )}
                           </div>
@@ -259,43 +291,93 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                         isDarkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-slate-50/70 border-slate-100'
                       }`}>
                         <div className="flex items-center justify-between text-xs font-black">
-                          <span className="text-slate-700 dark:text-slate-300">
-                            المنتجات المؤهلة للظهور للمندوبين المضافة حديثاً في هذا الجرد:
+                          <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Truck className="w-4 h-4 text-emerald-500" />
+                            {isAdmin 
+                              ? 'الكميات الواصلة الجديدة لكل منتج في هذا الجرد (سجل كامل للأدمن):' 
+                              : 'الكميات الواصلة الجديدة للمنتجات المتوفرة للمندوبين:'}
                           </span>
-                          <span className="text-emerald-600 dark:text-emerald-400 font-mono">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-mono font-black">
                             {eligibleRestocked.length} منتج
                           </span>
                         </div>
 
                         {eligibleRestocked.length === 0 ? (
-                          <p className="text-xs text-slate-400 font-bold italic py-1">
-                            تم تحديث المخزون ومطابقة الكميات لكافة الأصناف بنجاح.
+                          <p className="text-xs text-slate-400 font-bold italic py-2 text-center">
+                            تم تحديث ومطابقة كميات المخزون لكافة الأصناف بنجاح دون وصول كميات إضافية جديدة.
                           </p>
                         ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {eligibleRestocked.map((prod, pIdx) => (
-                              <div
-                                key={pIdx}
-                                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
-                                  isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
-                                }`}
-                              >
-                                <div className="min-w-0">
-                                  <p className="font-black text-xs text-slate-900 dark:text-white truncate">
-                                    {prod.productName}
-                                  </p>
-                                  <p className="text-[10px] text-slate-400 font-mono">
-                                    {prod.categoryName} • كود: {prod.productCode}
-                                  </p>
-                                </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {eligibleRestocked.map((prod, pIdx) => {
+                              const currStock = Math.floor(Number(prod.stockCartons || 0));
+                              const prevStock = prod.previousStock !== undefined ? Math.floor(Number(prod.previousStock)) : 0;
+                              const arrivedCartons = prod.addedCartons !== undefined 
+                                ? Math.floor(Number(prod.addedCartons)) 
+                                : (currStock > prevStock ? currStock - prevStock : currStock);
+                              const isBrandNew = prevStock === 0;
 
-                                <div className="text-left shrink-0">
-                                  <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                    {Math.floor(Number(prod.stockCartons || 0)).toLocaleString('en-US')} كارتون
-                                  </span>
+                              return (
+                                <div
+                                  key={pIdx}
+                                  className={`p-3 rounded-2xl border flex flex-col justify-between gap-2.5 transition-all ${
+                                    isDarkMode 
+                                      ? 'bg-slate-800/95 border-slate-700 hover:border-emerald-500/40' 
+                                      : 'bg-white border-slate-200 shadow-sm hover:border-emerald-400'
+                                  }`}
+                                >
+                                  {/* Top row: Name & Arrived Badge (without product image) */}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-black text-xs sm:text-sm text-slate-900 dark:text-white truncate" title={prod.productName}>
+                                        {prod.productName}
+                                      </p>
+                                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                        {prod.categoryName} • كود: {prod.productCode}
+                                      </p>
+                                    </div>
+
+                                    {/* Prominent Arrived Cartons Badge */}
+                                    <div className="text-left shrink-0">
+                                      <div className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-mono font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 flex items-center gap-1">
+                                        <Truck className="w-3.5 h-3.5 shrink-0" />
+                                        <span>+{arrivedCartons.toLocaleString('en-US')}</span>
+                                        <span className="text-[10px] font-bold">كارتون</span>
+                                      </div>
+                                      <span className="block text-[9px] text-emerald-600 dark:text-emerald-400 font-black text-center mt-0.5">
+                                        واصل جديد
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Bottom row: Previous Stock vs Current Stock Breakdown */}
+                                  <div className={`pt-2 border-t flex items-center justify-between text-[11px] font-bold ${
+                                    isDarkMode ? 'border-slate-700/70 text-slate-400' : 'border-slate-100 text-slate-500'
+                                  }`}>
+                                    <div className="flex items-center gap-1">
+                                      <span>السابق:</span>
+                                      <span className="font-mono font-black text-slate-700 dark:text-slate-300">
+                                        {prevStock.toLocaleString('en-US')}
+                                      </span>
+                                      <span className="text-[9px]">كارتون</span>
+                                      {isBrandNew && (
+                                        <span className="text-[9px] font-black text-teal-600 dark:text-teal-400 bg-teal-500/10 px-1 rounded">
+                                          جديد
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1">
+                                      <ArrowLeft className="w-3 h-3 text-slate-400 shrink-0" />
+                                      <span className="text-slate-700 dark:text-slate-300 font-black">الحالي بالمخزن:</span>
+                                      <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                                        {currStock.toLocaleString('en-US')}
+                                      </span>
+                                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400">كارتون</span>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
