@@ -279,23 +279,23 @@ export const MonthlyWeightReport: React.FC<{
     <div 
       ref={reportRef}
       id="monthly-weight-report-container"
-      className="bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800 p-2 sm:p-5 text-white shadow-xl space-y-3 w-full"
+      className="bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800 p-1.5 sm:p-5 text-white shadow-xl space-y-2 sm:space-y-3 w-full"
     >
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 bg-slate-800/90 p-2 sm:p-4 rounded-xl border border-slate-700 shadow-md">
             <div>
-                <h3 className="font-black text-white text-sm sm:text-lg flex items-center gap-1.5 sm:gap-2">
-                    <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+                <h3 className="font-black text-white text-xs sm:text-lg flex items-center gap-1.5 sm:gap-2">
+                    <FileText className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-400" />
                     <span>📈 التقرير الشهري للوزن</span>
-                    <span className="text-[10px] sm:text-xs font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                    <span className="text-[9px] sm:text-xs font-black text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-lg border border-amber-500/30">
                         متابعة الأهداف
                     </span>
                 </h3>
-                <p className="text-[10px] sm:text-xs text-slate-300 font-bold mt-0.5 sm:mt-1">
+                <p className="text-[9px] sm:text-xs text-slate-300 font-bold mt-0.5 sm:mt-1">
                     مقارنة التاركت الشهري بالمبيعات الشهرية لحد الآن لكل مندوب
                 </p>
             </div>
             
-            <div className="no-export w-full sm:w-auto flex items-center justify-end gap-2 flex-wrap">
+            <div className="no-export w-full sm:w-auto flex items-center justify-end gap-1.5 sm:gap-2 flex-wrap">
                 {actionFeedback && (
                   <span className="text-[10px] text-emerald-400 font-bold animate-pulse">
                     {actionFeedback}
@@ -305,10 +305,10 @@ export const MonthlyWeightReport: React.FC<{
                 {isAdmin && (
                   <button 
                     onClick={() => setShowDaysModal(true)}
-                    className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-amber-400 border border-amber-500/30 font-black py-1.5 px-3 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95"
+                    className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-amber-400 border border-amber-500/30 font-black py-1 px-2 sm:py-1.5 sm:px-3 rounded-lg sm:rounded-xl shadow-lg transition-all text-[11px] sm:text-xs cursor-pointer active:scale-95"
                     title="تعديل عدد أيام العمل في الشهر"
                   >
-                    <Calendar className="w-3.5 h-3.5" />
+                    <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                     <span>أيام العمل: {totalMonthlyWorkingDays}</span>
                   </button>
                 )}
@@ -316,48 +316,60 @@ export const MonthlyWeightReport: React.FC<{
                 <button 
                   onClick={() => handleExport('share')}
                   disabled={isExporting}
-                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-1.5 px-3 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60"
+                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-1 px-2 sm:py-1.5 sm:px-3 rounded-lg sm:rounded-xl shadow-lg transition-all text-[11px] sm:text-xs cursor-pointer active:scale-95 disabled:opacity-60"
                 >
-                  <MessageCircle className="w-3.5 h-3.5" />
+                  <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   <span>مشاركة</span>
                 </button>
                 <button 
                   onClick={() => handleExport('download')}
                   disabled={isExporting}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 rounded-xl shadow-lg transition-all text-xs cursor-pointer active:scale-95 disabled:opacity-60"
+                  className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1 px-2 sm:py-1.5 sm:px-3 rounded-lg sm:rounded-xl shadow-lg transition-all text-[11px] sm:text-xs cursor-pointer active:scale-95 disabled:opacity-60"
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   <span>تحميل</span>
                 </button>
             </div>
         </div>
 
-        <div className="overflow-x-auto w-full">
-            <table className="w-full min-w-[600px] text-xs sm:text-sm font-bold text-center border-collapse border border-slate-700/50">
+        <div className="overflow-x-auto w-full -mx-0.5 sm:mx-0">
+            <table className="w-full min-w-[320px] sm:min-w-0 text-[10px] sm:text-xs md:text-sm font-bold text-center border-collapse border border-slate-700/50">
                 <thead>
                     <tr className="border-b border-slate-700 text-slate-400 bg-slate-950 font-black">
-                        <th className="p-2 sm:p-3 border border-slate-700/50">اسم المندوب</th>
-                        <th className="p-2 sm:p-3 border border-slate-700/50">التاركت اليومي</th>
-                        <th className="p-2 sm:p-3 border border-slate-700/50">التاركت الشهري</th>
-                        <th className="p-2 sm:p-3 border border-slate-700/50">المبيعات الشهرية</th>
-                        <th className="p-2 sm:p-3 border border-slate-700/50">الإنجاز</th>
-                        <th className="p-2 sm:p-3 border border-slate-700/50">المتبقي</th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">
+                          <span className="sm:hidden">المندوب</span>
+                          <span className="hidden sm:inline">اسم المندوب</span>
+                        </th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">
+                          <span className="sm:hidden">ت. يومي</span>
+                          <span className="hidden sm:inline">التاركت اليومي</span>
+                        </th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">
+                          <span className="sm:hidden">ت. شهري</span>
+                          <span className="hidden sm:inline">التاركت الشهري</span>
+                        </th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">
+                          <span className="sm:hidden">المبيعات</span>
+                          <span className="hidden sm:inline">المبيعات الشهرية</span>
+                        </th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">الإنجاز</th>
+                        <th className="px-1 py-1.5 sm:p-3 border border-slate-700/50 whitespace-nowrap">المتبقي</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                     {monthlyWeightReportData.map((row) => (
                         <tr 
                             key={row.delegateName} 
-                            className={`transition-colors ${isAdmin && row.pct < 50 ? 'bg-rose-500/10 border-r-4 border-r-rose-500/50' : 'hover:bg-slate-800/30'}`}
+                            className={`transition-colors ${isAdmin && row.pct < 50 ? 'bg-rose-500/10 border-r-2 sm:border-r-4 border-r-rose-500/50' : 'hover:bg-slate-800/30'}`}
                         >
-                            <td className="p-2 sm:p-3 font-black text-white border border-slate-700/30 bg-slate-800/20">{row.delegateName}</td>
-                            <td className="p-2 sm:p-3 font-mono border border-slate-700/30 text-slate-300">{formatWithCommas(Math.round(row.dailyTarget), true)}</td>
-                            <td className="p-2 sm:p-3 font-mono text-amber-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlyTarget), true)}</td>
-                            <td className="p-2 sm:p-3 font-mono text-emerald-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlySales), true)}</td>
-                            <td className={`p-2 sm:p-3 font-black border border-slate-700/30 ${row.pct < 30 ? 'text-rose-500 animate-pulse bg-rose-500/5' : row.pct >= 100 ? 'text-emerald-500 bg-emerald-500/5' : 'text-amber-500'}`}>
+                            <td className="px-1 py-1 sm:p-3 font-black text-white border border-slate-700/30 bg-slate-800/20 whitespace-nowrap">{row.delegateName}</td>
+                            <td className="px-1 py-1 sm:p-3 font-mono border border-slate-700/30 text-slate-300">{formatWithCommas(Math.round(row.dailyTarget), true)}</td>
+                            <td className="px-1 py-1 sm:p-3 font-mono text-amber-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlyTarget), true)}</td>
+                            <td className="px-1 py-1 sm:p-3 font-mono text-emerald-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlySales), true)}</td>
+                            <td className={`px-1 py-1 sm:p-3 font-black border border-slate-700/30 whitespace-nowrap ${row.pct < 30 ? 'text-rose-500 animate-pulse bg-rose-500/5' : row.pct >= 100 ? 'text-emerald-500 bg-emerald-500/5' : 'text-amber-500'}`}>
                                 {row.pct.toFixed(1)}%
                             </td>
-                            <td className="p-2 sm:p-3 font-mono text-slate-400 border border-slate-700/30">{formatWithCommas(Math.round(row.remaining), true)}</td>
+                            <td className="px-1 py-1 sm:p-3 font-mono text-slate-400 border border-slate-700/30">{formatWithCommas(Math.round(row.remaining), true)}</td>
                         </tr>
                     ))}
                 </tbody>

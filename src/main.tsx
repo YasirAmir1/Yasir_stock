@@ -3,6 +3,45 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
+// Global error handlers to intercept Firestore quota exhaustion and Vite websocket closure
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const msg = String(reason?.message || reason || '');
+    const code = String(reason?.code || '');
+    if (code === 'resource-exhausted' || msg.includes('Quota exceeded') || msg.includes('resource-exhausted')) {
+      try {
+        sessionStorage.setItem('fs_quota_exceeded', 'true');
+        sessionStorage.setItem('fs_quota_exceeded_time', String(Date.now()));
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded'));
+      } catch {}
+      event.preventDefault();
+      return;
+    }
+    if (msg.includes('WebSocket') || msg.includes('vite')) {
+      event.preventDefault();
+      return;
+    }
+  });
+
+  window.addEventListener('error', (event) => {
+    const msg = String(event.message || '');
+    if (msg.includes('Quota exceeded') || msg.includes('resource-exhausted')) {
+      try {
+        sessionStorage.setItem('fs_quota_exceeded', 'true');
+        sessionStorage.setItem('fs_quota_exceeded_time', String(Date.now()));
+        window.dispatchEvent(new CustomEvent('firestore-quota-exceeded'));
+      } catch {}
+      event.preventDefault();
+      return;
+    }
+    if (msg.includes('WebSocket') || msg.includes('vite')) {
+      event.preventDefault();
+      return;
+    }
+  });
+}
+
 if ('serviceWorker' in navigator) {
   if (import.meta.env.DEV) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {

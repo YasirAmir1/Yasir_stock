@@ -28,6 +28,55 @@ const getAvatarProps = (name: string) => {
   return { initial, colorClass };
 };
 
+export const CARTON_ONLY_PRODUCT_CODES = new Set([
+  '30010770',
+  '30000693',
+  '30010771',
+  '30000694',
+  '30000695',
+  '30010772',
+  '30001085',
+  '30010768',
+  '30016306',
+  '30012280',
+  '30008794',
+  '30005305',
+  '30014010',
+  '30000476',
+  '30013217',
+  '30015395',
+  '30012197',
+  '30012196',
+  '30012639',
+  '30012640',
+  '30012198',
+  '30013947',
+  '30012638',
+  '30011792',
+  '30011793',
+  '30011794',
+  '30011795',
+  '30011796',
+  '30011797',
+  '30013766',
+  '30013904',
+  '30013890',
+  '30012744',
+  '30012745',
+  '30012746',
+  '30012723',
+  '30012747',
+  '30012748',
+  '30009648',
+  '30009647',
+  '30009649'
+]);
+
+export const isCartonOnlyProduct = (productCode?: string | number): boolean => {
+  if (!productCode) return false;
+  return CARTON_ONLY_PRODUCT_CODES.has(String(productCode).trim());
+};
+
 interface ProductsScreenProps {}
 
 export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
@@ -671,7 +720,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
 
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       if (unit === 'carton') {
         q = q * (Number(prod.cartonQuantity) || 1);
       }
@@ -702,7 +751,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
       const { totalUnits, unitsPerCarton: upc } = getProductLiveStock(prod);
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       const requestedUnits = unit === 'carton' ? (q * upc) : q;
       if (requestedUnits > totalUnits) {
         const availCartons = Math.floor(totalUnits / upc);
@@ -742,7 +791,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
       
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       const enteredQty = q;
       if (unit === 'carton') {
         q = q * (Number(prod.cartonQuantity) || 1);
@@ -783,7 +832,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) return;
 
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       const cartonSize = Number(prod.cartonQuantity) || 1;
       const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
       const orderedText = unit === 'carton' 
@@ -866,7 +915,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
       
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       const enteredQty = q;
       if (unit === 'carton') {
         q = q * (Number(prod.cartonQuantity) || 1);
@@ -930,7 +979,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) return;
 
-      const unit = entryModes[prodId] || 'piece';
+      const unit = isCartonOnlyProduct(prod.productCode) ? 'carton' : (entryModes[prodId] || 'piece');
       const cartonSize = Number(prod.cartonQuantity) || 1;
       const totalPiecesOrdered = unit === 'carton' ? (q * cartonSize) : q;
       const orderedText = unit === 'carton' 
@@ -2053,7 +2102,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                       {(() => {
                         const { totalUnits: cardTotalUnits, unitsPerCarton } = getProductLiveStock(prod);
                         const cardQtyVal = parseInt(selectedQuantities[prod.id] || '0', 10);
-                        const cardMode = entryModes[prod.id] || 'piece';
+                        const isCartonOnly = isCartonOnlyProduct(prod.productCode);
+                        const cardMode = isCartonOnly ? 'carton' : (entryModes[prod.id] || 'piece');
                         const cardReqPieces = cardMode === 'carton' ? (cardQtyVal * unitsPerCarton) : cardQtyVal;
                         const isCardOversold = cardQtyVal > 0 && cardReqPieces > cardTotalUnits;
 
@@ -2061,25 +2111,34 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                           <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
                             {/* عمود إدخال العدد وفوقه زر التبديل بين قطعة وكارتون - أوسع وأطول */}
                             <div className="col-span-5 flex flex-col gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const nextMode = entryModes[prod.id] === 'carton' ? 'piece' : 'carton';
-                                  setEntryModes(prev => ({...prev, [prod.id]: nextMode}));
-                                  if (selectedQuantities[prod.id]) {
-                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], nextMode);
-                                  }
-                                }}
-                                className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
-                                  entryModes[prod.id] === 'carton'
-                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-600/30'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-emerald-600/30'
-                                }`}
-                                title="تبديل بين قطعة وكارتون"
-                              >
-                                <span>{entryModes[prod.id] === 'carton' ? 'كارتون' : 'قطعة'}</span>
-                              </button>
+                              {isCartonOnly ? (
+                                <div
+                                  className="w-full py-1 px-1.5 rounded-md text-xs font-black shadow-sm flex items-center justify-center gap-1 border select-none bg-indigo-600 text-white border-indigo-500 shadow-indigo-600/30 cursor-default"
+                                  title="الطلب بالكارتون فقط لهذا المنتج"
+                                >
+                                  <span>كارتون</span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const nextMode = cardMode === 'carton' ? 'piece' : 'carton';
+                                    setEntryModes(prev => ({...prev, [prod.id]: nextMode}));
+                                    if (selectedQuantities[prod.id]) {
+                                      triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], nextMode);
+                                    }
+                                  }}
+                                  className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
+                                    cardMode === 'carton'
+                                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-600/30'
+                                      : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-emerald-600/30'
+                                  }`}
+                                  title="تبديل بين قطعة وكارتون"
+                                >
+                                  <span>{cardMode === 'carton' ? 'كارتون' : 'قطعة'}</span>
+                                </button>
+                              )}
                               <input
                                 type="number"
                                 min="1"
@@ -2093,7 +2152,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                                       setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر (${totalUnits} قطعة متاحة)`);
                                       return;
                                     }
-                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
+                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], cardMode);
                                     setAddingQuantityId(null);
                                   }
                                 }}
@@ -2116,7 +2175,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                                   setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}).`);
                                   return;
                                 }
-                                triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
+                                triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], cardMode);
                                 setAddingQuantityId(null);
                               }}
                               className={`col-span-2 w-full h-full min-h-[58px] flex items-center justify-center rounded-md transition-all shadow-md ${
@@ -2150,7 +2209,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                             }}
                           >
                             <span className="text-[10px] font-bold">
-                              {entryModes[prod.id] === 'carton' ? 
+                              {cardMode === 'carton' ? 
                                 `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
                                 `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون`}
                               {isCardOversold && ' (يتجاوز المخزون ⚠️)'}

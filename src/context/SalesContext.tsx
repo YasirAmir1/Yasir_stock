@@ -1564,7 +1564,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [isPowerSavingMode]);
 
   useEffect(() => {
-    if (isFirestoreQuotaExceeded) return;
+    if (isFirestoreQuotaExceeded || isGlobalQuotaExceeded()) return;
     let archiveMap = new globalThis.Map<string, SalesEntry>();
     // Pre-load any existing archive entries once to guarantee complete historical records
     getDocs(collection(db, 'sales_entries_archive')).then((snap) => {
