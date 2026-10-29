@@ -89,7 +89,13 @@ export default defineConfig({
       'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
     },
   },
+  esbuild: {
+    target: 'esnext',
+  },
   optimizeDeps: {
+    esbuildOptions: {
+      target: 'esnext',
+    },
     include: [
       'react',
       'react-dom',
@@ -104,12 +110,11 @@ export default defineConfig({
       'jspdf-autotable',
       'clsx',
       'tailwind-merge',
-      'motion',
-      'firebase/app',
-      'firebase/firestore'
+      'motion'
     ],
   },
   build: {
+    target: 'esnext',
     rollupOptions: {
       output: {
         manualChunks(id) {

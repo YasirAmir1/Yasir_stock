@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useSales } from '../context/SalesContext';
+import { useSales, getFixedDelegatePhone } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
 import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus } from '../types';
-import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
 
@@ -222,6 +222,100 @@ export const RoutesScreen: React.FC = () => {
   const [paymentAmountInput, setPaymentAmountInput] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [debtSearch, setDebtSearch] = useState('');
+
+  // WhatsApp Alert to Delegate Modal state
+  const [whatsappModalDebt, setWhatsappModalDebt] = useState<DebtItem | null>(null);
+  const [delegatePhoneInput, setDelegatePhoneInput] = useState<string>('');
+
+  const handleOpenWhatsAppModal = (debt: DebtItem) => {
+    setWhatsappModalDebt(debt);
+    const matchedAccount = delegateAccounts.find(
+      (acc) =>
+        (debt.delegateCode && acc.delegateCode && String(acc.delegateCode).trim() === String(debt.delegateCode).trim()) ||
+        (debt.delegateName && acc.delegateName && normalizeArabic(acc.delegateName) === normalizeArabic(debt.delegateName))
+    );
+    const delKey = debt.delegateCode || debt.delegateName || '';
+    const fixedPhone = getFixedDelegatePhone(debt.delegateName, debt.delegateCode, matchedAccount?.username);
+    const existingPhone = fixedPhone || (matchedAccount as any)?.phone || localStorage.getItem(`del_phone_${delKey}`) || '';
+    setDelegatePhoneInput(existingPhone);
+  };
+
+  const formatWhatsAppPhone = (phone: string): string => {
+    if (!phone) return '';
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('00964')) {
+      cleaned = '964' + cleaned.substring(5);
+    } else if (cleaned.startsWith('07')) {
+      cleaned = '964' + cleaned.substring(1);
+    } else if (cleaned.startsWith('7') && cleaned.length === 10) {
+      cleaned = '964' + cleaned;
+    }
+    return cleaned;
+  };
+
+  const handleSendWhatsAppAlert = () => {
+    if (!whatsappModalDebt) return;
+    const debt = whatsappModalDebt;
+    const matchedAccount = delegateAccounts.find(
+      (acc) =>
+        (debt.delegateCode && acc.delegateCode && String(acc.delegateCode).trim() === String(debt.delegateCode).trim()) ||
+        (debt.delegateName && acc.delegateName && normalizeArabic(acc.delegateName) === normalizeArabic(debt.delegateName))
+    );
+    const delName = matchedAccount?.delegateName || debt.delegateName || debt.delegateCode || 'المندوب';
+    const delKey = debt.delegateCode || debt.delegateName || '';
+    const fixedPhone = getFixedDelegatePhone(debt.delegateName, debt.delegateCode, matchedAccount?.username);
+
+    // Guaranteed fixed phone cannot be altered
+    const cleanRawPhone = (fixedPhone || delegatePhoneInput).trim();
+    if (cleanRawPhone) {
+      try {
+        localStorage.setItem(`del_phone_${delKey}`, cleanRawPhone);
+        if (matchedAccount?.username) {
+          setDoc(doc(db, 'delegate_accounts', matchedAccount.username.toLowerCase()), { phone: cleanRawPhone }, { merge: true }).catch(() => {});
+        }
+      } catch {}
+    }
+
+    const payDateObj = parseDateToMidnight(debt.paymentDueDate);
+    let dueStatusText = 'غير محدد';
+    if (payDateObj) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((today.getTime() - payDateObj.getTime()) / (1000 * 3600 * 24));
+      if (today.getTime() >= payDateObj.getTime()) {
+        dueStatusText = `مستحقة (تأخير ${diffDays} يوم)`;
+      } else {
+        dueStatusText = `غير مستحقة (NT) • متبقي ${Math.abs(diffDays)} يوم على موعد السداد`;
+      }
+    }
+
+    const message = `⚠️ *تنبيه دين مستحق للمندوب* ⚠️
+
+👤 *المندوب:* ${delName}
+🏬 *اسم الزبون:* ${debt.customerName}
+🔢 *كود الزبون:* ${debt.customerCode}
+${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress}\n` : ''}💰 *المبلغ المستحق:* ${debt.amountDue.toLocaleString()} د.ع
+📅 *تاريخ الفاتورة:* ${debt.invoiceDate}
+⏰ *تاريخ السداد:* ${debt.paymentDueDate}
+📌 *حالة الاستحقاق:* ${dueStatusText}
+
+يرجى متابعة واستحصال المبلغ المستحق من الزبون وإبلاغ الإدارة فور الاستلام.`;
+
+    const formattedPhone = formatWhatsAppPhone(cleanRawPhone);
+    const whatsappUrl = formattedPhone 
+      ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+
+    window.open(whatsappUrl, '_blank');
+    setWhatsappModalDebt(null);
+    if (addToast) {
+      addToast({
+        title: 'تم تجهيز الرسالة',
+        message: `تم فتح واتساب لإرسال تنبيه الدين للمندوب (${delName})`,
+        type: 'success'
+      });
+    }
+  };
 
 
 
@@ -609,7 +703,7 @@ export const RoutesScreen: React.FC = () => {
                 <th className="px-2.5 py-2.5">ت. السداد</th>
                 <th className="px-2.5 py-2.5 text-center">مستحقة</th>
                 <th className="px-2.5 py-2.5 text-center">باقي</th>
-                {currentUser?.isAdmin && <th className="px-2.5 py-2.5 text-center">تسديد</th>}
+                {currentUser?.isAdmin && <th className="px-2.5 py-2.5 text-center">إجراءات</th>}
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
@@ -625,6 +719,7 @@ export const RoutesScreen: React.FC = () => {
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    {currentUser?.isAdmin && <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>}
                   </tr>
                 ))
               ) : filteredDebts.map(d => {
@@ -722,8 +817,29 @@ export const RoutesScreen: React.FC = () => {
                       )}
                     </td>
                     {currentUser?.isAdmin && (
-                      <td className="px-2.5 py-2 text-center">
-                          <button onClick={handlePay} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer">تسديد</button>
+                      <td className="px-2.5 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenWhatsAppModal(d);
+                            }} 
+                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                            title="إرسال رسالة تنبيه بالدين إلى واتساب المندوب"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>واتساب</span>
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={handlePay} 
+                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer"
+                            title="تسديد دين الزبون"
+                          >
+                            تسديد
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -1592,18 +1708,31 @@ export const RoutesScreen: React.FC = () => {
                     إغلاق
                 </button>
                 {currentUser?.isAdmin && (
-                  <button 
-                      onClick={() => {
-                          const target = selectedDebt;
-                          setSelectedDebt(null);
-                          setPaymentModalDebt(target);
-                          setPaymentAmountInput(target.amountDue.toString());
-                      }}
-                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                      <CreditCard className="w-4 h-4" />
-                      <span>تسديد الدين</span>
-                  </button>
+                  <>
+                    <button 
+                        onClick={() => {
+                            const target = selectedDebt;
+                            setSelectedDebt(null);
+                            handleOpenWhatsAppModal(target);
+                        }}
+                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>واتساب</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            const target = selectedDebt;
+                            setSelectedDebt(null);
+                            setPaymentModalDebt(target);
+                            setPaymentAmountInput(target.amountDue.toString());
+                        }}
+                        className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                        <CreditCard className="w-4 h-4" />
+                        <span>تسديد الدين</span>
+                    </button>
+                  </>
                 )}
             </div>
           </div>
@@ -1716,6 +1845,147 @@ export const RoutesScreen: React.FC = () => {
                     <span>حفظ</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Debt Alert to Delegate Modal - Admin Only */}
+      {whatsappModalDebt && currentUser?.isAdmin && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setWhatsappModalDebt(null)}
+          dir="rtl"
+        >
+          <div 
+            className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4 animate-in zoom-in-95 duration-200 ${
+              isDarkMode ? 'bg-slate-900 border-emerald-500/40 text-white shadow-emerald-950/20' : 'bg-white border-emerald-200 text-slate-900 shadow-slate-300/50'
+            }`}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header Icon */}
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center shadow-inner border border-emerald-500/30">
+              <MessageCircle className="w-7 h-7" />
+            </div>
+
+            {/* Title & Info */}
+            <div className="space-y-1">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                إرسال تنبيه دين للمندوب عبر واتساب
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                سيتم إرسال رسالة تنبيه مفصلة بالدين لمندوب الزبون للمتابعة والاستحصال
+              </p>
+            </div>
+
+            {/* Summary Box */}
+            <div className="text-right p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-xs space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400">المندوب المسؤول:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {(() => {
+                    const acc = delegateAccounts.find(
+                      a => (whatsappModalDebt.delegateCode && a.delegateCode && String(a.delegateCode).trim() === String(whatsappModalDebt.delegateCode).trim()) ||
+                           (whatsappModalDebt.delegateName && a.delegateName && normalizeArabic(a.delegateName) === normalizeArabic(whatsappModalDebt.delegateName))
+                    );
+                    return acc?.delegateName || whatsappModalDebt.delegateName || whatsappModalDebt.delegateCode || 'غير محدد';
+                  })()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400">الزبون:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {whatsappModalDebt.customerName} ({whatsappModalDebt.customerCode})
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400">المبلغ المستحق:</span>
+                <span className="font-black text-rose-600 dark:text-rose-400">
+                  {whatsappModalDebt.amountDue.toLocaleString()} د.ع
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400">تاريخ السداد:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200" dir="ltr">
+                  {whatsappModalDebt.paymentDueDate}
+                </span>
+              </div>
+            </div>
+
+            {/* Phone Input field */}
+            {(() => {
+              const matchedAccount = delegateAccounts.find(
+                (acc) =>
+                  (whatsappModalDebt.delegateCode && acc.delegateCode && String(acc.delegateCode).trim() === String(whatsappModalDebt.delegateCode).trim()) ||
+                  (whatsappModalDebt.delegateName && acc.delegateName && normalizeArabic(acc.delegateName) === normalizeArabic(whatsappModalDebt.delegateName))
+              );
+              const isFixed = Boolean(getFixedDelegatePhone(whatsappModalDebt.delegateName, whatsappModalDebt.delegateCode, matchedAccount?.username));
+
+              return (
+                <div className="space-y-1.5 text-right">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      رقم هاتف المندوب على واتساب:
+                    </label>
+                    {isFixed && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800/60 px-2 py-0.5 rounded-full">
+                        <span>🔒 رقم ثابت ومحفوظ</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      dir="ltr"
+                      autoFocus={!isFixed}
+                      readOnly={isFixed}
+                      value={delegatePhoneInput}
+                      onChange={(e) => !isFixed && setDelegatePhoneInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSendWhatsAppAlert();
+                        }
+                      }}
+                      className={`w-full text-center text-base font-bold py-2 px-3 rounded-xl border ${
+                        isFixed
+                          ? 'border-emerald-500/60 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 select-all cursor-default'
+                          : 'border-emerald-500/50 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500'
+                      } transition-all shadow-inner`}
+                      placeholder="مثال: 07701234567 أو 9647701234567"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+                    {isFixed
+                      ? 'تم تثبيت وحفظ هذا الرقم للمندوب بصورة دائمة ومحمية من التغيير.'
+                      : 'يمكن إدخال الرقم للإرسال المباشر، أو تركه فارغاً لاختيار المحادثة من واتساب مباشرة.'}
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setWhatsappModalDebt(null)}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm border transition-all active:scale-95 cursor-pointer ${
+                  isDarkMode 
+                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' 
+                    : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                إلغاء
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSendWhatsAppAlert}
+                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 shrink-0" />
+                <span>إرسال واتساب</span>
               </button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { useSales, DEFAULT_CATEGORIES_LIST, getFixedDelegatePhone } from '../context/SalesContext';
 import { RouteItem } from '../types';
 import { db } from '../lib/firebase';
 import { collection, writeBatch, doc, getDocs, setDoc, query, deleteDoc, where } from 'firebase/firestore';
@@ -1175,6 +1175,21 @@ export const AdminScreen: React.FC = () => {
                   <div className="text-slate-500 dark:text-slate-400 mt-1 font-medium">
                     مستخدم: <strong className="text-slate-800 dark:text-slate-200 font-mono">{acc.username}</strong> | رمز: <strong className="text-slate-800 dark:text-slate-200 font-mono">{acc.password}</strong>
                   </div>
+                  {(() => {
+                    const phone = getFixedDelegatePhone(acc.delegateName, acc.delegateCode, acc.username) || acc.phone;
+                    const isFixed = Boolean(getFixedDelegatePhone(acc.delegateName, acc.delegateCode, acc.username));
+                    if (!phone) return null;
+                    return (
+                      <div className="text-emerald-700 dark:text-emerald-400 mt-1 font-bold flex items-center gap-1.5 text-[11px]">
+                        <span>واتساب: <strong className="font-mono" dir="ltr">{phone}</strong></span>
+                        {isFixed && (
+                          <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 px-1 py-0.2 rounded-sm font-bold">
+                            🔒 ثابت ومحمي
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">

@@ -71,14 +71,68 @@ export const isExcludedDelegateCategory = (catName: string) => {
   );
 };
 
+// ارقام المندوبين الثابتة المحفوظة والمحمية من التغيير
+export const FIXED_DELEGATE_PHONES: Record<string, string> = {
+  'محمد جاسم': '07748172328',
+  '60037329': '07748172328',
+  'mohkala': '07748172328',
+
+  'فيصل فؤاد': '07729268559',
+  '60042245': '07729268559',
+  'fslkala': '07729268559',
+
+  'خلدون جمال': '07710664989',
+  '60032667': '07710664989',
+  'kldkala': '07710664989',
+
+  'بكر بدران': '07722209322',
+  '60042244': '07722209322',
+  'bkrkala': '07722209322',
+
+  'صباح فرحان': '07759228689',
+  '60041445': '07759228689',
+  'sbhkala': '07759228689',
+
+  'ناجي خلف': '07748172333',
+  '60037899': '07748172333',
+  'najikala': '07748172333',
+};
+
+export const normalizeArabicText = (text: any): string => {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/[يى]/g, 'ي')
+    .replace(/ـ/g, '')
+    .replace(/\s+/g, ' ');
+};
+
+export const getFixedDelegatePhone = (delegateName?: string, delegateCode?: string, username?: string): string => {
+  const normName = delegateName ? normalizeArabicText(delegateName) : '';
+  const codeStr = delegateCode ? String(delegateCode).trim() : '';
+  const userStr = username ? username.trim().toLowerCase() : '';
+
+  for (const [key, val] of Object.entries(FIXED_DELEGATE_PHONES)) {
+    if (normName && normalizeArabicText(key) === normName) return val;
+    if (codeStr && key.trim() === codeStr) return val;
+    if (userStr && key.trim().toLowerCase() === userStr) return val;
+  }
+  return '';
+};
+
 export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'YASIR', password: '377377', delegateName: 'الأدمن', monthlyTargetKg: 0, isAdmin: true },
-  { username: 'najikala', password: '1111', delegateName: 'ناجي خلف', delegateCode: '60037899', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'kldkala', password: '2222', delegateName: 'خلدون جمال', delegateCode: '60032667', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', delegateCode: '60037329', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', delegateCode: '60042244', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', delegateCode: '60042245', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'najikala', password: '1111', delegateName: 'ناجي خلف', delegateCode: '60037899', phone: '07748172333', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'kldkala', password: '2222', delegateName: 'خلدون جمال', delegateCode: '60032667', phone: '07710664989', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'mohkala', password: '2222', delegateName: 'محمد جاسم', delegateCode: '60037329', phone: '07748172328', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', delegateCode: '60042244', phone: '07722209322', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', delegateCode: '60042245', phone: '07729268559', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', phone: '07759228689', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'rafatdata', password: '10001', delegateName: 'رأفت جمال', monthlyTargetKg: 0, isAdmin: true, role: 'dataEntry' },
@@ -1706,7 +1760,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as DelegateAccount;
           if (data && data.username) {
-            accs.push(data);
+            const fixedPhone = getFixedDelegatePhone(data.delegateName, data.delegateCode, data.username);
+            accs.push({
+              ...data,
+              phone: fixedPhone || data.phone,
+            });
           }
         });
 
@@ -2064,8 +2122,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         a.role === 'sauceOnly' ||
         a.delegateName === 'محمد الصلصات';
 
+      const fixedPhone = getFixedDelegatePhone(a.delegateName, a.delegateCode, a.username);
       accs.push({
         name: a.delegateName,
+        phone: fixedPhone || a.phone,
         roleName: isSauce
           ? 'حساب مشاهدة'
           : a.isAdmin
@@ -2564,8 +2624,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const saveDelegateAccount = async (acc: DelegateAccount) => {
     try {
-      const docId = acc.username.trim().toLowerCase();
-      await setDoc(doc(db, 'delegate_accounts', docId), acc, { merge: true });
+      const fixedPhone = getFixedDelegatePhone(acc.delegateName, acc.delegateCode, acc.username);
+      const toSave = {
+        ...acc,
+        phone: fixedPhone || acc.phone,
+      };
+      const docId = toSave.username.trim().toLowerCase();
+      await setDoc(doc(db, 'delegate_accounts', docId), toSave, { merge: true });
       setUserMessage(`تم حفظ بيانات المندوب (${acc.delegateName}) بنجاح`);
     } catch (e) {
       console.error('Error saving account:', e);
@@ -2574,9 +2639,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addDelegateAccount = async (acc: DelegateAccount) => {
     try {
-      const docId = acc.username.trim().toLowerCase();
-      await setDoc(doc(db, 'delegate_accounts', docId), acc);
-      setDelegateAccounts(prev => [...prev, acc]);
+      const fixedPhone = getFixedDelegatePhone(acc.delegateName, acc.delegateCode, acc.username);
+      const toSave = {
+        ...acc,
+        phone: fixedPhone || acc.phone,
+      };
+      const docId = toSave.username.trim().toLowerCase();
+      await setDoc(doc(db, 'delegate_accounts', docId), toSave);
+      setDelegateAccounts(prev => [...prev, toSave]);
       setUserMessage(`تم إضافة المندوب (${acc.delegateName}) بنجاح`);
     } catch (e) {
       console.error('Error adding account:', e);

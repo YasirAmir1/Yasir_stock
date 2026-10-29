@@ -8,6 +8,7 @@ export interface UserAccount {
   username: string;
   monthlyTargetKg: number;
   delegateCode?: string;
+  phone?: string;
   email?: string;
   delegateName?: string;
   targetSetTimestamp?: number;
@@ -32,6 +33,7 @@ export interface DelegateAccount {
   password: string;
   delegateName: string;
   delegateCode?: string; // Add this
+  phone?: string;
   monthlyTargetKg: number;
   isAdmin: boolean;
   role?: 'admin' | 'delegate' | 'dataEntry' | 'sauceOnly' | 'viewer';

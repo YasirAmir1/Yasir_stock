@@ -24,6 +24,7 @@ try {
   const cacheSettings = {
     localCache: memoryLocalCache(),
     experimentalForceLongPolling: true,
+    ignoreUndefinedProperties: true,
   };
   firestoreDb = databaseId
     ? initializeFirestore(app, cacheSettings, databaseId)
@@ -31,8 +32,8 @@ try {
 } catch (e) {
   try {
     firestoreDb = databaseId
-      ? initializeFirestore(app, { experimentalForceLongPolling: true }, databaseId)
-      : initializeFirestore(app, { experimentalForceLongPolling: true });
+      ? initializeFirestore(app, { experimentalForceLongPolling: true, ignoreUndefinedProperties: true }, databaseId)
+      : initializeFirestore(app, { experimentalForceLongPolling: true, ignoreUndefinedProperties: true });
   } catch (e2) {
     firestoreDb = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
   }

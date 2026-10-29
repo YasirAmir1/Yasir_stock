@@ -1347,6 +1347,8 @@
       "username": "Mohkala",
       "password": "3333",
       "delegateName": "محمد جاسم",
+      "delegateCode": "60037329",
+      "phone": "07748172328",
       "monthlyTargetKg": 0,
       "isAdmin": false,
       "targetSetTimestamp": 0
@@ -1355,6 +1357,8 @@
       "username": "Bkrkala",
       "password": "4444",
       "delegateName": "بكر بدران",
+      "delegateCode": "60042244",
+      "phone": "07722209322",
       "monthlyTargetKg": 0,
       "isAdmin": false,
       "targetSetTimestamp": 0
@@ -1363,6 +1367,8 @@
       "username": "Fslkala",
       "password": "5555",
       "delegateName": "فيصل فؤاد",
+      "delegateCode": "60042245",
+      "phone": "07729268559",
       "monthlyTargetKg": 0,
       "isAdmin": false,
       "targetSetTimestamp": 0
@@ -1371,6 +1377,8 @@
       "username": "Kldkala",
       "password": "2222",
       "delegateName": "خلدون جمال",
+      "delegateCode": "60032667",
+      "phone": "07710664989",
       "monthlyTargetKg": 0,
       "isAdmin": false,
       "targetSetTimestamp": 0
@@ -1379,6 +1387,18 @@
       "username": "Najikala",
       "password": "1111",
       "delegateName": "ناجي خلف",
+      "delegateCode": "60037899",
+      "phone": "07748172333",
+      "monthlyTargetKg": 0,
+      "isAdmin": false,
+      "targetSetTimestamp": 0
+    },
+    {
+      "username": "sbhkala",
+      "password": "6666",
+      "delegateName": "صباح فرحان",
+      "delegateCode": "60041445",
+      "phone": "07759228689",
       "monthlyTargetKg": 0,
       "isAdmin": false,
       "targetSetTimestamp": 0
