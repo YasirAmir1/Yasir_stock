@@ -261,7 +261,7 @@ export const ItemTrackingScreen: React.FC = () => {
     }
   };
 
-  // Firestore monthly item targets subscription
+  // Firestore report11_targets subscription (unified with Report 11)
   const [monthlyItemTargets, setMonthlyItemTargets] = useState<MonthlyItemTarget[]>([]);
   const [remainingWorkingDays, setRemainingWorkingDays] = useState<number>(() => {
     try {
@@ -299,22 +299,40 @@ export const ItemTrackingScreen: React.FC = () => {
     }
   };
 
-  // Load monthly_item_targets and working_days_config from Firestore
+  // Load report11_targets and working_days_config from Firestore
   useEffect(() => {
     const unsubTargets = safeOnSnapshot(
-      collection(db, 'monthly_item_targets'),
+      collection(db, 'report11_targets'),
       (snapshot: any) => {
         const list: MonthlyItemTarget[] = [];
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as MonthlyItemTarget;
-          if (data) {
+          if (data && data.delegateName && data.categoryName) {
             list.push({ ...data, id: docSnap.id });
           }
         });
+        if (list.length === 0) {
+          try {
+            const cachedMonthly = localStorage.getItem('cache_report11_targets');
+            if (cachedMonthly) {
+              const parsed = JSON.parse(cachedMonthly);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                parsed.forEach((m: any) => {
+                  list.push({
+                    delegateName: m.delegateName,
+                    categoryName: m.categoryName,
+                    monthlyTarget: Number(m.monthlyTarget) || 0,
+                    monthlySales: Number(m.monthlySales) || 0
+                  });
+                });
+              }
+            }
+          } catch {}
+        }
         setMonthlyItemTargets(list);
       },
-      (err: any) => console.error('Error fetching monthly_item_targets:', err),
-      'ItemTracking-monthly-targets'
+      (err: any) => console.error('Error fetching report11_targets:', err),
+      'ItemTracking-report11-targets'
     );
 
     const unsubDays = safeOnSnapshot(

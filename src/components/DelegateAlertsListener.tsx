@@ -98,13 +98,34 @@ export const DelegateAlertsListener: React.FC = () => {
     };
   }, [currentUser, isAdminOrDataEntry]);
 
+  const { addToast } = useSales();
+
   useEffect(() => {
     if (activeAlerts.length === 0) return;
     const checkAlerts = () => {
       const now = Date.now();
       activeAlerts.forEach(async (alertItem) => {
         if (now >= alertItem.targetTime) {
-           alert(`تنبيه جديد: ${alertItem.note}`);
+           addToast({
+             title: 'تنبيه جديد 🔔',
+             message: alertItem.note,
+             type: 'milestone_100'
+           });
+
+           // Also attempt browser push notification if permitted
+           if ('Notification' in window && Notification.permission === 'granted') {
+             try {
+               new Notification('تنبيه كالة تكريت 📊', {
+                 body: alertItem.note,
+                 icon: '/favicon.ico'
+               });
+             } catch (e) {}
+           } else if ('Notification' in window && Notification.permission === 'default') {
+             try {
+               Notification.requestPermission();
+             } catch (e) {}
+           }
+
            try {
              if (isAdminOrDataEntry) {
                await updateDoc(doc(db, 'admin_data_entry_alerts', alertItem.id), { notified: true });
@@ -118,9 +139,9 @@ export const DelegateAlertsListener: React.FC = () => {
       });
     };
     checkAlerts();
-    const interval = setInterval(checkAlerts, 30000);
+    const interval = setInterval(checkAlerts, 10000);
     return () => clearInterval(interval);
-  }, [activeAlerts, isAdminOrDataEntry]);
+  }, [activeAlerts, isAdminOrDataEntry, addToast]);
 
   return null;
 };

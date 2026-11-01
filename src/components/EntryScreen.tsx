@@ -24,7 +24,7 @@ export const EntryScreen: React.FC = () => {
     saveSalesEntries,
     deleteSalesEntry,
     updateSalesEntry,
-    syncData,
+    refreshAllData,
     isDarkMode,
     prefilledEntryData,
     setPrefilledEntryData,
@@ -1390,7 +1390,7 @@ export const EntryScreen: React.FC = () => {
   }, 0);
 
   return (
-    <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
+    <PullToRefresh onRefresh={async () => { await refreshAllData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       <DelegateLoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
       {/* Summary Bar - Persistent at top of content area */}
@@ -1714,30 +1714,30 @@ export const EntryScreen: React.FC = () => {
               </span>
             )}
 
-            {/* فقرة جديدة: عدد الكارتون وعدد القطع المطلوبة */}
+            {/* فقرة: عدد الكارتون وعدد القطع المطلوبة */}
             {safeSavedEntries.length > 0 && (
-              <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+              <span className={`text-[11px] sm:text-xs font-black max-w-full px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 flex-wrap sm:flex-nowrap ${
                 isProductFilterActive
                   ? 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-200 dark:border-indigo-700 shadow-xs'
                   : 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-slate-800 dark:text-indigo-300 dark:border-slate-700'
               }`}>
                 <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                <span>
-                  عدد الكارتون وعدد القطع المطلوبة:{' '}
-                  <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                <span className="flex items-center gap-1 flex-wrap">
+                  <span className="whitespace-nowrap">المطلوب:</span>
+                  <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-xs sm:text-sm whitespace-nowrap">
                     {formatWithCommas(totalDisplayedCartons)}
-                  </strong>{' '}
-                  كارتون
+                  </strong>
+                  <span className="whitespace-nowrap">كارتون</span>
                   {displayedRemainderPieces > 0 ? (
                     <>
-                      {' '}و{' '}
-                      <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                      <span>و</span>
+                      <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-xs sm:text-sm whitespace-nowrap">
                         {formatWithCommas(displayedRemainderPieces)}
-                      </strong>{' '}
-                      قطعة
+                      </strong>
+                      <span className="whitespace-nowrap">قطعة</span>
                     </>
                   ) : null}
-                  <span className="text-[10px] sm:text-[11px] opacity-80 font-bold mr-1 font-mono">
+                  <span className="text-[10px] sm:text-[11px] opacity-80 font-bold font-mono whitespace-nowrap mr-0.5">
                     ({formatWithCommas(totalDisplayedPieces)} قطعة)
                   </span>
                 </span>

@@ -1,13 +1,113 @@
 import React, { useState, useMemo } from 'react';
 import { useSales } from '../context/SalesContext';
 import { ProductItem, GiftPromotion } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes } from 'lucide-react';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { showConfirm } from '../utils/dialogService';
 import { GiftsManagementTable } from './GiftsManagementTable';
 import { StoreNotificationsModal } from './StoreNotificationsModal';
+
+export interface PriceChangeStatus {
+  hasAnyChange: boolean;
+  hasCurrentModeChange: boolean;
+  hasRetailChange: boolean;
+  hasWholesaleChange: boolean;
+  currentModePrice: number;
+  prevModePrice?: number;
+  diff: number;
+  diffPercent: number;
+  isIncrease: boolean;
+  isDecrease: boolean;
+  cartonQty: number;
+  currentCartonPrice: number;
+  prevCartonPrice: number;
+  cartonDiff: number;
+  currentRetail: number;
+  prevRetail: number;
+  retailDiff: number;
+  currentWholesale: number;
+  prevWholesale: number;
+  wholesaleDiff: number;
+  priceUpdatedAt?: number;
+}
+
+export const getPriceChangeStatus = (
+  prod: ProductItem,
+  currentPriceMode: 'retail' | 'wholesale'
+): PriceChangeStatus => {
+  const currentModePrice = currentPriceMode === 'retail' ? (prod.retailPrice ?? 0) : (prod.wholesalePrice ?? 0);
+  const prevModePrice = currentPriceMode === 'retail' ? prod.previousRetailPrice : prod.previousWholesalePrice;
+
+  const currentRetail = Number(prod.retailPrice) || 0;
+  const prevRetail = Number(prod.previousRetailPrice) || 0;
+  const currentWholesale = Number(prod.wholesalePrice) || 0;
+  const prevWholesale = Number(prod.previousWholesalePrice) || 0;
+
+  const hasRetailChange = Boolean(
+    prod.previousRetailPrice !== undefined &&
+    prod.previousRetailPrice !== null &&
+    prevRetail > 0 &&
+    currentRetail > 0 &&
+    currentRetail !== prevRetail
+  );
+
+  const hasWholesaleChange = Boolean(
+    prod.previousWholesalePrice !== undefined &&
+    prod.previousWholesalePrice !== null &&
+    prevWholesale > 0 &&
+    currentWholesale > 0 &&
+    currentWholesale !== prevWholesale
+  );
+
+  const hasAnyChange = hasRetailChange || hasWholesaleChange;
+
+  const hasCurrentModeChange = Boolean(
+    prevModePrice !== undefined &&
+    prevModePrice !== null &&
+    Number(prevModePrice) > 0 &&
+    currentModePrice > 0 &&
+    currentModePrice !== Number(prevModePrice)
+  );
+
+  const diff = hasCurrentModeChange ? currentModePrice - Number(prevModePrice || 0) : 0;
+  const diffPercent = (hasCurrentModeChange && Number(prevModePrice || 0) > 0) ? (diff / Number(prevModePrice)) * 100 : 0;
+  const isIncrease = diff > 0;
+  const isDecrease = diff < 0;
+
+  const cartonQty = Number(prod.cartonQuantity ?? prod.unitsPerCarton ?? 12) || 1;
+  const currentCartonPrice = currentModePrice * cartonQty;
+  const prevCartonPrice = Number(prevModePrice || 0) * cartonQty;
+  const cartonDiff = hasCurrentModeChange ? currentCartonPrice - prevCartonPrice : 0;
+
+  const retailDiff = hasRetailChange ? currentRetail - prevRetail : 0;
+  const wholesaleDiff = hasWholesaleChange ? currentWholesale - prevWholesale : 0;
+
+  return {
+    hasAnyChange,
+    hasCurrentModeChange,
+    hasRetailChange,
+    hasWholesaleChange,
+    currentModePrice,
+    prevModePrice: prevModePrice ? Number(prevModePrice) : undefined,
+    diff,
+    diffPercent,
+    isIncrease,
+    isDecrease,
+    cartonQty,
+    currentCartonPrice,
+    prevCartonPrice,
+    cartonDiff,
+    currentRetail,
+    prevRetail,
+    retailDiff,
+    currentWholesale,
+    prevWholesale,
+    wholesaleDiff,
+    priceUpdatedAt: prod.priceUpdatedAt,
+  };
+};
 
 const getAvatarProps = (name: string) => {
   const colors = [
@@ -36,7 +136,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     currentUser, 
     productsList, 
     importProductsFromExcel, 
-    updateProduct, uploadProductImage, 
+    updateProduct, 
+    acknowledgePriceChanges,
+    uploadProductImage, 
     addProduct, 
     deleteProduct, 
     deleteAllProducts, 
@@ -63,6 +165,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showStoreNotificationsModal, setShowStoreNotificationsModal] = useState(false);
+  const [showOnlyPriceChanged, setShowOnlyPriceChanged] = useState<boolean>(false);
+  const [showPriceChangesModal, setShowPriceChangesModal] = useState<boolean>(false);
+  const [acknowledgingPriceId, setAcknowledgingPriceId] = useState<string | null>(null);
 
   // Unique sanitized key for current user (persisted across sessions)
   const userKey = useMemo(() => {
@@ -155,7 +260,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
   // Render helper for the Store Notifications button with Pulse & Glow effect when unread
   const renderStoreNotificationsButton = (customClasses = 'text-xs sm:text-sm') => (
-    <div className="relative inline-flex items-center shrink-0">
+    <div className="relative inline-flex items-center shrink-0 max-w-full">
       {hasUnreadInventory && (
         <>
           <span className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-emerald-500 via-amber-400 to-teal-400 opacity-80 blur-md animate-pulse pointer-events-none" />
@@ -168,7 +273,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       <button
         type="button"
         onClick={handleOpenStoreNotifications}
-        className={`relative z-10 cursor-pointer px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 border ${customClasses} ${
+        className={`relative z-10 cursor-pointer px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl font-black flex items-center gap-1.5 sm:gap-2 shadow-lg transition-all active:scale-95 border max-w-full ${customClasses} ${
           hasUnreadInventory
             ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 text-white border-2 border-amber-300 shadow-xl shadow-emerald-500/40 ring-4 ring-emerald-400/40 animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite]'
             : isDarkMode
@@ -177,14 +282,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         }`}
         title="إشعارات وسجل عمليات الجرد بالمخزن"
       >
-        <Boxes className="w-4 h-4 shrink-0" />
-        <span>إشعارات المخزن</span>
+        <Boxes className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+        <span className="truncate whitespace-nowrap text-[11px] sm:text-xs">إشعارات المخزن</span>
         {hasUnreadInventory ? (
-          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 animate-bounce shadow-xs">
+          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 animate-bounce shadow-xs whitespace-nowrap shrink-0">
             جرد جديد! 🔔
           </span>
         ) : inventoryLogs.length > 0 ? (
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-700 text-white font-mono shadow-xs">
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-700 text-white font-mono shadow-xs shrink-0">
             {inventoryLogs.length}
           </span>
         ) : null}
@@ -465,11 +570,25 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     }
   }, [categoriesList, selectedCategoryFilter]);
 
+  // حساب قائمة الأصناف التي طرأ تغيير على أسعارها تلقائياً مقارنة بآخر سجل
+  const priceChangedProducts = useMemo(() => {
+    return productsList.filter(p => {
+      const status = getPriceChangeStatus(p, priceMode);
+      return status.hasAnyChange;
+    });
+  }, [productsList, priceMode]);
+
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
       // If user is mohammedsauce, strictly limit to category "صلصات"
       if (isSauceUser && p.categoryName?.trim() !== 'صلصات') {
         return false;
+      }
+
+      // فلترة الأصناف المغيرة أسعارها مؤخراً عند تفعيل الخيار
+      if (showOnlyPriceChanged) {
+        const status = getPriceChangeStatus(p, priceMode);
+        if (!status.hasAnyChange) return false;
       }
 
       // Hide unavailable products and low stock products (< 3 cartons) for non-admins (مندوبين) using live stock
@@ -486,7 +605,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       return matchSearch && matchCat;
     });
 
-    if (sortBy === 'most_sold') {
+    if (sortBy === 'price_changed') {
+      filtered.sort((a, b) => {
+        const changeA = getPriceChangeStatus(a, priceMode).hasAnyChange ? 1 : 0;
+        const changeB = getPriceChangeStatus(b, priceMode).hasAnyChange ? 1 : 0;
+        if (changeA !== changeB) return changeB - changeA;
+        return (b.priceUpdatedAt || 0) - (a.priceUpdatedAt || 0);
+      });
+    } else if (sortBy === 'most_sold') {
       const salesMap = new globalThis.Map<string, number>();
       rawSavedEntries?.forEach(entry => {
         salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
@@ -516,7 +642,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     }
 
     return filtered;
-  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries]);
+  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -625,7 +751,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     const currentProd = productsList.find(p => p.id === id);
     const newStockCartons = Number(editStockCartons) || 0;
     const unitsPerCarton = Number(editCartonQuantity) || 12;
-    
+    const newRetail = Number(editRetailPrice) || 0;
+    const newWholesale = Number(editWholesalePrice) || 0;
+
+    const currentRetail = Number(currentProd?.retailPrice) || 0;
+    const currentWholesale = Number(currentProd?.wholesalePrice) || 0;
+    const retailChanged = currentRetail > 0 && newRetail > 0 && newRetail !== currentRetail;
+    const wholesaleChanged = currentWholesale > 0 && newWholesale > 0 && newWholesale !== currentWholesale;
+
     updateProduct(id, {
       categoryName: editCategoryName.trim() || 'عام',
       productCode: editProductCode.trim() || 'PRD-000',
@@ -633,8 +766,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       unitsPerCarton: unitsPerCarton,
       totalPieces: newStockCartons * unitsPerCarton,
       pieceWeightKg: Number(editPieceWeightKg) || 0,
-      retailPrice: Number(editRetailPrice) || 0,
-      wholesalePrice: Number(editWholesalePrice) || 0,
+      retailPrice: newRetail,
+      wholesalePrice: newWholesale,
+      previousRetailPrice: retailChanged ? currentRetail : currentProd?.previousRetailPrice,
+      previousWholesalePrice: wholesaleChanged ? currentWholesale : currentProd?.previousWholesalePrice,
+      priceUpdatedAt: (retailChanged || wholesaleChanged) ? Date.now() : currentProd?.priceUpdatedAt,
       imageUrl: editImageUrl.trim(),
       isAvailable: editIsAvailable,
       isGift: Boolean(currentProd?.isGift),
@@ -1134,22 +1270,24 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
       {/* Top Store Notifications Header for Representatives & Non-Admin */}
       {!isAdmin && !isRafat && !isSauceUser && (
-        <div className={`p-3.5 sm:p-4 rounded-2xl border shadow-md flex items-center justify-between gap-3 ${
+        <div className={`p-3 sm:p-4 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 ${
           isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-emerald-200 text-slate-900'
         }`}>
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-500 flex items-center justify-center border border-emerald-500/30 shrink-0">
-              <Package className="w-5 h-5" />
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-600/20 text-emerald-500 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <Package className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h2 className="text-sm sm:text-base font-black">قائمة المنتجات والأصناف</h2>
-              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
+            <div className="min-w-0">
+              <h2 className="text-xs sm:text-base font-black truncate">قائمة المنتجات والأصناف</h2>
+              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
                 {productsList.length} منتج مسجل في النظام
               </p>
             </div>
           </div>
 
-          {renderStoreNotificationsButton('text-xs sm:text-sm')}
+          <div className="shrink-0 max-w-full">
+            {renderStoreNotificationsButton('text-[11px] sm:text-sm')}
+          </div>
         </div>
       )}
 
@@ -1604,6 +1742,58 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         </div>
       )}
 
+      {/* 🏷️ Price Changes Highlight Alert Banner */}
+      {priceChangedProducts.length > 0 && (
+        <div className={`p-3 sm:p-4 rounded-2xl border shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all ${
+          isDarkMode ? 'bg-amber-950/30 border-amber-800/70 text-amber-100' : 'bg-amber-50/90 border-amber-300 text-amber-950'
+        }`}>
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-inner">
+              <Tag className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-black text-xs sm:text-sm">
+                  تنبيه تلقائي: تم رصد {priceChangedProducts.length} صنف تغير سعرها مؤخراً
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-800 dark:text-amber-300">
+                  مقارنة بآخر سجل موجود
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 font-bold mt-0.5">
+                تظهر الأصناف التي طرأ تغيير على أسعارها (مفرد أو جملة) مميزة ببطاقات تنبيهية مع إظهار السعر السابق والجديد وقيمة الفرق.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowOnlyPriceChanged(prev => !prev)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                showOnlyPriceChanged
+                  ? 'bg-amber-600 text-white hover:bg-amber-700'
+                  : isDarkMode
+                  ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-600/40'
+                  : 'bg-white hover:bg-amber-100 text-amber-900 border border-amber-300'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span>{showOnlyPriceChanged ? 'إلغاء الفلترة وعرض الكل' : 'فلترة المغيرة فقط'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPriceChangesModal(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-700 text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>جدول مقارنة الأسعار ({priceChangedProducts.length})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Discount and Search Bar */}
       <div className="flex flex-col gap-3">
         
@@ -1621,7 +1811,6 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
              />
           </div>
         )}
-        
         
         {suggestedProducts.length > 0 && (
           <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
@@ -1670,6 +1859,28 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                     {cat}
                   </button>
                 ))}
+
+                {/* زر الفلترة السريعة للأصناف المغيرة أسعارها */}
+                {priceChangedProducts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyPriceChanged(prev => !prev)}
+                    className={`px-2 py-1 rounded text-[8px] sm:text-[9px] font-black transition-all flex items-center gap-1 cursor-pointer border ${
+                      showOnlyPriceChanged
+                        ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-md ring-1 ring-amber-400'
+                        : isDarkMode
+                        ? 'bg-slate-800 text-amber-400 border-amber-500/40 hover:bg-slate-700'
+                        : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                    }`}
+                    title="تصفية وعرض الأصناف التي تغيرت أسعارها مؤخراً فقط"
+                  >
+                    <Tag className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span>المغيرة أسعارها</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[8px] font-black bg-amber-600 text-white">
+                      {priceChangedProducts.length}
+                    </span>
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-1.5 mr-auto flex-wrap justify-end">
                 <span className="text-[9px] sm:text-[10px] font-bold shrink-0">طريقة العرض:</span>
@@ -1698,6 +1909,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                   <option value="weight">الوزن</option>
                   <option value="price">سعر الكارتون</option>
                   <option value="stock">الكمية المتوفرة</option>
+                  <option value="price_changed">🏷️ الأصناف المغيرة أسعارها أولاً</option>
                   <option value="most_sold">الأكثر مبيعاً</option>
                   <option value="file_order">ترتيب الملف المرفوع</option>
                 </select>
@@ -1761,6 +1973,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               const isProductInGiftsTable = isGiftActiveAndRunning || Boolean(matchingGiftPromotion && matchingGiftPromotion.isActive !== false);
 
               const { totalUnits, cartons: remainingCartons, unitsPerCarton } = getProductLiveStock(prod);
+              const priceStatus = getPriceChangeStatus(prod, priceMode);
 
               return (
                 <div
@@ -1768,8 +1981,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                   onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
                   className={`relative overflow-hidden flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
                     isDarkMode 
-                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : 'border-slate-800'}` 
-                      : `bg-white ${hasQuantity ? 'border-emerald-600' : 'border-slate-200'}`
+                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-500/80 ring-1 ring-amber-500/50 shadow-amber-500/10' : 'border-emerald-500/80 ring-1 ring-emerald-500/50 shadow-emerald-500/10') : 'border-slate-800'}` 
+                      : `bg-white ${hasQuantity ? 'border-emerald-600' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-400 ring-1 ring-amber-400/60 shadow-amber-500/10' : 'border-emerald-400 ring-1 ring-emerald-400/60 shadow-emerald-500/10') : 'border-slate-200'}`
                   } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''} sm:hover:shadow-md sm:cursor-pointer`}
                 >
                     {/* Dynamic Real-time Stock Header at Top of Product Card */}
@@ -1795,6 +2008,31 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                         </span>
                       )}
                     </div>
+
+                    {/* 🏷️ شريط تمييز تغير السعر مؤخراً تلقائياً */}
+                    {priceStatus.hasAnyChange && (
+                      <div 
+                        className={`w-full py-0.5 px-2 rounded-md mb-0.5 flex items-center justify-between text-[9px] font-black border shadow-xs animate-in fade-in ${
+                          priceStatus.isIncrease
+                            ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700'
+                            : priceStatus.isDecrease
+                            ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
+                            : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-900 dark:text-indigo-200 border-indigo-300 dark:border-indigo-700'
+                        }`}
+                        title={`تغير السعر مؤخراً: ${priceStatus.hasRetailChange ? `المفرد (السابق ${priceStatus.prevRetail} د.ع ➔ الحالي ${priceStatus.currentRetail} د.ع) ` : ''}${priceStatus.hasWholesaleChange ? `الجملة (السابق ${priceStatus.prevWholesale} د.ع ➔ الحالي ${priceStatus.currentWholesale} د.ع)` : ''}`}
+                      >
+                        <div className="flex items-center gap-1 min-w-0">
+                          <Tag className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span className="truncate">تغير السعر مؤخراً</span>
+                        </div>
+                        {priceStatus.hasCurrentModeChange && (
+                          <span className="font-extrabold dir-ltr shrink-0 flex items-center gap-0.5">
+                            {priceStatus.isIncrease ? '▲ +' : '▼ '}
+                            {Math.abs(priceStatus.diff).toLocaleString()} د.ع
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Slanted Gift Ribbon / Banner */}
                     {isProductInGiftsTable && (
@@ -2017,8 +2255,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                   
                   {/* Price Section - Hidden for mohammedsauce */}
                   {!isSauceUser && (
-                    <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    <div className={`mt-0.5 p-1.5 rounded-md border flex justify-between items-center transition-colors ${
+                      priceStatus.hasCurrentModeChange
+                        ? (isDarkMode ? 'bg-amber-950/25 border-amber-800/60 text-slate-300' : 'bg-amber-50/80 border-amber-300 text-slate-700')
+                        : (isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700')
                     }`}>
                       <div className="flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] font-bold text-slate-400 mb-0.5">سعر ({priceMode === 'retail' ? 'مفرد' : 'جملة'})</span>
@@ -2032,17 +2272,43 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                             className="w-16 px-1 py-0.5 text-[10px] rounded border border-emerald-500 bg-slate-800 text-white font-extrabold text-center"
                           />
                         ) : (
-                          <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-[15px]">
-                            {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
-                          </span>
+                          <div className="flex flex-col items-center">
+                            {priceStatus.hasCurrentModeChange && priceStatus.prevModePrice ? (
+                              <div className="flex items-center gap-1 leading-none mb-0.5">
+                                <span className="line-through text-slate-400 dark:text-slate-500 text-[9px] font-bold">
+                                  {Number(priceStatus.prevModePrice).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                                </span>
+                                <span className={`text-[8px] font-black px-1 py-0.2 rounded ${
+                                  priceStatus.isIncrease ? 'bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-300' : 'bg-emerald-200 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-300'
+                                }`}>
+                                  {priceStatus.isIncrease ? '▲ +' : '▼ '}
+                                  {Math.abs(priceStatus.diff).toLocaleString()}
+                                </span>
+                              </div>
+                            ) : null}
+                            <span className={`font-black text-xs sm:text-[15px] ${
+                              priceStatus.hasCurrentModeChange
+                                ? (priceStatus.isIncrease ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-emerald-600 dark:text-emerald-400 font-extrabold')
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            }`}>
+                              {Number(priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                            </span>
+                          </div>
                         )}
                       </div>
                       
                       <div className="flex flex-col items-center justify-center text-center border-r border-slate-200 dark:border-slate-700 pr-2">
                         <span className="text-[9px] font-bold text-slate-400 mb-0.5">الكارتون</span>
-                        <span className="font-black text-indigo-600 dark:text-indigo-400 text-xs sm:text-[15px]">
-                          {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 2})}
-                        </span>
+                        <div className="flex flex-col items-center">
+                          {priceStatus.hasCurrentModeChange && priceStatus.prevCartonPrice ? (
+                            <span className="line-through text-slate-400 dark:text-slate-500 text-[9px] font-bold leading-none mb-0.5">
+                              {Number(priceStatus.prevCartonPrice).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                            </span>
+                          ) : null}
+                          <span className="font-black text-indigo-600 dark:text-indigo-400 text-xs sm:text-[15px]">
+                            {Number((priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0)) * (Number(prod.cartonQuantity) || 1)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2390,6 +2656,221 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* 🏷️ Price Changes Comparison Modal */}
+      {showPriceChangesModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
+          <div className={`w-full max-w-4xl max-h-[90vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden ${
+            isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            {/* Header */}
+            <div className={`p-4 border-b flex items-center justify-between gap-3 ${
+              isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black flex items-center gap-2">
+                    <span>جدول مقارنة الأصناف التي تغيرت أسعارها</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/30">
+                      {priceChangedProducts.length} صنف
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                    مقارنة تلقائية وفورية بين آخر سجل محفوظ والأسعار الحالية (مفرد، جملة، كارتون)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPriceChangesModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="p-4 overflow-y-auto overflow-x-auto flex-1 space-y-3">
+              {priceChangedProducts.length === 0 ? (
+                <div className="text-center py-12">
+                  <CheckCheck className="w-12 h-12 text-emerald-500 mx-auto mb-2 opacity-80" />
+                  <p className="font-bold text-sm">لا توجد أصناف مسجل عليها تغيير في الأسعار حالياً.</p>
+                  <p className="text-xs text-slate-500 mt-1">جميع الأسعار متطابقة مع السجل المرجعي.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-right border-collapse text-xs">
+                    <thead>
+                      <tr className={`border-b text-[11px] font-black ${
+                        isDarkMode ? 'bg-slate-950 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-300'
+                      }`}>
+                        <th className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800 w-10">ت</th>
+                        <th className="p-2.5 border-l border-slate-200 dark:border-slate-800">الصنف والمنتج</th>
+                        <th className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                          سعر المفرد (السابق ➔ الحالي)
+                        </th>
+                        <th className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
+                          سعر الجملة (السابق ➔ الحالي)
+                        </th>
+                        <th className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800">
+                          سعر الكارتون الحالي
+                        </th>
+                        {isAdmin && (
+                          <th className="p-2.5 text-center">إجراء الاعتماد</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {priceChangedProducts.map((p, idx) => {
+                        const status = getPriceChangeStatus(p, priceMode);
+                        return (
+                          <tr 
+                            key={p.id}
+                            className={`transition-colors ${
+                              isDarkMode ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <td className="p-2.5 text-center font-bold border-l border-slate-200 dark:border-slate-800 text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="p-2.5 border-l border-slate-200 dark:border-slate-800 font-bold">
+                              <div className="flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] bg-slate-200 dark:bg-slate-800 font-mono">
+                                  {p.productCode || 'PRD'}
+                                </span>
+                                <div>
+                                  <div className="font-black text-xs sm:text-sm">{p.productName}</div>
+                                  <div className="text-[10px] text-slate-500">{p.categoryName}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800">
+                              {status.hasRetailChange ? (
+                                <div className="flex flex-col items-center">
+                                  <div className="flex items-center gap-1.5 text-xs font-black">
+                                    <span className="line-through text-slate-400 dark:text-slate-500">
+                                      {status.prevRetail.toLocaleString()}
+                                    </span>
+                                    <span className="text-slate-400">➔</span>
+                                    <span className="text-emerald-500">
+                                      {status.currentRetail.toLocaleString()} د.ع
+                                    </span>
+                                  </div>
+                                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded mt-0.5 ${
+                                    status.retailDiff > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                  }`}>
+                                    {status.retailDiff > 0 ? `▲ ارتفاع (+${status.retailDiff.toLocaleString()} د.ع)` : `▼ انخفاض (${status.retailDiff.toLocaleString()} د.ع)`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 font-bold">
+                                  ثابت ({status.currentRetail.toLocaleString()} د.ع)
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800">
+                              {status.hasWholesaleChange ? (
+                                <div className="flex flex-col items-center">
+                                  <div className="flex items-center gap-1.5 text-xs font-black">
+                                    <span className="line-through text-slate-400 dark:text-slate-500">
+                                      {status.prevWholesale.toLocaleString()}
+                                    </span>
+                                    <span className="text-slate-400">➔</span>
+                                    <span className="text-indigo-500">
+                                      {status.currentWholesale.toLocaleString()} د.ع
+                                    </span>
+                                  </div>
+                                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded mt-0.5 ${
+                                    status.wholesaleDiff > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                  }`}>
+                                    {status.wholesaleDiff > 0 ? `▲ ارتفاع (+${status.wholesaleDiff.toLocaleString()} د.ع)` : `▼ انخفاض (${status.wholesaleDiff.toLocaleString()} د.ع)`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 font-bold">
+                                  ثابت ({status.currentWholesale.toLocaleString()} د.ع)
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800 font-black">
+                              <span className="text-xs text-indigo-600 dark:text-indigo-400">
+                                {status.currentCartonPrice.toLocaleString()} د.ع
+                              </span>
+                              <div className="text-[10px] text-slate-400">
+                                ({status.cartonQty} قطعة)
+                              </div>
+                            </td>
+                            {isAdmin && (
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setAcknowledgingPriceId(p.id);
+                                    await acknowledgePriceChanges([p.id]);
+                                    setAcknowledgingPriceId(null);
+                                  }}
+                                  disabled={acknowledgingPriceId === p.id}
+                                  className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                                  title="اعتماد السعر الحالي كمرجع لهذا الصنف وإزالة علامة التمييز"
+                                >
+                                  {acknowledgingPriceId === p.id ? 'جاري الاعتماد...' : 'اعتماد السعر'}
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className={`p-4 border-t flex flex-col sm:flex-row items-center justify-between gap-3 ${
+              isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                إجمالي الأصناف التي رصد نظام المقارنة تغيراً في أسعارها: <span className="text-amber-500 font-black">{priceChangedProducts.length}</span> صنف
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end">
+                {isAdmin && priceChangedProducts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const confirmed = await showConfirm(
+                        'هل أنت متأكد من اعتماد جميع الأسعار الحالية كمرجع أساسي جديد؟ سيؤدي ذلك لتحديث السجل المرجعي لكافة الأصناف.',
+                        { title: 'اعتماد جميع الأسعار', confirmText: 'نعم، اعتماد الكل', cancelText: 'إلغاء' }
+                      );
+                      if (confirmed) {
+                        await acknowledgePriceChanges();
+                        setShowPriceChangesModal(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  >
+                    <CheckCheck className="w-4 h-4" />
+                    <span>اعتماد جميع الأسعار الحالية كمرجع</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowPriceChangesModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

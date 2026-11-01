@@ -33,7 +33,7 @@ const normalizeArabic = (text: any): string => {
 
 export const RoutesScreen: React.FC = () => {
   const salesContext = useSales();
-  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, salesEntries, allSalesEntries, addToast } = salesContext;
+  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, setSelectedDelegate, salesEntries, allSalesEntries, addToast } = salesContext;
   const productsList = salesContext.productsList || [];
 
   // Data Entry account check
@@ -45,6 +45,7 @@ export const RoutesScreen: React.FC = () => {
     currentUser?.name === 'رأفت جمال' ||
     currentUser?.delegateName === 'رأفت جمال'
   );
+  const isRafatJamal = Boolean(currentUser?.name === 'رأفت جمال' || currentUser?.username?.toLowerCase() === 'rafatdata');
 
   // Monthly reports visible for Data Entry and Admin, strictly hidden from delegates
   const canViewMonthlyReports = Boolean(
@@ -84,6 +85,28 @@ export const RoutesScreen: React.FC = () => {
   const [debtsLoaded, setDebtsLoaded] = useState<boolean>(false);
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
+  const [unlockedCustomerCodes, setUnlockedCustomerCodes] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const unsubUnlocked = safeOnSnapshot(
+      collection(db, 'unlocked_debts'),
+      (snap: any) => {
+        const map: Record<string, boolean> = {};
+        snap.forEach((docSnap: any) => {
+          const data = docSnap.data();
+          map[docSnap.id] = true;
+          if (data?.customerCode) map[String(data.customerCode).trim()] = true;
+          if (data?.customerName) map[normalizeArabic(data.customerName)] = true;
+        });
+        setUnlockedCustomerCodes(map);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'unlocked_debts in RoutesScreen');
+      },
+      'RoutesScreen-unlocked-debts'
+    );
+    return () => unsubUnlocked();
+  }, []);
 
   // Overdue Debts Auto-Dismissing Alert Modal State
   const [showOverdueAlertModal, setShowOverdueAlertModal] = useState<boolean>(false);
@@ -420,7 +443,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   };
 
   const handleSavePayment = async () => {
-    if (!paymentModalDebt || !currentUser?.isAdmin) return;
+    if (!paymentModalDebt || !(currentUser?.isAdmin || isDataEntry)) return;
     const paidAmount = parseFloat(paymentAmountInput);
     if (isNaN(paidAmount) || paidAmount <= 0) {
       alert('يرجى إدخال مبلغ تسديد صحيح أكبر من الصفر');
@@ -613,10 +636,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 )}
               </div>
               <div className="flex gap-2">
-                {currentUser?.isAdmin && (
+                {(currentUser?.isAdmin || isDataEntry) && (
                     <button onClick={exportDebtsToExcel} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">تصدير Excel</button>
                 )}
-                {currentUser?.isAdmin && (
+                {currentUser?.isAdmin && !isRafatJamal && (
                     <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
                     <Upload className="w-4 h-4" />
                     استيراد
@@ -647,37 +670,37 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     </button>
 
                     {/* Delegate Buttons */}
-                    {delegateAccounts.map((d, idx) => {
-                      const filterKey = d.delegateCode || d.username;
-                      const isSelected = selectedDelegateFilter === filterKey || (selectedDelegateFilter && (d.delegateName === selectedDelegateFilter || d.username === selectedDelegateFilter));
-                      const delegateTotal = getDelegateTotalDebt(d);
+                    {delegateAccounts
+                      .filter(d => getDelegateTotalDebt(d) > 0)
+                      .map((d, idx) => {
+                        const filterKey = d.delegateCode || d.username;
+                        const isSelected = selectedDelegateFilter === filterKey || (selectedDelegateFilter && (d.delegateName === selectedDelegateFilter || d.username === selectedDelegateFilter));
+                        const delegateTotal = getDelegateTotalDebt(d);
 
-                      return (
-                        <button 
-                          key={d.username || d.delegateCode || `debts-filter-${idx}`} 
-                          onClick={() => setSelectedDelegateFilter(filterKey || null)} 
-                          className={`px-3 py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-[80px] ${
-                            isSelected 
-                              ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-500/50' 
-                              : isDarkMode 
-                                ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700' 
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                          }`}
-                        >
-                          <span className="text-xs font-black leading-tight truncate max-w-[130px]">
-                            {d.delegateName || d.username}
-                          </span>
-                          <span className={`text-[10px] font-bold mt-0.5 leading-tight ${
-                            isSelected 
-                              ? 'text-emerald-100' 
-                              : delegateTotal > 0 
-                                ? 'text-amber-600 dark:text-amber-400 font-black' 
-                                : 'text-slate-400 dark:text-slate-500'
-                          }`}>
-                            {delegateTotal.toLocaleString()} <span className="text-[8px]">د.ع</span>
-                          </span>
-                        </button>
-                      );
+                        return (
+                          <button 
+                            key={d.username || d.delegateCode || `debts-filter-${idx}`} 
+                            onClick={() => setSelectedDelegateFilter(filterKey || null)} 
+                            className={`px-3 py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-[80px] ${
+                              isSelected 
+                                ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-500/50' 
+                                : isDarkMode 
+                                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700' 
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                            }`}
+                          >
+                            <span className="text-xs font-black leading-tight truncate max-w-[130px]">
+                              {d.delegateName || d.username}
+                            </span>
+                            <span className={`text-[10px] font-bold mt-0.5 leading-tight ${
+                              isSelected 
+                                ? 'text-emerald-100' 
+                                : 'text-amber-600 dark:text-amber-400 font-black'
+                            }`}>
+                              {delegateTotal.toLocaleString()} <span className="text-[8px]">د.ع</span>
+                            </span>
+                          </button>
+                        );
                     })}
                 </div>
             )}
@@ -692,18 +715,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         />
 
         <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 shadow-xs">
-          <table className="w-full min-w-[700px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
-            <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
+          <table className="w-full min-w-[460px] sm:min-w-[600px] text-[10px] sm:text-[11px] text-right">
+            <thead className={`font-black text-[10px] sm:text-[11px] ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
               <tr>
-                {currentUser?.isAdmin && <th className="px-2.5 py-2.5">المندوب</th>}
-                <th className="px-2.5 py-2.5">الاسم</th>
-                <th className="px-2.5 py-2.5">الكود</th>
-                <th className="px-2.5 py-2.5">المبلغ</th>
-                <th className="px-2.5 py-2.5">ت. الفاتورة</th>
-                <th className="px-2.5 py-2.5">ت. السداد</th>
-                <th className="px-2.5 py-2.5 text-center">مستحقة</th>
-                <th className="px-2.5 py-2.5 text-center">باقي</th>
-                {currentUser?.isAdmin && <th className="px-2.5 py-2.5 text-center">إجراءات</th>}
+                {(currentUser?.isAdmin || isDataEntry) && <th className="px-2 py-2 whitespace-nowrap">المندوب</th>}
+                <th className="px-2 py-2 min-w-[100px]">الزبون</th>
+                <th className="px-1.5 py-2 whitespace-nowrap">الكود</th>
+                <th className="px-2 py-2 whitespace-nowrap">المبلغ</th>
+                <th className="px-1.5 py-2 whitespace-nowrap">الفاتورة</th>
+                <th className="px-1.5 py-2 whitespace-nowrap">السداد</th>
+                <th className="px-1.5 py-2 text-center whitespace-nowrap">مستحقة</th>
+                <th className="px-1.5 py-2 text-center whitespace-nowrap">باقي</th>
+                {(currentUser?.isAdmin || isDataEntry) && <th className="px-2 py-2 text-center whitespace-nowrap">إجراءات</th>}
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-slate-200 bg-white text-slate-900'}`}>
@@ -719,7 +742,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    {currentUser?.isAdmin && <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>}
+                    {(currentUser?.isAdmin || isDataEntry) && <td className="px-2.5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div></td>}
                   </tr>
                 ))
               ) : filteredDebts.map(d => {
@@ -771,65 +794,129 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
                 return (
                   <tr key={d.id} className={`${rowBgClass} transition-colors cursor-pointer font-bold`} onClick={() => setSelectedDebt(d)}>
-                    {currentUser?.isAdmin && (
-                        <td className="px-2.5 py-2 font-extrabold text-slate-800 dark:text-slate-200">
-                            <span>{delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateCode}</span>
+                    {(currentUser?.isAdmin || isDataEntry) && (
+                        <td className="px-2 py-1.5 font-extrabold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                            <span>{delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateName || d.delegateCode}</span>
                         </td>
                     )}
-                    <td className="px-2.5 py-2 font-black text-slate-900 dark:text-white">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                    <td className="px-2 py-1.5 font-black text-slate-900 dark:text-white">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <span>{d.customerName}</span>
                         {typeof mustahaqaDisplay === 'number' && mustahaqaDisplay > 1 && (
-                          <span className="text-[9px] font-black bg-rose-500 text-white px-1.5 py-0.5 rounded-full shadow-xs shrink-0">
+                          <span className="text-[8px] font-black bg-rose-500 text-white px-1.5 py-0.2 rounded-full shadow-xs shrink-0">
                             مستحق
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-2.5 py-2 font-mono text-[10px] text-slate-700 dark:text-slate-300">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <td className="px-1.5 py-1.5 font-mono text-[10px] text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      <span className="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                         {d.customerCode}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2 font-black text-emerald-700 dark:text-emerald-300 font-mono text-xs">
+                    <td className="px-2 py-1.5 font-black text-emerald-700 dark:text-emerald-300 font-mono text-[11px] sm:text-xs whitespace-nowrap">
                       {d.amountDue.toLocaleString()} <span className="text-[9px] font-sans">د.ع</span>
                     </td>
-                    <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.invoiceDate}</td>
-                    <td className="px-2.5 py-2 font-mono text-slate-700 dark:text-slate-300 text-[10px]">{d.paymentDueDate}</td>
-                    <td className="px-2.5 py-2 text-center font-mono">
+                    <td className="px-1.5 py-1.5 font-mono text-slate-700 dark:text-slate-300 text-[10px] whitespace-nowrap">{d.invoiceDate}</td>
+                    <td className="px-1.5 py-1.5 font-mono text-slate-700 dark:text-slate-300 text-[10px] whitespace-nowrap">{d.paymentDueDate}</td>
+                    <td className="px-1.5 py-1.5 text-center font-mono whitespace-nowrap">
                       {mustahaqaDisplay === 'NT' ? (
-                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700">
+                        <span className="px-1 py-0.2 rounded font-black text-[9px] bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700">
                           NT
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                        <span className="px-1 py-0.2 rounded font-black text-[9px] bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
                           {mustahaqaDisplay}
                         </span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-center">
+                    <td className="px-1.5 py-1.5 text-center whitespace-nowrap">
                       {baqia > 0 ? (
-                        <span className="px-1.5 py-0.5 rounded font-black text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-mono">
+                        <span className="px-1 py-0.2 rounded font-black text-[9px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-mono">
                           {baqia}
                         </span>
                       ) : (
-                        <span className="text-slate-400 font-mono text-[10px]">0</span>
+                        <span className="text-slate-400 font-mono text-[9px]">0</span>
                       )}
                     </td>
-                    {currentUser?.isAdmin && (
-                      <td className="px-2.5 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                    {(currentUser?.isAdmin || isDataEntry) && (
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
+                          {!isRafatJamal && (
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenWhatsAppModal(d);
+                              }} 
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                              title="إرسال رسالة تنبيه بالدين إلى واتساب المندوب"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>واتساب</span>
+                            </button>
+                          )}
                           <button 
                             type="button"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation();
-                              handleOpenWhatsAppModal(d);
+                              const delName = delegateAccounts.find(acc => acc.delegateCode === d.delegateCode)?.delegateName || d.delegateName || d.delegateCode;
+                              if (delName && setSelectedDelegate) {
+                                setSelectedDelegate(delName);
+                              }
+                              if (delName && setRouteFilterDelegate) {
+                                setRouteFilterDelegate(delName);
+                              }
+
+                              // Unlock customer debt restriction in Firestore for all delegates in real-time
+                              try {
+                                const unlockKey = String(d.customerCode || d.customerName || d.id).trim();
+                                if (unlockKey) {
+                                  await setDoc(doc(db, 'unlocked_debts', unlockKey), {
+                                    customerCode: d.customerCode || '',
+                                    customerName: d.customerName || '',
+                                    delegateCode: d.delegateCode || '',
+                                    delegateName: delName || '',
+                                    unlockedBy: currentUser?.name || currentUser?.username || 'Admin',
+                                    unlockedAt: Date.now()
+                                  }, { merge: true });
+                                }
+                              } catch (err) {
+                                console.error('Error persisting unlocked_debts:', err);
+                              }
+
+                              const todayStr = new Date().toISOString().split('T')[0];
+                              const customerEntries = (allSalesEntries || salesEntries || []).filter(
+                                (entry) => entry.customerCode === d.customerCode || entry.customerName === d.customerName
+                              );
+                              const lastInvoiceToday = customerEntries
+                                .filter((entry) => entry.dateString === todayStr)
+                                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0];
+
+                              if (setPrefilledEntryData) {
+                                setPrefilledEntryData({
+                                  customerCode: d.customerCode || '',
+                                  customerName: d.customerName || '',
+                                  customerAddress: d.customerAddress || '',
+                                  customerType: 'مفرد',
+                                  lastInvoiceToday
+                                });
+                              }
+                              if (setShowQuickAdd) setShowQuickAdd(true);
+
+                              if (addToast) {
+                                addToast({
+                                  title: 'تم تفعيل زر الطلب للزبون',
+                                  message: `تم اختيار المندوب (${delName}) وفتح إمكانية الطلب للزبون (${d.customerName}) في صفحة المسارات بالرغم من وجود دين.`,
+                                  type: 'success'
+                                });
+                              }
                             }} 
-                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer flex items-center gap-1"
-                            title="إرسال رسالة تنبيه بالدين إلى واتساب المندوب"
+                            className="px-2 py-1 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white rounded-lg text-[10px] font-black shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                            title="فتح الطلب وتفعيل زر الطلب للمندوب في صفحة المسارات بالرغم من الدين"
                           >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>واتساب</span>
+                            <ShoppingBag className="w-3.5 h-3.5" />
+                            <span>فتح</span>
                           </button>
                           <button 
                             type="button"
@@ -1526,7 +1613,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       </div>
       
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-[10px] sm:text-xs text-right whitespace-nowrap"><thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}><tr><th className="px-3 py-2 border-b dark:border-slate-700">كود الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">العنوان</th><th className="px-3 py-2 border-b dark:border-slate-700">المسار</th><th className="px-3 py-2 border-b dark:border-slate-700">نوع الزبون</th><th className="px-3 py-2 border-b dark:border-slate-700">اسم المندوب</th></tr></thead><tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
+        <table className="w-full text-[10px] sm:text-xs text-right">
+          <thead className={`font-bold text-[10px] sm:text-xs ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+            <tr>
+              <th className="px-2 py-2 border-b dark:border-slate-700 whitespace-nowrap">كود الزبون</th>
+              <th className="px-2 py-2 border-b dark:border-slate-700 min-w-[95px]">اسم الزبون</th>
+              <th className="px-2 py-2 border-b dark:border-slate-700 min-w-[90px] max-w-[130px]">العنوان</th>
+              <th className="px-1.5 py-2 border-b dark:border-slate-700 whitespace-nowrap">المسار</th>
+              <th className="px-1.5 py-2 border-b dark:border-slate-700 whitespace-nowrap">نوع الزبون</th>
+              <th className="px-2 py-2 border-b dark:border-slate-700 whitespace-nowrap">المندوب</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
             {!routesLoaded ? (
               // Skeleton Loader
               Array.from({ length: 5 }).map((_, i) => (
@@ -1573,12 +1671,20 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     const hasOrderIn12Hours = summary?.hasOrderIn12Hours || false;
                     const totalWeightToday = summary?.totalWeightToday || 0;
                     
+                    const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
                     const isSearching = searchQuery.trim().length > 0;
-                    const isHidden = !isSearching && !currentUser?.isAdmin && hasOrderIn12Hours;
+                    const isHidden = !isSearching && !isPrivilegedUser && hasOrderIn12Hours;
                     
                     if (isHidden) return null;
 
                     const hasDebt = customerDebtsSet.has(cCode);
+                    const isUnlockedForOrder = Boolean(
+                      unlockedCustomerCodes[cCode] ||
+                      unlockedCustomerCodes[normalizeArabic(r.customerName)] ||
+                      unlockedCustomerCodes[r.customerName]
+                    );
+
+                    const canOrder = isPrivilegedUser || ((!hasDebt || isUnlockedForOrder) && !completedDelegates[r.delegateName || '']);
 
                     return (
                       <tr 
@@ -1586,7 +1692,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                         onClick={() => handleRowClick(r)}
                         className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-900/80' : 'bg-emerald-200') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
                       >
-                        <td className={`px-3 py-2 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
+                        <td className={`px-2 py-1.5 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1">
                               {r.customerPhone && (
@@ -1601,16 +1707,32 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
-                              {!hasDebt && !completedDelegates[r.delegateName || ''] && (
+                              {canOrder && (
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
-                                  className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600`}
-                                  title="طلب جديد"
+                                  className={`p-1 px-1.5 rounded-lg flex items-center gap-1 font-extrabold transition-all active:scale-95 cursor-pointer ${
+                                    hasDebt && isUnlockedForOrder
+                                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs'
+                                      : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600'
+                                  }`}
+                                  title={hasDebt && isUnlockedForOrder ? "طلب جديد (تم فتح الطلب استثناءً رغم وجود الدين)" : "طلب جديد"}
                                 >
                                   <ShoppingBag className="w-4 h-4" />
+                                  {hasDebt && isUnlockedForOrder && (
+                                    <span className="text-[9px] font-black">طلب (مفتوح)</span>
+                                  )}
                                 </button>
                               )}
                               
+                              {hasDebt && !isUnlockedForOrder && !currentUser?.isAdmin && !isDataEntry && (
+                                <span 
+                                  className="text-[9px] font-black bg-rose-500/20 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-500/30 shrink-0"
+                                  title="مغلق لوجود دين - يرجى طلب الفتح من الأدمن أو مدخل البيانات"
+                                >
+                                  دين مستحق
+                                </span>
+                              )}
+
                               {totalWeightToday > 0 && (
                                   <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
                                       {totalWeightToday.toFixed(1)} كجم
@@ -1619,11 +1741,11 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2">{r.customerName}</td>
-                        <td className="px-3 py-2">{r.customerAddress}</td>
-                        <td className="px-3 py-2">{r.path}</td>
-                        <td className="px-3 py-2">{r.customerType}</td>
-                        <td className="px-3 py-2">{r.delegateName}</td>
+                        <td className="px-2 py-1.5">{r.customerName}</td>
+                        <td className="px-2 py-1.5 max-w-[130px] sm:max-w-[180px] truncate" title={r.customerAddress}>{r.customerAddress}</td>
+                        <td className="px-1.5 py-1.5 whitespace-nowrap">{r.path}</td>
+                        <td className="px-1.5 py-1.5 whitespace-nowrap">{r.customerType}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">{r.delegateName}</td>
                       </tr>
                     );
                   })}
@@ -1649,29 +1771,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         {renderDebtsTable()}
       </div>
 
-      {/* Admin Monthly Stats Card */}
-      {currentUser?.isAdmin && (() => {
-        const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-        const successfulVisits = new Set(
-          allSalesEntries
-            .filter(e => e.dateString && e.dateString.startsWith(currentMonth))
-            .map(e => e.customerCode)
-        ).size;
-        const plannedVisits = new Set(routes.map(r => r.customerCode)).size;
 
-        return (
-          <div className="grid grid-cols-2 gap-2 mt-4">
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800 text-center shadow-sm">
-                <div className="text-[10px] text-emerald-700 dark:text-emerald-300 mb-1">زيارات ناجحة (هذا الشهر)</div>
-                <div className="text-sm font-black text-emerald-900 dark:text-emerald-100">{successfulVisits}</div>
-            </div>
-            <div className="bg-sky-50 dark:bg-sky-900/20 p-3 rounded-xl border border-sky-200 dark:border-sky-800 text-center shadow-sm">
-                <div className="text-[10px] text-sky-700 dark:text-sky-300 mb-1">زيارات مخططة (الكل)</div>
-                <div className="text-sm font-black text-sky-900 dark:text-sky-100">{plannedVisits}</div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Debt Details Modal */}
       {selectedDebt && (
@@ -2073,31 +2173,31 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 <table data-testid="overdue-debts-table" className="w-full text-right text-xs">
                   <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-rose-200 border-b border-rose-900/50' : 'bg-rose-50 text-rose-900 border-b border-rose-200'}`}>
                     <tr>
-                      <th className="px-3.5 py-2.5 text-center">#</th>
-                      <th className="px-3.5 py-2.5">اسم الزبون (Customer Name)</th>
-                      <th className="px-3.5 py-2.5 text-left">المبلغ المطلوب (Required Amount)</th>
-                      <th className="px-3.5 py-2.5 text-center">المدة المستحقة (Due Days)</th>
+                      <th className="px-2 sm:px-3 py-2 text-center">#</th>
+                      <th className="px-2 sm:px-3 py-2">اسم الزبون</th>
+                      <th className="px-2 sm:px-3 py-2 text-left">المبلغ المطلوب</th>
+                      <th className="px-2 sm:px-3 py-2 text-center">المدة</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y font-bold ${isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-100' : 'divide-rose-100 bg-white text-slate-900'}`}>
                     {representativeOverdueDebts.map((debt, idx) => (
                       <tr key={debt.id || `overdue-debt-${idx}`} className={`hover:bg-rose-500/10 transition-colors ${isDarkMode ? 'odd:bg-slate-900 even:bg-slate-800/40' : 'odd:bg-white even:bg-rose-50/30'}`}>
-                        <td className="px-3.5 py-2.5 text-center font-mono text-[11px] text-slate-400">
+                        <td className="px-2 sm:px-3 py-2 text-center font-mono text-[11px] text-slate-400">
                           {idx + 1}
                         </td>
-                        <td className="px-3.5 py-2.5 font-black text-slate-900 dark:text-white">
+                        <td className="px-2 sm:px-3 py-2 font-black text-slate-900 dark:text-white">
                           <div className="flex flex-col">
-                            <span className="font-black text-sm">{debt.customerName}</span>
+                            <span className="font-black text-xs sm:text-sm">{debt.customerName}</span>
                             {debt.customerCode && (
-                              <span className="text-[10px] text-slate-400 font-mono">كود الزبون: {debt.customerCode}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">كود: {debt.customerCode}</span>
                             )}
                           </div>
                         </td>
-                        <td className="px-3.5 py-2.5 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-sm whitespace-nowrap">
+                        <td className="px-2 sm:px-3 py-2 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-xs sm:text-sm whitespace-nowrap">
                           {Number(debt.amountDue || 0).toLocaleString()} <span className="text-[10px] font-sans">د.ع</span>
                         </td>
-                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-500 text-white shadow-xs">
+                        <td className="px-2 sm:px-3 py-2 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black bg-rose-500 text-white shadow-xs">
                             <Clock className="w-3 h-3" />
                             <span>{debt.dueDays} يوم</span>
                           </span>
@@ -2107,13 +2207,13 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   </tbody>
                   <tfoot className={`font-black text-xs border-t ${isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-700' : 'bg-slate-50 text-slate-800 border-slate-200'}`}>
                     <tr>
-                      <td colSpan={2} className="px-3.5 py-2.5">
-                        إجمالي الديون المتأخرة المستحقة ({representativeOverdueDebts.length} زبائن)
+                      <td colSpan={2} className="px-2 sm:px-3 py-2">
+                        إجمالي الديون المتأخرة ({representativeOverdueDebts.length} زبائن)
                       </td>
-                      <td className="px-3.5 py-2.5 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-sm whitespace-nowrap">
+                      <td className="px-2 sm:px-3 py-2 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-xs sm:text-sm whitespace-nowrap">
                         {representativeOverdueDebts.reduce((sum, it) => sum + (Number(it.amountDue) || 0), 0).toLocaleString()} <span className="text-[10px] font-sans">د.ع</span>
                       </td>
-                      <td className="px-3.5 py-2.5 text-center text-[10px] text-slate-400 font-bold">&gt; 1 يوم</td>
+                      <td className="px-2 sm:px-3 py-2 text-center text-[10px] text-slate-400 font-bold">&gt; 1 يوم</td>
                     </tr>
                   </tfoot>
                 </table>

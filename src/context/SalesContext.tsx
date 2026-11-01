@@ -133,8 +133,7 @@ export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'bkrkala', password: '3333', delegateName: 'بكر بدران', delegateCode: '60042244', phone: '07722209322', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'fslkala', password: '4444', delegateName: 'فيصل فؤاد', delegateCode: '60042245', phone: '07729268559', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', phone: '07759228689', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'del7', password: '1234', delegateName: 'مندوب عام 1', monthlyTargetKg: 1000, isAdmin: false },
-  { username: 'del8', password: '1234', delegateName: 'مندوب عام 2', monthlyTargetKg: 1000, isAdmin: false },
+  { username: 'sbhkala', password: '6666', delegateName: 'صباح فرحان', delegateCode: '60041445', phone: '07759228689', monthlyTargetKg: 1000, isAdmin: false },
   { username: 'rafatdata', password: '10001', delegateName: 'رأفت جمال', monthlyTargetKg: 0, isAdmin: true, role: 'dataEntry' },
   { username: 'mohammedsauce', password: 'm12343', delegateName: 'محمد الصلصات', monthlyTargetKg: 0, isAdmin: false, role: 'sauceOnly' },
 ];
@@ -146,8 +145,6 @@ const DELEGATE_NAME_MAP: Record<string, string> = {
   'مندوب 4': 'بكر بدران',
   'مندوب 5': 'فيصل فؤاد',
   'مندوب 6': 'صباح فرحان',
-  'مندوب 7': 'مندوب عام 1',
-  'مندوب 8': 'مندوب عام 2',
 };
 
 const mapDelegateName = (name: string): string => {
@@ -160,10 +157,9 @@ export const isExcludedReportDelegate = (name?: string | null): boolean => {
   return (
     n === 'مندوب عام 1' ||
     n === 'مندوب عام 2' ||
-    n === 'مندوب 7' ||
-    n === 'مندوب 8' ||
-    n.toLowerCase() === 'del7' ||
-    n.toLowerCase() === 'del8'
+    n === 'رأفت جمال' ||
+    n === 'محمد الصلصات' ||
+    n.toLowerCase().includes('sauce')
   );
 };
 
@@ -238,6 +234,7 @@ interface SalesContextType {
   exportBackupData: () => void;
   restoreBackupData: (backupObj: any) => boolean;
   fetchUnifiedDataFromFirestore: () => Promise<void>;
+  refreshAllData: () => Promise<void>;
   isDataRefreshing: boolean;
   isNetworkDelayed: boolean;
   productsList: ProductItem[];
@@ -245,6 +242,7 @@ interface SalesContextType {
   importProductsFromExcel: (file: File) => Promise<void>;
   importRoutesFromExcel: (file: File) => Promise<void>;
   updateProduct: (id: string, updatedData: Partial<ProductItem>) => void;
+  acknowledgePriceChanges: (productIds?: string[]) => Promise<void>;
   uploadProductImage: (id: string, file: File) => Promise<string | null>;
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -447,7 +445,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // fallback
     }
-    return 'reports';
+    return 'report_11';
   });
 
   useEffect(() => {
@@ -838,6 +836,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           existingProductsByName.get(productName.toLowerCase());
         const prodId = matchedExisting ? matchedExisting.id : `prod_${Date.now()}_${index}`;
 
+        let prevRetail = matchedExisting?.previousRetailPrice;
+        let prevWholesale = matchedExisting?.previousWholesalePrice;
+        let priceUpdatedAt = matchedExisting?.priceUpdatedAt;
+
+        if (matchedExisting) {
+          const oldRetail = Number(matchedExisting.retailPrice) || 0;
+          const oldWholesale = Number(matchedExisting.wholesalePrice) || 0;
+          const newRetail = Number(retailPrice) || 0;
+          const newWholesale = Number(wholesalePrice) || 0;
+
+          const retailChanged = newRetail > 0 && oldRetail > 0 && newRetail !== oldRetail;
+          const wholesaleChanged = newWholesale > 0 && oldWholesale > 0 && newWholesale !== oldWholesale;
+
+          if (retailChanged || wholesaleChanged) {
+            prevRetail = oldRetail;
+            prevWholesale = oldWholesale;
+            priceUpdatedAt = Date.now();
+          }
+        }
+
         return {
           id: prodId,
           productName,
@@ -853,6 +871,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           pieceWeightKg,
           retailPrice,
           wholesalePrice,
+          previousRetailPrice: prevRetail,
+          previousWholesalePrice: prevWholesale,
+          priceUpdatedAt: priceUpdatedAt,
           imageUrl,
           isAvailable: isAvailableBool,
           isVisible: isVisibleBool,
@@ -1074,10 +1095,32 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateProduct = async (id: string, updatedData: Partial<ProductItem>) => {
+    const existing = productsList.find(p => p.id === id);
     const dataToUpdate = { ...updatedData };
     if (dataToUpdate.imageUrl !== undefined) {
       dataToUpdate.imageUpdatedAt = Date.now();
     }
+
+    if (existing) {
+      const oldRetail = Number(existing.retailPrice) || 0;
+      const oldWholesale = Number(existing.wholesalePrice) || 0;
+      const newRetail = dataToUpdate.retailPrice !== undefined ? Number(dataToUpdate.retailPrice) : oldRetail;
+      const newWholesale = dataToUpdate.wholesalePrice !== undefined ? Number(dataToUpdate.wholesalePrice) : oldWholesale;
+
+      const retailChanged = dataToUpdate.retailPrice !== undefined && oldRetail > 0 && newRetail !== oldRetail;
+      const wholesaleChanged = dataToUpdate.wholesalePrice !== undefined && oldWholesale > 0 && newWholesale !== oldWholesale;
+
+      if (retailChanged || wholesaleChanged) {
+        if (dataToUpdate.previousRetailPrice === undefined && oldRetail > 0) {
+          dataToUpdate.previousRetailPrice = oldRetail;
+        }
+        if (dataToUpdate.previousWholesalePrice === undefined && oldWholesale > 0) {
+          dataToUpdate.previousWholesalePrice = oldWholesale;
+        }
+        dataToUpdate.priceUpdatedAt = Date.now();
+      }
+    }
+
     const cleaned = cleanFirestoreData(dataToUpdate);
 
     // Update local state immediately
@@ -1098,6 +1141,50 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     
     setUserMessage('تم تحديث بيانات المنتج بنجاح ✅');
+  };
+
+  const acknowledgePriceChanges = async (productIds?: string[]) => {
+    try {
+      const targetIds = productIds && productIds.length > 0 ? new Set(productIds) : null;
+      const updatedList = productsList.map(p => {
+        if (!targetIds || targetIds.has(p.id)) {
+          return {
+            ...p,
+            previousRetailPrice: p.retailPrice,
+            previousWholesalePrice: p.wholesalePrice,
+            priceUpdatedAt: Date.now()
+          };
+        }
+        return p;
+      });
+
+      setProductsList(updatedList);
+      try {
+        localStorage.setItem('app_products_catalog', JSON.stringify(updatedList));
+      } catch {}
+
+      const targets = targetIds ? productsList.filter(p => targetIds.has(p.id)) : productsList.filter(p => (
+        (p.previousRetailPrice !== undefined && p.previousRetailPrice !== p.retailPrice) ||
+        (p.previousWholesalePrice !== undefined && p.previousWholesalePrice !== p.wholesalePrice)
+      ));
+
+      for (const p of targets) {
+        try {
+          const docRef = doc(db, 'products_catalog', p.id);
+          await setDoc(docRef, {
+            previousRetailPrice: p.retailPrice,
+            previousWholesalePrice: p.wholesalePrice,
+            priceUpdatedAt: Date.now()
+          }, { merge: true });
+        } catch (err) {
+          console.error('Error acknowledging price change for', p.id, err);
+        }
+      }
+
+      setUserMessage('تم اعتماد وتحديث السجل المرجعي للأسعار بنجاح ✅');
+    } catch (err) {
+      console.error('Error acknowledging price changes:', err);
+    }
   };
 
   const uploadProductImage = async (id: string, file: File): Promise<string | null> => {
@@ -2279,8 +2366,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setActiveTab('item_tracking');
     } else if (!normalizedAccount.isAdmin) {
       setSelectedDelegate(normalizedAccount.name);
+      setActiveTab('report_11');
     } else {
       setSelectedDelegate('الكل');
+      setActiveTab('report_11');
     }
     setIsLoggedIn(true);
     localStorage.setItem('app_is_logged_in', 'true');
@@ -2950,6 +3039,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const refreshAllData = async () => {
+    await syncPendingEntries();
+    await fetchUnifiedDataFromFirestore();
+  };
+
   const countUniqueInvoices = (
     date: string,
     delegateName: string,
@@ -3017,6 +3111,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         exportBackupData,
         restoreBackupData,
         fetchUnifiedDataFromFirestore,
+        refreshAllData,
         isDataRefreshing,
         isNetworkDelayed,
         checkAndTriggerMilestoneToasts,
@@ -3025,6 +3120,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         importProductsFromExcel,
         importRoutesFromExcel,
         updateProduct,
+        acknowledgePriceChanges,
         uploadProductImage,
         addProduct,
         deleteProduct,

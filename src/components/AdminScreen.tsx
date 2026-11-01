@@ -80,7 +80,7 @@ export const AdminScreen: React.FC = () => {
     exportBackupData,
     restoreBackupData,
     isDarkMode,
-    syncData,
+    refreshAllData,
     allSalesEntries,
     selectedDate,
     isPowerSavingMode,
@@ -652,7 +652,7 @@ export const AdminScreen: React.FC = () => {
   };
 
   return (
-    <PullToRefresh onRefresh={async () => { await syncData(); await new Promise(r => setTimeout(r, 500)); }}>
+    <PullToRefresh onRefresh={async () => { await refreshAllData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-5 dir-rtl text-slate-800 dark:text-slate-100 transition-colors">
         
       {/* Top Banner with Lock Button */}

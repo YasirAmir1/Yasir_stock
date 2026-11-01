@@ -62,14 +62,13 @@ export function PullToRefresh({ onRefresh, children }: PullToRefreshProps) {
         }}
       >
         <div 
-          className="flex flex-col items-center justify-center text-emerald-600 gap-2"
+          className="flex flex-col items-center justify-center text-emerald-500 gap-1"
           style={{
-            opacity: pullDistance / 60,
-            transform: `scale(${Math.min(pullDistance / 60, 1)})`,
+            opacity: pullDistance / 40,
+            transform: `scale(${Math.min(pullDistance / 60, 0.8)})`,
           }}
         >
-          <Loader2 className={`w-6 h-6 ${refreshing ? 'animate-spin' : ''}`} />
-          <span className="text-xs font-bold">{refreshing ? 'جاري التحديث...' : 'اسحب للتحديث'}</span>
+          <Loader2 className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </div>
       </div>
       {children}

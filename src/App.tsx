@@ -11,20 +11,21 @@ import { GlobalDialogModal } from './components/GlobalDialogModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 
 // Code-split heavy screens for optimized initial bundle size
-const EntryScreen = lazy(() => import('./components/EntryScreen').then(m => ({ default: m.EntryScreen })));
-const ReportsScreen = lazy(() => import('./components/ReportsScreen').then(m => ({ default: m.ReportsScreen })));
-const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
-const ProductsScreen = lazy(() => import('./components/ProductsScreen').then(m => ({ default: m.ProductsScreen })));
-const RoutesScreen = lazy(() => import('./components/RoutesScreen').then(m => ({ default: m.RoutesScreen })));
-const OldInvoicesScreen = lazy(() => import('./components/OldInvoicesScreen').then(m => ({ default: m.OldInvoicesScreen })));
-const ReturnsScreen = lazy(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
-const QCScreen = lazy(() => import('./components/QCScreen').then(m => ({ default: m.QCScreen })));
-const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
+import { EntryScreen } from './components/EntryScreen';
+
+import { Report11Screen } from './components/Report11Screen';
+import { AdminScreen } from './components/AdminScreen';
+import { ProductsScreen } from './components/ProductsScreen';
+import { RoutesScreen } from './components/RoutesScreen';
+import { OldInvoicesScreen } from './components/OldInvoicesScreen';
+import { ReturnsScreen } from './components/ReturnsScreen';
+import { QCScreen } from './components/QCScreen';
+import { ItemTrackingScreen } from './components/ItemTrackingScreen';
 
 // Code-split heavy on-demand modals and widgets
-const CalculatorModal = lazy(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
-const DelegatePanelModal = lazy(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
-const AccountSwitcherModal = lazy(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
+import { CalculatorModal } from './components/CalculatorModal';
+import { DelegatePanelModal } from './components/DelegatePanelModal';
+import { AccountSwitcherModal } from './components/AccountSwitcherModal';
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -67,6 +68,7 @@ const MainAppContent: React.FC = () => {
     setShowQuickAdd,
     delegateAccounts,
     fetchUnifiedDataFromFirestore,
+    refreshAllData,
     isDataRefreshing,
     isNetworkDelayed,
     isFirestoreQuotaExceeded,
@@ -123,9 +125,7 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div
-      className={`min-h-screen flex flex-col dir-rtl transition-colors duration-300 w-full max-w-[100vw] ${
-        isDarkMode ? 'bg-emerald-950 text-slate-100' : 'bg-slate-100 text-slate-900'
-      }`}
+      className={`min-h-screen flex flex-col dir-rtl transition-colors duration-300 w-full max-w-[100vw] ${isDarkMode ? 'dark bg-[#020617] text-slate-100' : 'bg-slate-100 text-slate-900'}`}
     >
       {isLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-md">
@@ -187,39 +187,33 @@ const MainAppContent: React.FC = () => {
 
       {/* Calculator Modal - Lazy Loaded */}
       {showCalculatorModal && (
-        <Suspense fallback={null}>
-          <CalculatorModal
-            isOpen={showCalculatorModal}
-            onClose={() => setShowCalculatorModal(false)}
-          />
-        </Suspense>
+        <CalculatorModal
+          isOpen={showCalculatorModal}
+          onClose={() => setShowCalculatorModal(false)}
+        />
       )}
 
       {/* Delegate Modal - Lazy Loaded */}
       {showDelegateModal && (
-        <Suspense fallback={null}>
-          <DelegatePanelModal
-            onClose={() => setShowDelegateModal(false)}
-            isDarkMode={isDarkMode}
-          />
-        </Suspense>
+        <DelegatePanelModal
+          onClose={() => setShowDelegateModal(false)}
+          isDarkMode={isDarkMode}
+        />
       )}
 
       {/* Account Switcher Modal - Lazy Loaded */}
       {showAccountModal && (
-        <Suspense fallback={null}>
-          <AccountSwitcherModal
-            isOpen={showAccountModal}
-            onClose={() => setShowAccountModal(false)}
-            onAccountSelect={(isAdmin) => {
-              if (isAdmin) {
-                setActiveTab('admin');
-              } else {
-                setActiveTab('entry');
-              }
-            }}
-          />
-        </Suspense>
+        <AccountSwitcherModal
+          isOpen={showAccountModal}
+          onClose={() => setShowAccountModal(false)}
+          onAccountSelect={(isAdmin: boolean) => {
+            if (isAdmin) {
+              setActiveTab('admin');
+            } else {
+              setActiveTab('entry');
+            }
+          }}
+        />
       )}
 
       {/* Top Header Bar & Navigation Tabs - Pinned / Sticky on Laptop view */}
@@ -227,7 +221,7 @@ const MainAppContent: React.FC = () => {
         <div
           className={`backdrop-blur-md transition-all duration-300 border-b ${
             isDarkMode
-              ? 'bg-slate-900/95 border-emerald-500/30 text-white'
+              ? 'bg-[#020617]/95 border-emerald-500/30 text-white'
               : 'bg-white/95 border-emerald-600/20 text-slate-900'
           }`}
         >
@@ -390,7 +384,7 @@ const MainAppContent: React.FC = () => {
               {/* Refresh Data Button with Optimistic UI & Latency-Aware Indicator */}
               <button
                 onClick={() => {
-                  fetchUnifiedDataFromFirestore();
+                  refreshAllData();
                 }}
                 disabled={isDataRefreshing}
                 className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 cursor-pointer ${
@@ -403,17 +397,28 @@ const MainAppContent: React.FC = () => {
                 title="تحديث فوري للبيانات من الذاكرة المحلية وقاعدة البيانات"
               >
                 <div className="relative flex items-center justify-center">
-                  <RefreshCw className={`w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed ? 'animate-spin' : isDataRefreshing ? 'rotate-180 transition-transform duration-300' : 'hover:rotate-180 transition-transform duration-500'}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed || isDataRefreshing ? 'animate-spin' : 'hover:rotate-180 transition-transform duration-500'}`} />
                   {/* Small Latency-Aware Network Indicator - ONLY visible when real network delay occurs */}
-                  {isNetworkDelayed && (
+                  {(isNetworkDelayed || pendingSyncCount > 0) && (
                     <span className="absolute -top-1 -right-1 flex h-1.5 w-1.5 sm:h-2 sm:w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-amber-500" title="جاري الاتصال بالشبكة..."></span>
                     </span>
                   )}
                 </div>
-                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">
-                  {isNetworkDelayed ? 'مزامنة..' : 'تحديث'}
+                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold flex flex-col items-center">
+                  <span>
+                    {isDataRefreshing 
+                      ? (pendingSyncCount > 0 ? `مزامنة (${pendingSyncCount})` : 'تحديث..') 
+                      : isNetworkDelayed 
+                      ? 'جاري المزامنة'
+                      : 'تحديث'}
+                  </span>
+                  {!isDataRefreshing && !isNetworkDelayed && (
+                    <span className="text-[7px] opacity-60 font-bold mt-0.5">
+                      {new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </span>
               </button>
 
@@ -556,14 +561,16 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
+
+
           {!isSauceUser && (
             <button
-              onClick={() => handleTabChange('reports')}
+              onClick={() => handleTabChange('report_11')}
               onMouseEnter={() => {
-                import('./components/ReportsScreen');
+                import('./components/Report11Screen');
               }}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
-                activeTab === 'reports'
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+                activeTab === 'report_11'
                   ? isDarkMode
                     ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
                     : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
@@ -572,8 +579,8 @@ const MainAppContent: React.FC = () => {
                   : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
               }`}
             >
-              <BarChart2 className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span>التقارير</span>
+              <FileSpreadsheet className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <span>التقرير (11)</span>
             </button>
           )}
 
@@ -760,7 +767,8 @@ const MainAppContent: React.FC = () => {
               {activeTab === 'entry' && <EntryScreen />}
               {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
               {activeTab === 'routes' && <RoutesScreen />}
-              {activeTab === 'reports' && <ReportsScreen />}
+
+              {activeTab === 'report_11' && <Report11Screen />}
               {activeTab === 'products' && <ProductsScreen />}
               {activeTab === 'returns' && <ReturnsScreen />}
               {activeTab === 'qc' && <QCScreen />}

@@ -1818,30 +1818,30 @@ export const OldInvoicesScreen: React.FC = () => {
             </span>
           )}
 
-          {/* فقرة جديدة: عدد الكارتون وعدد القطع المطلوبة */}
+          {/* فقرة: عدد الكارتون وعدد القطع المطلوبة */}
           {displayedInvoices.length > 0 && (
-            <span className={`text-xs font-black shrink-0 px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+            <span className={`text-[11px] sm:text-xs font-black max-w-full px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 flex-wrap sm:flex-nowrap ${
               selectedProduct !== 'الكل'
                 ? 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-200 dark:border-indigo-700 shadow-xs'
                 : 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-slate-800 dark:text-indigo-300 dark:border-slate-700'
             }`}>
               <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <span>
-                عدد الكارتون وعدد القطع المطلوبة:{' '}
-                <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+              <span className="flex items-center gap-1 flex-wrap">
+                <span className="whitespace-nowrap">المطلوب:</span>
+                <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-xs sm:text-sm whitespace-nowrap">
                   {formatWithCommas(oldTotalCartons)}
-                </strong>{' '}
-                كارتون
+                </strong>
+                <span className="whitespace-nowrap">كارتون</span>
                 {oldRemainderPieces > 0 ? (
                   <>
-                    {' '}و{' '}
-                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-sm">
+                    <span>و</span>
+                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono text-xs sm:text-sm whitespace-nowrap">
                       {formatWithCommas(oldRemainderPieces)}
-                    </strong>{' '}
-                    قطعة
+                    </strong>
+                    <span className="whitespace-nowrap">قطعة</span>
                   </>
                 ) : null}
-                <span className="text-[10px] sm:text-[11px] opacity-80 font-bold mr-1 font-mono">
+                <span className="text-[10px] sm:text-[11px] opacity-80 font-bold font-mono whitespace-nowrap mr-0.5">
                   ({formatWithCommas(oldTotalPieces)} قطعة)
                 </span>
               </span>

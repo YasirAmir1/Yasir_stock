@@ -1,4 +1,21 @@
-export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'reports' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking';
+export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'report_11' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking';
+
+export interface Report11CategoryTarget {
+  id?: string;
+  delegateName: string;
+  categoryName: string;
+  monthlyTarget: number;
+  monthlySales: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface Report11Config {
+  workingDays: number;
+  remainingDays: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
 
 export interface UserAccount {
   name: string;

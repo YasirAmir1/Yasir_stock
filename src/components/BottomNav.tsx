@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle } from 'lucide-react';
+import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { AppTab } from '../types';
 
 interface BottomNavProps {
@@ -30,7 +30,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         { id: 'entry', label: 'الفواتير', icon: FileText },
         ...(isAdmin ? [{ id: 'old_invoices', label: 'القديمة', icon: History }] : []),
         { id: 'routes', label: 'المسارات', icon: MapPin },
-        { id: 'reports', label: 'التقارير', icon: BarChart2 },
+
+        { id: 'report_11', label: 'التقرير (11)', icon: FileSpreadsheet },
         ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },
@@ -39,7 +40,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       ];
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 z-50 sm:hidden border-t ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+    <div className={`fixed bottom-0 left-0 right-0 z-50 sm:hidden border-t ${isDarkMode ? 'bg-[#020617] border-slate-800' : 'bg-white border-slate-200'}`}>
       <div className="flex justify-between items-center px-1 py-1 pb-2 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => {
           const Icon = tab.icon;

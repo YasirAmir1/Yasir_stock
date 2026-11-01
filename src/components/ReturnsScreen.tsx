@@ -108,8 +108,14 @@ export const ReturnsScreen: React.FC = () => {
     currentUser?.isAdmin ||
     currentUser?.role === 'admin' ||
     currentUser?.name === 'الأدمن' ||
-    currentUser?.username?.toLowerCase() === 'yasir'
+    currentUser?.username?.toLowerCase() === 'yasir' ||
+    currentUser?.username?.toLowerCase() === 'supervisor' ||
+    currentUser?.name === 'مشرف' ||
+    currentUser?.roleName?.includes('مشرف') ||
+    currentUser?.delegateName === '__SUPERVISOR__'
   );
+
+  const isStrictAdmin = Boolean(isAdmin && currentUser?.role !== 'dataEntry');
 
   const isDataEntry = Boolean(
     currentUser?.role === 'dataEntry' ||
@@ -119,6 +125,7 @@ export const ReturnsScreen: React.FC = () => {
     currentUser?.name === 'رأفت جمال' ||
     currentUser?.delegateName === 'رأفت جمال'
   );
+  const isRafatJamal = Boolean(currentUser?.name === 'رأفت جمال' || currentUser?.username?.toLowerCase() === 'rafatdata');
 
   const isAdminOrDataEntry = Boolean(isAdmin || isDataEntry);
 
@@ -232,87 +239,106 @@ export const ReturnsScreen: React.FC = () => {
     } catch {}
   };
 
-  // Custom Monthly Targets overrides entered directly by Admin per delegate
-  const [customMonthlyTargets, setCustomMonthlyTargets] = useState<Record<string, number>>(() => {
+  // Fixed Daily Targets entered by Admin per delegate (independent from Report 11, stays fixed until changed)
+  const [dailyTargets, setDailyTargets] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem('app_returns_custom_monthly_targets');
+      const saved = localStorage.getItem('app_returns_daily_targets');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') return parsed;
+      }
+      const oldCustom = localStorage.getItem('app_returns_custom_daily_targets');
+      if (oldCustom) {
+        const parsedOld = JSON.parse(oldCustom);
+        if (parsedOld && typeof parsedOld === 'object') return parsedOld;
       }
     } catch {}
     return {};
   });
 
-  // Modal state for editing a delegate's custom total target (Admin Only)
-  const [editingTargetDelegate, setEditingTargetDelegate] = useState<{
+  // Modal state for editing a delegate's daily target (Admin Only)
+  const [editingDailyTargetDelegate, setEditingDailyTargetDelegate] = useState<{
     delegateName: string;
-    customTarget: number;
     dailyTarget: number;
-    defaultTarget: number;
   } | null>(null);
 
-  const handleSaveCustomTarget = async (delegateName: string, targetVal: number) => {
+  const handleSaveDailyTarget = async (delegateName: string, dailyVal: number) => {
     if (!isAdmin) return;
-    const cleanVal = Math.max(0, Number(targetVal) || 0);
-    const updated = { ...customMonthlyTargets, [delegateName]: cleanVal };
-    setCustomMonthlyTargets(updated);
+    const cleanVal = Math.max(0, Number(dailyVal) || 0);
+    const updated = { ...dailyTargets, [delegateName]: cleanVal };
+    setDailyTargets(updated);
     try {
-      localStorage.setItem('app_returns_custom_monthly_targets', JSON.stringify(updated));
-      await setDoc(doc(db, 'app_settings', 'returns_config'), { customMonthlyTargets: updated }, { merge: true });
-    } catch {}
-    setEditingTargetDelegate(null);
+      localStorage.setItem('app_returns_daily_targets', JSON.stringify(updated));
+      await setDoc(doc(db, 'app_settings', 'returns_config'), { 
+        dailyTargets: updated,
+        customDailyTargets: updated 
+      }, { merge: true });
+    } catch (e) {
+      console.error('Error saving daily target:', e);
+    }
+    setEditingDailyTargetDelegate(null);
     addToast({
-      title: 'تم حفظ التاركت',
-      message: `تم تحديث التاركت الكلي للمندوب "${delegateName}" بنجاح (${formatWithCommas(cleanVal)} كغم).`,
+      title: 'تم حفظ وتثبيت التاركت اليومي',
+      message: `تم تثبيت التاركت اليومي للمندوب "${delegateName}" بقيمة (${formatWithCommas(cleanVal)} كغم).`,
       type: 'success',
     });
   };
 
-  const handleResetDelegateTarget = async (delegateName: string) => {
+  const handleResetDelegateDailyTarget = async (delegateName: string) => {
     if (!isAdmin) return;
-    const updated = { ...customMonthlyTargets };
+    const updated = { ...dailyTargets };
     delete updated[delegateName];
-    setCustomMonthlyTargets(updated);
+    setDailyTargets(updated);
     try {
-      localStorage.setItem('app_returns_custom_monthly_targets', JSON.stringify(updated));
-      await setDoc(doc(db, 'app_settings', 'returns_config'), { customMonthlyTargets: updated }, { merge: true });
-    } catch {}
-    setEditingTargetDelegate(null);
+      localStorage.setItem('app_returns_daily_targets', JSON.stringify(updated));
+      await setDoc(doc(db, 'app_settings', 'returns_config'), { 
+        dailyTargets: updated,
+        customDailyTargets: updated 
+      }, { merge: true });
+    } catch (e) {
+      console.error('Error resetting daily target:', e);
+    }
+    setEditingDailyTargetDelegate(null);
     addToast({
-      title: 'استعادة التاركت الافتراضي',
-      message: `تمت استعادة حساب التاركت التلقائي للمندوب "${delegateName}".`,
+      title: 'إلغاء التثبيت',
+      message: `تمت استعادة التاركت اليومي الافتراضي للمندوب "${delegateName}".`,
       type: 'info',
     });
   };
 
-  const handleResetAllTargets = async () => {
+  const handleResetAllDailyTargets = async () => {
     if (!isAdmin) return;
     const confirm = await showConfirm(
-      `هل تريد استعادة الحساب التلقائي للتاركت الكلي لجميع المندوبين (التاركت اليومي × ${workingDays} يوم)؟`,
+      `هل تريد إعادة ضبط وحذف التاركت اليومي الثابت لجميع المندوبين؟`,
       {
-        title: 'استعادة الحساب التلقائي للتاركت',
+        title: 'إعادة ضبط التاركت اليومي',
         variant: 'warning',
-        confirmText: 'نعم، استعادة التلقائي',
+        confirmText: 'نعم، إعادة الضبط',
         cancelText: 'إلغاء',
       }
     );
     if (!confirm) return;
-    setCustomMonthlyTargets({});
+    setDailyTargets({});
     try {
-      localStorage.removeItem('app_returns_custom_monthly_targets');
-      await setDoc(doc(db, 'app_settings', 'returns_config'), { customMonthlyTargets: {} }, { merge: true });
-    } catch {}
+      localStorage.removeItem('app_returns_daily_targets');
+      localStorage.removeItem('app_returns_custom_daily_targets');
+      await setDoc(doc(db, 'app_settings', 'returns_config'), { 
+        dailyTargets: {},
+        customDailyTargets: {} 
+      }, { merge: true });
+    } catch (e) {
+      console.error('Error resetting daily targets:', e);
+    }
     addToast({
       title: 'تمت الاستعادة',
-      message: 'تمت استعادة حساب التاركت التلقائي لجميع المندوبين.',
+      message: 'تم تصفير التاركت اليومي الثابت لجميع المندوبين.',
       type: 'success',
     });
   };
 
-  // Realtime Firestore synchronization for returns config (working days, allowed percentage, penalty rules, custom targets)
+  // Realtime Firestore synchronization for returns config (working days, allowed percentage, penalty rules, fixed daily targets)
   useEffect(() => {
-    const unsub = safeOnSnapshot(
+    const unsubReturnsConfig = safeOnSnapshot(
       doc(db, 'app_settings', 'returns_config'),
       (docSnap: any) => {
         if (docSnap.exists()) {
@@ -333,22 +359,40 @@ export const ReturnsScreen: React.FC = () => {
             setPenaltyAmountStep(Number(data.penaltyAmountStep));
             localStorage.setItem('app_returns_penalty_amount_step', String(data.penaltyAmountStep));
           }
-          if (data.customMonthlyTargets && typeof data.customMonthlyTargets === 'object') {
-            setCustomMonthlyTargets(data.customMonthlyTargets);
-            localStorage.setItem('app_returns_custom_monthly_targets', JSON.stringify(data.customMonthlyTargets));
+          if (data.dailyTargets && typeof data.dailyTargets === 'object') {
+            setDailyTargets(data.dailyTargets);
+            localStorage.setItem('app_returns_daily_targets', JSON.stringify(data.dailyTargets));
+          } else if (data.customDailyTargets && typeof data.customDailyTargets === 'object') {
+            setDailyTargets(data.customDailyTargets);
+            localStorage.setItem('app_returns_daily_targets', JSON.stringify(data.customDailyTargets));
           }
         }
       },
       (err: any) => console.warn('Could not listen to returns_config:', err),
       'ReturnsScreen-config'
     );
-    return () => unsub();
+
+    return () => {
+      unsubReturnsConfig();
+    };
   }, []);
 
   // Helper to extract a delegate's daily target
+  // Independent from Report 11! The Admin enters it and it stays fixed until changed.
   const getDelegateDailyTarget = (delName: string): number => {
+    // 1. Highest Priority: Fixed daily target set by Admin
+    if (dailyTargets[delName] !== undefined && Number(dailyTargets[delName]) >= 0) {
+      return Number(dailyTargets[delName]);
+    }
+
     const norm = normalizeArabic(delName);
-    // 1. From delegateTargets (sum of categories)
+    for (const [key, val] of Object.entries(dailyTargets)) {
+      if (normalizeArabic(key) === norm && Number(val) >= 0) {
+        return Number(val);
+      }
+    }
+
+    // 2. Fallback: From delegateTargets (sum of categories) if configured
     const foundTargets = (delegateTargets || []).filter(
       (t) => normalizeArabic(t.delegateName) === norm
     );
@@ -356,7 +400,8 @@ export const ReturnsScreen: React.FC = () => {
       const sum = foundTargets.reduce((s, t) => s + (Number(t.dailyTargetWeightKg) || 0), 0);
       if (sum > 0) return Math.round(sum * 10) / 10;
     }
-    // 2. From delegateAccounts
+
+    // 3. Fallback: From delegateAccounts (monthlyTargetKg / 26)
     const acc = (delegateAccounts || []).find((a) => normalizeArabic(a.delegateName) === norm);
     if (acc && acc.monthlyTargetKg > 0) {
       return Math.round((acc.monthlyTargetKg / 26) * 10) / 10;
@@ -364,11 +409,8 @@ export const ReturnsScreen: React.FC = () => {
     return 0;
   };
 
-  // Helper to get total monthly target (user-entered custom override OR daily * workingDays)
+  // Helper to get total monthly target (Daily Target * Working Days)
   const getDelegateMonthlyTarget = (delName: string): number => {
-    if (customMonthlyTargets[delName] !== undefined && Number(customMonthlyTargets[delName]) > 0) {
-      return Number(customMonthlyTargets[delName]);
-    }
     const daily = getDelegateDailyTarget(delName);
     return Math.round(daily * workingDays * 10) / 10;
   };
@@ -528,7 +570,7 @@ export const ReturnsScreen: React.FC = () => {
     return filteredReturns.map((item) => {
       const delName = item.delegateName;
       const dailyTargetKg = getDelegateDailyTarget(delName);
-      const isCustom = customMonthlyTargets[delName] !== undefined && Number(customMonthlyTargets[delName]) > 0;
+      const isCustomDaily = dailyTargets[delName] !== undefined && Number(dailyTargets[delName]) >= 0;
       const monthlyTotalTargetKg = getDelegateMonthlyTarget(delName);
 
       // Rule: Allowed returns = allowedPercentage % of monthly total target
@@ -558,10 +600,10 @@ export const ReturnsScreen: React.FC = () => {
         diffKg,
         penaltyAmount,
         penaltyTiers,
-        isCustom,
+        isCustomDaily,
       };
     });
-  }, [filteredReturns, workingDays, allowedPercentage, penaltyWeightStep, penaltyAmountStep, customMonthlyTargets, delegateTargets, delegateAccounts]);
+  }, [filteredReturns, workingDays, allowedPercentage, penaltyWeightStep, penaltyAmountStep, dailyTargets, delegateTargets, delegateAccounts]);
 
   // Aggregated totals for Table 2 (Allowed Returns & Penalties)
   const totalMonthlyTargetSum = useMemo(
@@ -910,7 +952,7 @@ export const ReturnsScreen: React.FC = () => {
       XLSX.utils.book_append_sheet(wb, ws1, 'المرتجعات الشهرية');
 
       // Sheet 2: الراجع المسموح وغراماته (للأدمن فقط)
-      if (isAdmin) {
+      if (isStrictAdmin) {
         const exportAllowedData = allowedReturnsData.map((row, idx) => ({
           'ت': idx + 1,
           'اسم المندوب': row.delegateName,
@@ -1085,7 +1127,7 @@ export const ReturnsScreen: React.FC = () => {
           {/* Top Quick Actions */}
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             {/* Direct Image Download Button to Laptop (Admin Only) */}
-            {isAdminOrDataEntry && (
+            {isAdmin && !isRafatJamal && (
               <button
                 onClick={handleDownloadReportAsImage}
                 disabled={isDownloadingImage || returnsList.length === 0}
@@ -1097,8 +1139,8 @@ export const ReturnsScreen: React.FC = () => {
               </button>
             )}
 
-            {/* Excel Upload (Admin & Data Entry) */}
-            {isAdminOrDataEntry && (
+            {/* Excel Upload (Admin Only) */}
+            {isAdmin && !isRafatJamal && (
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
@@ -1139,7 +1181,7 @@ export const ReturnsScreen: React.FC = () => {
             )}
 
             {/* Clear All Data */}
-            {isAdminOrDataEntry && returnsList.length > 0 && (
+            {isAdmin && !isRafatJamal && returnsList.length > 0 && (
               <button
                 onClick={handleClearAll}
                 className="p-2.5 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-600 hover:bg-red-100 transition-colors"
@@ -1318,14 +1360,14 @@ export const ReturnsScreen: React.FC = () => {
         {/* The Clean Main Table */}
         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="w-full text-right text-xs">
-            <thead className={`font-black text-[11px] uppercase border-b ${
+            <thead className={`font-black text-[10px] sm:text-[11px] uppercase border-b ${
               isDarkMode ? 'bg-slate-800/80 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className="py-3 px-4 w-12 text-center">#</th>
-                <th className="py-3 px-4">اسم المندوبين</th>
-                <th className="py-3 px-4 text-center">عدد المحلات خلال الشهر</th>
-                <th className="py-3 px-4 text-center font-black">الوزن الراجع للشهري (كغم)</th>
+                <th className="py-2.5 px-1.5 sm:px-3 w-8 sm:w-10 text-center">#</th>
+                <th className="py-2.5 px-2 sm:px-3">اسم المندوب</th>
+                <th className="py-2.5 px-1.5 sm:px-3 text-center">عدد المحلات</th>
+                <th className="py-2.5 px-2 sm:px-3 text-center font-black">الوزن الراجع (كغم)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -1365,24 +1407,24 @@ export const ReturnsScreen: React.FC = () => {
                           : 'bg-slate-50/70 hover:bg-slate-100/70'
                       }`}
                     >
-                      <td className="py-3 px-4 text-center font-mono text-slate-400 text-[11px]">
+                      <td className="py-2 px-1.5 sm:px-3 text-center font-mono text-slate-400 text-[10px] sm:text-[11px]">
                         {idx + 1}
                       </td>
-                      <td className="py-3 px-4 font-black text-slate-900 dark:text-white text-xs sm:text-sm">
-                        <div className="flex items-center gap-2">
+                      <td className="py-2 px-2 sm:px-3 font-black text-slate-900 dark:text-white text-xs sm:text-sm">
+                        <div className="flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span>{row.delegateName}</span>
                           {isCurrentRep && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
                               (أنت)
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-center font-mono font-bold text-purple-700 dark:text-purple-400 text-xs sm:text-sm">
+                      <td className="py-2 px-1.5 sm:px-3 text-center font-mono font-bold text-purple-700 dark:text-purple-400 text-xs sm:text-sm">
                         {formatWithCommas(row.shopsCount)} <span className="text-[10px] text-slate-400 font-sans">محل</span>
                       </td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">
+                      <td className="py-2 px-2 sm:px-3 text-center font-mono font-black text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">
                         {formatWithCommas(row.monthlyReturnedWeightKg)} <span className="text-[10px] text-slate-400 font-sans">كغم</span>
                       </td>
                     </tr>
@@ -1415,34 +1457,37 @@ export const ReturnsScreen: React.FC = () => {
         </div>
 
         {/* ============================================================== */}
-        {/* TABLE 2: جدول الراجع المسموح وغراماته (يظهر للأدمن فقط) */}
+        {/* TABLE 2: جدول الراجع المسموح وغراماته (يظهر للجميع) */}
         {/* ============================================================== */}
-        {isAdmin && (
-          <div className="pt-8 border-t-2 border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shrink-0 border border-amber-500/20">
-                <Coins className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-black flex items-center gap-2">
-                  <span>جدول الراجع المسموح وغراماته</span>
-                  {isAdmin && (
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-                      النسبة المسموحة: {allowedPercentage}%
-                    </span>
-                  )}
-                </h2>
-                {isAdmin && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    احتساب الراجع المسموح ({allowedPercentage}% من التاركت الشهري الكلي) والغرامات عند تجاوز الحد المسموح
-                  </p>
-                )}
-              </div>
+        <div className="pt-8 border-t-2 border-slate-200 dark:border-slate-800 space-y-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shrink-0 border border-amber-500/20">
+              <Coins className="w-5 h-5" />
             </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-black flex items-center gap-2">
+                <span>جدول الراجع المسموح وغراماته</span>
+                {isAdmin && !isRafatJamal && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    النسبة المسموحة: {allowedPercentage}%
+                  </span>
+                )}
+              </h2>
+              {isAdmin && !isRafatJamal ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  احتساب الراجع المسموح ({allowedPercentage}% من التاركت الشهري الكلي) والغرامات عند تجاوز الحد المسموح
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  تفاصيل الراجع المسموح والغرامات المحتسبة لحسابك حسب التاركت اليومي
+                </p>
+              )}
+            </div>
+          </div>
 
             {/* Controls: Allowed Percentage, Working Days, Penalty Rules & Reset */}
-            {isAdmin && (
+            {isAdmin && !isRafatJamal && (
               <div className="flex items-center gap-2 flex-wrap report-actions-col">
                 <>
                   {/* Allowed Percentage Input - Admin Only */}
@@ -1511,14 +1556,14 @@ export const ReturnsScreen: React.FC = () => {
                     <span className="text-rose-600 dark:text-rose-400 font-bold">آلاف د.ع</span>
                   </div>
 
-                  {Object.keys(customMonthlyTargets).length > 0 && (
+                  {Object.keys(dailyTargets).length > 0 && (
                     <button
-                      onClick={handleResetAllTargets}
+                      onClick={handleResetAllDailyTargets}
                       className="px-2.5 py-1.5 rounded-xl border border-dashed border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100 text-[11px] font-bold text-amber-700 dark:text-amber-300 transition-colors flex items-center gap-1 cursor-pointer"
-                      title="استعادة حساب التاركت التلقائي لجميع المندوبين"
+                      title="إعادة ضبط التاركت اليومي لجميع المندوبين"
                     >
                       <RefreshCw className="w-3 h-3" />
-                      <span>إعادة الحساب التلقائي</span>
+                      <span>إعادة ضبط التاركت اليومي</span>
                     </button>
                   )}
                 </>
@@ -1529,32 +1574,44 @@ export const ReturnsScreen: React.FC = () => {
           {/* Table Container */}
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
             <table className="w-full text-right text-xs">
-              <thead className={`font-black text-[11px] uppercase border-b ${
+              <thead className={`font-black text-[10px] sm:text-[11px] uppercase border-b ${
                 isDarkMode ? 'bg-slate-800/80 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="py-3 px-3 w-10 text-center">#</th>
-                  <th className="py-3 px-3 min-w-[130px]">اسم المندوب</th>
-                  <th className="py-3 px-3 text-center">التاركت اليومي</th>
-                  <th className="py-3 px-3 text-center min-w-[150px]">
-                    <div className="flex items-center justify-center gap-1">
-                      <span>التاركت الكلي</span>
-                      <span className="text-[10px] text-slate-400 font-normal">({workingDays} يوم)</span>
+                  <th className="py-2.5 px-1 w-7 sm:w-8 text-center">#</th>
+                  <th className="py-2.5 px-1.5 min-w-[85px] sm:min-w-[115px]">المندوب</th>
+                  <th className="py-2.5 px-1 text-center min-w-[70px] sm:min-w-[95px]">
+                    <div className="flex flex-col items-center justify-center">
+                      <span>ت. اليومي</span>
+                      {isAdmin && !isRafatJamal && (
+                        <span className="text-[8px] text-amber-500 font-normal">(تعديل)</span>
+                      )}
                     </div>
                   </th>
-                  <th className="py-3 px-3 text-center text-amber-700 dark:text-amber-400 font-black min-w-[130px]">
-                    الوزن الراجع المسموح {isAdminOrDataEntry && `(${allowedPercentage}%)`}
+                  <th className="py-2.5 px-1 text-center min-w-[70px] sm:min-w-[95px]">
+                    <div className="flex flex-col items-center justify-center">
+                      <span>ت. الكلي</span>
+                      <span className="text-[8px] text-slate-400 font-normal">({workingDays}ي)</span>
+                    </div>
                   </th>
-                  <th className="py-3 px-3 text-center text-blue-700 dark:text-blue-400 font-black min-w-[120px]">
-                    الوزن الراجع لحد الآن
+                  <th className="py-2.5 px-1 text-center text-amber-700 dark:text-amber-400 font-black min-w-[70px] sm:min-w-[95px]">
+                    <div className="flex flex-col items-center justify-center">
+                      <span>المسموح</span>
+                      <span className="text-[8px] font-normal">({allowedPercentage}%)</span>
+                    </div>
                   </th>
-                  <th className="py-3 px-3 text-center min-w-[140px]">الفرق عن المسموح</th>
-                  <th className="py-3 px-3 text-center text-rose-700 dark:text-rose-400 font-black min-w-[160px]">
+                  <th className="py-2.5 px-1 text-center text-blue-700 dark:text-blue-400 font-black min-w-[70px] sm:min-w-[90px]">
+                    <span>الراجع الحالي</span>
+                  </th>
+                  <th className="py-2.5 px-1 text-center min-w-[75px] sm:min-w-[100px]">الفرق</th>
+                  <th className="py-2.5 px-1 text-center text-rose-700 dark:text-rose-400 font-black min-w-[75px] sm:min-w-[105px]">
                     <div className="flex flex-col items-center">
-                      <span>سطر الغرامات (د.ع)</span>
-                      <span className="text-[9px] text-slate-400 font-normal">
-                        (لكل {penaltyWeightStep} كغم زيادة = +{penaltyAmountStep} آلاف)
-                      </span>
+                      <span>الغرامات</span>
+                      {isAdmin && (
+                        <span className="text-[8px] text-slate-400 font-normal">
+                          (+{penaltyAmountStep}ك لكل +{penaltyWeightStep}كغم)
+                        </span>
+                      )}
                     </div>
                   </th>
                 </tr>
@@ -1601,105 +1658,96 @@ export const ReturnsScreen: React.FC = () => {
                             : 'bg-slate-50/70 hover:bg-slate-100/70'
                         }`}
                       >
-                        <td className="py-3 px-3 text-center font-mono text-slate-400 text-[11px]">
+                        <td className="py-2 px-1 text-center font-mono text-slate-400 text-[10px] sm:text-[11px]">
                           {idx + 1}
                         </td>
-                        <td className="py-3 px-3 font-black text-slate-900 dark:text-white text-xs sm:text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                            <span>{row.delegateName}</span>
+                        <td className="py-2 px-1.5 font-black text-slate-900 dark:text-white text-[11px] sm:text-xs">
+                          <div className="flex items-center gap-1">
+                            <User className="w-3 h-3 text-blue-500 shrink-0" />
+                            <span className="truncate">{row.delegateName}</span>
                             {isCurrentRep && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
-                                (أنت)
+                              <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 shrink-0">
+                                أنت
                               </span>
                             )}
                           </div>
                         </td>
 
-                        {/* Daily Target */}
-                        <td className="py-3 px-3 text-center font-mono text-slate-600 dark:text-slate-300 text-xs">
-                          {row.dailyTargetKg > 0 ? (
-                            <span>{formatWithCommas(row.dailyTargetKg)} <span className="text-[10px] text-slate-400 font-sans">كغم</span></span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">غير محدد</span>
-                          )}
-                        </td>
-
-                        {/* Monthly Total Target with direct edit button */}
-                        <td className="py-3 px-3 text-center font-mono font-bold text-xs sm:text-sm">
-                          <div className="flex items-center justify-center gap-1">
-                            <span className="text-slate-900 dark:text-slate-100 font-black">
-                              {formatWithCommas(row.monthlyTotalTargetKg)}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-sans">كغم</span>
-                            {row.isCustom && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-sans font-bold" title="تاركت مخصص أدخلته يدوياً">
-                                يدوي
+                        {/* Daily Target with direct edit button */}
+                        <td className="py-2 px-1 text-center font-mono font-bold text-[11px] sm:text-xs">
+                          <div className="flex items-center justify-center gap-0.5">
+                            {row.dailyTargetKg > 0 ? (
+                              <span className="text-slate-900 dark:text-slate-100 font-black">
+                                {formatWithCommas(row.dailyTargetKg)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[10px] font-normal">—</span>
+                            )}
+                            {row.isCustomDaily && (
+                              <span className="text-[8px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-sans font-bold" title="تاركت يومي ثابت">
+                                ثابت
                               </span>
                             )}
-                            {isAdmin && (
+                            {isAdmin && !isRafatJamal && (
                               <button
                                 onClick={() =>
-                                  setEditingTargetDelegate({
+                                  setEditingDailyTargetDelegate({
                                     delegateName: row.delegateName,
-                                    customTarget: row.monthlyTotalTargetKg,
                                     dailyTarget: row.dailyTargetKg,
-                                    defaultTarget: Math.round(row.dailyTargetKg * workingDays * 10) / 10,
                                   })
                                 }
-                                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors report-actions-col cursor-pointer"
-                                title="تعديل أو إدخال التاركت الكلي يدوياً"
+                                className="p-0.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="تعديل وتثبيت التاركت اليومي للمندوب"
                               >
-                                <Pencil className="w-3 h-3" />
+                                <Pencil className="w-3 h-3 text-amber-500 hover:text-amber-600" />
                               </button>
                             )}
                           </div>
                         </td>
 
+                        {/* Monthly Total Target */}
+                        <td className="py-2 px-1 text-center font-mono font-bold text-[11px] sm:text-xs">
+                          <span className="text-slate-900 dark:text-slate-100 font-black">
+                            {formatWithCommas(row.monthlyTotalTargetKg)}
+                          </span>
+                        </td>
+
                         {/* Allowed Return Weight */}
-                        <td className="py-3 px-3 text-center font-mono font-black text-amber-700 dark:text-amber-400 text-xs sm:text-sm">
-                          {formatWithCommas(row.allowedReturnKg)} <span className="text-[10px] text-slate-400 font-sans">كغم</span>
+                        <td className="py-2 px-1 text-center font-mono font-black text-amber-700 dark:text-amber-400 text-[11px] sm:text-xs">
+                          {formatWithCommas(row.allowedReturnKg)}
                         </td>
 
                         {/* Actual Return Weight from table above */}
-                        <td className="py-3 px-3 text-center font-mono font-black text-blue-700 dark:text-blue-400 text-xs sm:text-sm">
-                          {formatWithCommas(row.actualReturnKg)} <span className="text-[10px] text-slate-400 font-sans">كغم</span>
+                        <td className="py-2 px-1 text-center font-mono font-black text-blue-700 dark:text-blue-400 text-[11px] sm:text-xs">
+                          {formatWithCommas(row.actualReturnKg)}
                         </td>
 
                         {/* Difference from Allowed */}
-                        <td className="py-3 px-3 text-center font-mono text-xs">
+                        <td className="py-2 px-1 text-center font-mono text-[10px] sm:text-xs">
                           {row.diffKg <= 0 ? (
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800/60">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                              <span>متبقي {formatWithCommas(Math.abs(row.diffKg))} كغم</span>
-                            </div>
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800/60 whitespace-nowrap">
+                              متبقي {formatWithCommas(Math.abs(row.diffKg))}
+                            </span>
                           ) : (
-                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg font-bold border ${
+                            <span className={`inline-block px-1.5 py-0.5 rounded font-bold border whitespace-nowrap ${
                               row.diffKg >= penaltyWeightStep
                                 ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                                 : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
                             }`}>
-                              <AlertTriangle className="w-3 h-3 shrink-0" />
-                              <span>+{formatWithCommas(row.diffKg)} كغم زيادة</span>
-                            </div>
+                              +{formatWithCommas(row.diffKg)} زيادة
+                            </span>
                           )}
                         </td>
 
                         {/* Penalties Column */}
-                        <td className="py-3 px-3 text-center">
+                        <td className="py-2 px-1 text-center">
                           {hasPenalty ? (
-                            <div className="inline-flex flex-col items-center">
-                              <span className="px-2.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono bg-rose-600 text-white shadow-xs flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                                <span>{formatWithCommas(row.penaltyAmount)} د.ع</span>
-                              </span>
-                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-0.5">
-                                ({formatWithCommas(row.penaltyTiers * penaltyAmountStep)} ألف / {formatWithCommas(row.penaltyTiers * penaltyWeightStep)} كغم زيادة)
-                              </span>
-                            </div>
+                            <span className="inline-block px-1.5 py-0.5 rounded-lg text-[10px] sm:text-xs font-black font-mono bg-rose-600 text-white shadow-xs whitespace-nowrap">
+                              {formatWithCommas(row.penaltyAmount)} د.ع
+                            </span>
                           ) : (
-                            <span className="inline-block px-2 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              0 د.ع (لا توجد غرامة)
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              0
                             </span>
                           )}
                         </td>
@@ -1711,29 +1759,29 @@ export const ReturnsScreen: React.FC = () => {
 
               {/* Table Footer: Totals */}
               {allowedReturnsData.length > 0 && (
-                <tfoot className={`font-black border-t-2 ${
+                <tfoot className={`font-black border-t-2 text-[10px] sm:text-xs ${
                   isDarkMode ? 'bg-slate-800 text-white border-slate-700' : 'bg-slate-100 text-slate-900 border-slate-300'
                 }`}>
                   <tr>
-                    <td colSpan={3} className="py-3 px-3 text-right">
+                    <td colSpan={3} className="py-2.5 px-2 text-right">
                       {isAdminOrDataEntry
-                        ? `المجموع الكلي (${allowedReturnsData.length} مندوب):`
-                        : `المجموع لحسابك (${allowedReturnsData[0]?.delegateName || ''}):`}
+                        ? `المجموع (${allowedReturnsData.length}):`
+                        : `المجموع:`}
                     </td>
-                    <td className="py-3 px-3 text-center font-mono text-xs sm:text-sm">
-                      {formatWithCommas(totalMonthlyTargetSum)} كغم
+                    <td className="py-2.5 px-1 text-center font-mono">
+                      {formatWithCommas(totalMonthlyTargetSum)}
                     </td>
-                    <td className="py-3 px-3 text-center font-mono text-amber-700 dark:text-amber-300 text-xs sm:text-sm">
-                      {formatWithCommas(totalAllowedReturnSum)} كغم
+                    <td className="py-2.5 px-1 text-center font-mono text-amber-700 dark:text-amber-300">
+                      {formatWithCommas(totalAllowedReturnSum)}
                     </td>
-                    <td className="py-3 px-3 text-center font-mono text-blue-700 dark:text-blue-300 text-xs sm:text-sm">
-                      {formatWithCommas(totalActualReturnSum)} كغم
+                    <td className="py-2.5 px-1 text-center font-mono text-blue-700 dark:text-blue-300">
+                      {formatWithCommas(totalActualReturnSum)}
                     </td>
-                    <td className="py-3 px-3 text-center text-[11px] text-slate-400">
+                    <td className="py-2.5 px-1 text-center text-[10px] text-slate-400">
                       —
                     </td>
-                    <td className="py-3 px-3 text-center font-mono font-black text-rose-600 dark:text-rose-400 text-xs sm:text-base">
-                      {totalPenaltiesSum > 0 ? `${formatWithCommas(totalPenaltiesSum)} د.ع` : '0 د.ع'}
+                    <td className="py-2.5 px-1 text-center font-mono font-black text-rose-600 dark:text-rose-400">
+                      {totalPenaltiesSum > 0 ? `${formatWithCommas(totalPenaltiesSum)} د.ع` : '0'}
                     </td>
                   </tr>
                 </tfoot>
@@ -1742,7 +1790,7 @@ export const ReturnsScreen: React.FC = () => {
           </div>
 
           {/* Explanatory Box - Admin Only */}
-          {isAdmin && (
+          {isAdmin && !isRafatJamal && (
             <div className={`p-3.5 rounded-xl border text-xs space-y-1.5 ${
               isDarkMode ? 'bg-slate-800/40 border-slate-700/60 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
             }`}>
@@ -1752,7 +1800,10 @@ export const ReturnsScreen: React.FC = () => {
               </div>
               <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
                 <li>
-                  <strong className="text-slate-800 dark:text-slate-200">التاركت الكلي:</strong> حاصل ضرب التاركت اليومي للمندوب في عدد أيام العمل بالشهر ({workingDays} يوم)، أو الرقم الذي تدخله وتعدله يدوياً بالضغط على زر القلم (✏️).
+                  <strong className="text-slate-800 dark:text-slate-200">التاركت اليومي:</strong> يدخله الأدمن لكل مندوب بشكل ثابت بالضغط على زر القلم (✏️)، ويبقى محفوظاً وثابتاً لحين تغييره مرة ثانية (مفصول تماماً عن التقرير 11).
+                </li>
+                <li>
+                  <strong className="text-slate-800 dark:text-slate-200">التاركت الكلي:</strong> حاصل ضرب التاركت اليومي للمندوب في عدد أيام العمل بالشهر ({workingDays} يوم).
                 </li>
                 <li>
                   <strong className="text-slate-800 dark:text-slate-200">الوزن الراجع المسموح:</strong> يحسب تلقائياً بنسبة {allowedPercentage}% من التاركت الكلي الشهري (التاركت الشهري × {allowedPercentage}%).
@@ -1767,7 +1818,6 @@ export const ReturnsScreen: React.FC = () => {
             </div>
           )}
         </div>
-      )}
 
         {/* Footer Stamp on Image / Table */}
       </div>
@@ -1853,19 +1903,19 @@ export const ReturnsScreen: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Edit Delegate Custom Target (Admin Only) */}
-      {isAdmin && editingTargetDelegate && (
+      {/* MODAL: Edit Delegate Daily Target (Admin Only) */}
+      {isAdmin && editingDailyTargetDelegate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-md border space-y-4 ${
             isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
               <h3 className="font-black text-base flex items-center gap-2">
-                <Pencil className="w-5 h-5 text-blue-500" />
-                <span>تعديل التاركت الكلي للمندوب</span>
+                <Pencil className="w-5 h-5 text-amber-500" />
+                <span>تحديد التاركت اليومي الثابت للمندوب</span>
               </h3>
               <button
-                onClick={() => setEditingTargetDelegate(null)}
+                onClick={() => setEditingDailyTargetDelegate(null)}
                 className="p-1 rounded-xl text-slate-400 hover:text-slate-600"
               >
                 <X className="w-5 h-5" />
@@ -1876,47 +1926,50 @@ export const ReturnsScreen: React.FC = () => {
               <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 space-y-1.5 border border-slate-200 dark:border-slate-700">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 dark:text-slate-400">اسم المندوب:</span>
-                  <span className="font-black text-slate-900 dark:text-white text-sm">{editingTargetDelegate.delegateName}</span>
+                  <span className="font-black text-slate-900 dark:text-white text-sm">{editingDailyTargetDelegate.delegateName}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-500 dark:text-slate-400">التاركت اليومي:</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300">{formatWithCommas(editingTargetDelegate.dailyTarget)} كغم</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500 dark:text-slate-400">الحساب التلقائي ({workingDays} يوم):</span>
-                  <span className="font-mono text-blue-600 dark:text-blue-400 font-black">{formatWithCommas(editingTargetDelegate.defaultTarget)} كغم</span>
+                  <span className="text-slate-500 dark:text-slate-400">أيام العمل في الشهر:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">{workingDays} يوم</span>
                 </div>
               </div>
 
               <div>
                 <label className="text-slate-500 dark:text-slate-400 mb-1.5 block">
-                  التاركت الكلي الشهري الذي تدخله (كغم):
+                  التاركت اليومي (كغم) - يدخله الأدمن ويبقى ثابتاً:
                 </label>
                 <input
                   type="number"
                   step="0.1"
                   min="0"
-                  value={editingTargetDelegate.customTarget}
+                  autoFocus
+                  value={editingDailyTargetDelegate.dailyTarget || ''}
                   onChange={(e) =>
-                    setEditingTargetDelegate({
-                      ...editingTargetDelegate,
-                      customTarget: parseFloat(e.target.value) || 0,
+                    setEditingDailyTargetDelegate({
+                      ...editingDailyTargetDelegate,
+                      dailyTarget: parseFloat(e.target.value) || 0,
                     })
                   }
+                  placeholder="0.0"
                   className={`w-full p-2.5 rounded-xl border font-mono outline-none text-base font-black ${
                     isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  الوزن الراجع المسموح ({allowedPercentage}%) سيكون: <strong className="text-amber-600 dark:text-amber-400">{(((editingTargetDelegate.customTarget || 0) * (allowedPercentage / 100))).toFixed(2)} كغم</strong>
-                </p>
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
+                  <p>
+                    • التاركت الكلي الشهري ({workingDays} يوم): <strong className="font-mono font-black">{formatWithCommas(Math.round(((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) * 10) / 10)} كغم</strong>
+                  </p>
+                  <p>
+                    • الراجع المسموح ({allowedPercentage}%): <strong className="font-mono font-black">{formatWithCommas(Number((((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) * (allowedPercentage / 100)).toFixed(2)))} كغم</strong>
+                  </p>
+                </div>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 pt-2">
               <div className="flex gap-2">
                 <button
-                  onClick={() => setEditingTargetDelegate(null)}
+                  onClick={() => setEditingDailyTargetDelegate(null)}
                   className={`flex-1 py-2.5 rounded-xl font-bold border transition-colors ${
                     isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
                   }`}
@@ -1925,22 +1978,22 @@ export const ReturnsScreen: React.FC = () => {
                 </button>
                 <button
                   onClick={() =>
-                    handleSaveCustomTarget(editingTargetDelegate.delegateName, editingTargetDelegate.customTarget)
+                    handleSaveDailyTarget(editingDailyTargetDelegate.delegateName, editingDailyTargetDelegate.dailyTarget)
                   }
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>حفظ التاركت</span>
+                  <span>حفظ وتثبيت التاركت</span>
                 </button>
               </div>
 
-              {customMonthlyTargets[editingTargetDelegate.delegateName] !== undefined && (
+              {dailyTargets[editingDailyTargetDelegate.delegateName] !== undefined && (
                 <button
-                  onClick={() => handleResetDelegateTarget(editingTargetDelegate.delegateName)}
-                  className="w-full py-2 text-xs font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 hover:underline flex items-center justify-center gap-1"
+                  onClick={() => handleResetDelegateDailyTarget(editingDailyTargetDelegate.delegateName)}
+                  className="w-full py-2 text-xs font-bold text-slate-500 hover:text-rose-600 dark:text-slate-400 hover:underline flex items-center justify-center gap-1 cursor-pointer"
                 >
                   <RefreshCw className="w-3 h-3" />
-                  <span>استعادة الحساب التلقائي ({workingDays} × التاركت اليومي)</span>
+                  <span>إلغاء التثبيت واستعادة التلقائي</span>
                 </button>
               )}
             </div>

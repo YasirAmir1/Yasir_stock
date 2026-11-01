@@ -1,20 +1,22 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useSales } from '../context/SalesContext';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSales, DEFAULT_CATEGORIES_LIST, isExcludedDelegateCategory } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { collection, doc, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, query, setDoc, where, writeBatch, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
-import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil } from 'lucide-react';
+import { formatWithCommas } from '../utils/numberUtils';
+import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X } from 'lucide-react';
 
 export const DailySalesCompletionBar: React.FC = () => {
   const {
     currentUser,
     selectedDelegate,
-    salesEntries,
+    salesEntries = [],
     productsList = [],
     isDarkMode,
     setUserMessage,
     addToast,
     delegatesList = [],
+    delegateTargets = [],
   } = useSales();
 
   // Rafat / Data Entry check
@@ -27,6 +29,7 @@ export const DailySalesCompletionBar: React.FC = () => {
     Boolean(currentUser?.delegateName && currentUser.delegateName.includes('رأفت'));
 
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
+  const [completedDelegatesList, setCompletedDelegatesList] = useState<Array<{ delegate: string; completedAt: string; systemType?: string }>>([]);
   const [isCompletedLoaded, setIsCompletedLoaded] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,6 +42,14 @@ export const DailySalesCompletionBar: React.FC = () => {
   const [showEditTimeModal, setShowEditTimeModal] = useState(false);
   const [newTimeInput, setNewTimeInput] = useState('15:00');
   const [isUpdatingTime, setIsUpdatingTime] = useState(false);
+
+  // Activation Modal State
+  const [showActivationModal, setShowActivationModal] = useState(false);
+  const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
+  const [savingStatusMap, setSavingStatusMap] = useState<Record<string, boolean>>({});
+
+  // Monthly targets for low achievement warnings
+  const [monthlyItemTargets, setMonthlyItemTargets] = useState<Array<{ categoryName: string; delegateName: string; monthlyTarget: number; monthlySales: number }>>([]);
 
   // Determine active delegate
   const activeDelegateName = currentUser?.isAdmin
@@ -57,13 +68,23 @@ export const DailySalesCompletionBar: React.FC = () => {
       q,
       (snap: any) => {
         const completed: Record<string, boolean> = {};
+        const list: Array<{ delegate: string; completedAt: string; systemType?: string }> = [];
         snap.forEach((d: any) => {
           const data = d.data();
           if (data.delegate) {
             completed[data.delegate] = true;
+            if (data.completedAt) {
+              list.push({
+                delegate: data.delegate,
+                completedAt: data.completedAt,
+                systemType: data.systemType || 'APP',
+              });
+            }
           }
         });
+        list.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
         setCompletedDelegates(completed);
+        setCompletedDelegatesList(list);
         setIsCompletedLoaded(true);
       },
       (err: any) => {
@@ -90,6 +111,26 @@ export const DailySalesCompletionBar: React.FC = () => {
         logFirestoreErrorGracefully(err, 'auto_lock_time');
       },
       'CompletionBar-auto-lock'
+    );
+    return () => unsub();
+  }, []);
+
+  // Real-time listener for report11_targets (monthly target Warnings)
+  useEffect(() => {
+    const unsub = safeOnSnapshot(
+      collection(db, 'report11_targets'),
+      (snapshot: any) => {
+        const list: any[] = [];
+        snapshot.forEach((docSnap: any) => {
+          const data = docSnap.data();
+          if (data && data.delegateName) {
+            list.push({ ...data, id: docSnap.id });
+          }
+        });
+        setMonthlyItemTargets(list);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'report11_targets'),
+      'CompletionBar-report11-targets'
     );
     return () => unsub();
   }, []);
@@ -252,14 +293,11 @@ export const DailySalesCompletionBar: React.FC = () => {
     setIsSubmitting(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const alertKey = `daily_auto_completion_alert_${today}_${activeDelegateName}`;
-      localStorage.setItem(alertKey, 'true');
-
       await setDoc(doc(db, 'daily_sales_completion', activeDelegateName), {
         delegate: activeDelegateName,
         date: today,
         completedAt: new Date().toISOString(),
-        autoCompleted: false,
+        systemType: 'APP',
       });
 
       // Archive delegate's today invoices into sales_entries_archive
@@ -284,17 +322,17 @@ export const DailySalesCompletionBar: React.FC = () => {
           await batch.commit();
         }
       } catch (archiveErr) {
-        console.error('Error auto-archiving entries on manual completion:', archiveErr);
+        console.error('Error archiving entries on manual completion:', archiveErr);
       }
 
       addToast({
-        message: `تم إكمال مبيعات اليوم بنجاح للمندوب (${activeDelegateName}) ✅`,
+        message: `تم إنهاء وإكمال مبيعات اليوم بنجاح للمندوب (${activeDelegateName}) ✅`,
         type: 'success',
         delegateName: activeDelegateName,
-        title: 'اكتمال المبيعات',
-        percentage: 0,
+        title: 'إكمال المبيعات',
+        percentage: 100,
       });
-      setUserMessage(`تم إكمال مبيعات اليوم بنجاح للمندوب (${activeDelegateName})! ✅`);
+      setUserMessage('تم إكمال مبيعات اليوم بنجاح! ✅');
       setShowConfirmModal(false);
     } catch (err) {
       console.error('Error confirming daily sales completion:', err);
@@ -330,6 +368,197 @@ export const DailySalesCompletionBar: React.FC = () => {
       setIsUpdatingTime(false);
     }
   };
+
+  // Activation modal handlers
+  const handleOpenActivationModal = () => {
+    const initial: Record<string, boolean> = {};
+    delegatesList.forEach(del => {
+      initial[del] = !!completedDelegates[del];
+    });
+    setSelectedActivationDelegates(initial);
+    setShowActivationModal(true);
+  };
+
+  const handleSaveActivation = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      for (const del of delegatesList) {
+        const docRef = doc(db, 'daily_sales_completion', del);
+        if (selectedActivationDelegates[del]) {
+          await setDoc(docRef, {
+            delegate: del,
+            date: today,
+            completedAt: new Date().toISOString(),
+            systemType: 'APP',
+          }, { merge: true });
+        } else {
+          await deleteDoc(docRef);
+        }
+      }
+      setUserMessage('تم تحديث حالة تفعيل مبيعات المندوبين بنجاح ✅');
+      setShowActivationModal(false);
+    } catch (err) {
+      console.error("Error updating activation:", err);
+      setUserMessage('حدث خطأ أثناء حفظ حالة التفعيل.');
+    }
+  };
+
+  // Update System Type (SAP / APP) for a delegate
+  const handleUpdateSystemType = async (delName: string, newType: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const docRef = doc(db, 'daily_sales_completion', delName);
+      await setDoc(docRef, {
+        delegate: delName,
+        date: today,
+        completedAt: new Date().toISOString(),
+        systemType: newType,
+      }, { merge: true });
+
+      setSavingStatusMap(prev => ({ ...prev, [delName]: true }));
+      setTimeout(() => {
+        setSavingStatusMap(prev => ({ ...prev, [delName]: false }));
+      }, 1500);
+      setUserMessage(`تم حفظ نظام ${newType} للمندوب ${delName} بنجاح ✅`);
+    } catch (err) {
+      console.error("Error updating system type:", err);
+      setUserMessage('حدث خطأ أثناء حفظ نوع النظام.');
+    }
+  };
+
+  // Helper to format completion timestamp
+  const formatCompletionTime = (isoStr?: string) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch {
+      return '';
+    }
+  };
+
+  // Resilient delegate matching
+  const normalizeDelName = (name?: string): string => {
+    if (!name) return '';
+    const trimmed = name.trim();
+    const DELEGATE_NAME_MAP: Record<string, string> = {
+      'مندوب 1': 'ناجي خلف',
+      'مندوب 2': 'خلدون جمال',
+      'مندوب 3': 'محمد جاسم',
+      'مندوب 4': 'بكر بدران',
+      'مندوب 5': 'فيصل فؤاد',
+      'مندوب 6': 'صباح فرحان',
+      'مندوب 7': 'مندوب عام 1',
+      'مندوب 8': 'مندوب عام 2',
+    };
+    const norm = (s: string) => s.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim().toLowerCase();
+    if (DELEGATE_NAME_MAP[trimmed]) return norm(DELEGATE_NAME_MAP[trimmed]);
+    for (const [k, v] of Object.entries(DELEGATE_NAME_MAP)) {
+      if (trimmed.includes(k) || trimmed.includes(v)) {
+        return norm(v);
+      }
+    }
+    return norm(trimmed);
+  };
+
+  const isDelMatch = (nameA?: string, nameB?: string): boolean => {
+    if (!nameA || !nameB) return false;
+    const a = normalizeDelName(nameA);
+    const b = normalizeDelName(nameB);
+    if (a === b) return true;
+    return (a.length >= 3 && b.includes(a)) || (b.length >= 3 && a.includes(b));
+  };
+
+  // Today's entries
+  const todaysEntries = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return salesEntries.filter(e => e.dateString === today);
+  }, [salesEntries]);
+
+  // Priority Table Delegates
+  const priorityTableDelegates = useMemo(() => {
+    const completedMap = new Map<string, { completedAt: string; systemType: string }>();
+    completedDelegatesList.forEach((item) => {
+      completedMap.set(item.delegate.trim().toLowerCase(), {
+        completedAt: item.completedAt,
+        systemType: item.systemType || 'APP',
+      });
+    });
+
+    if (!isPastTargetTime) {
+      return completedDelegatesList.map((item, idx) => ({
+        delegate: item.delegate,
+        completedAt: item.completedAt,
+        systemType: item.systemType || 'APP',
+        hasManuallyCompleted: true,
+        displayRank: idx + 1,
+      }));
+    }
+
+    const allNamesSet = new Set<string>();
+    delegatesList.forEach((d) => { if (d && d.trim()) allNamesSet.add(d.trim()); });
+    todaysEntries.forEach((e) => { if (e.delegateName && e.delegateName.trim()) allNamesSet.add(e.delegateName.trim()); });
+    completedDelegatesList.forEach((c) => { if (c.delegate && c.delegate.trim()) allNamesSet.add(c.delegate.trim()); });
+
+    const allDelegates = Array.from(allNamesSet);
+
+    const completedItems: Array<{
+      delegate: string;
+      completedAt: string;
+      systemType: string;
+      hasManuallyCompleted: boolean;
+      totalWeight: number;
+    }> = [];
+
+    const remainingItems: Array<{
+      delegate: string;
+      completedAt?: string;
+      systemType: string;
+      hasManuallyCompleted: boolean;
+      totalWeight: number;
+    }> = [];
+
+    allDelegates.forEach((delName) => {
+      const lower = delName.toLowerCase();
+      const delEntries = todaysEntries.filter((e) => isDelMatch(e.delegateName, delName));
+      const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+
+      let foundCompleted: { completedAt: string; systemType: string } | undefined;
+      for (const [key, val] of completedMap.entries()) {
+        if (isDelMatch(key, lower)) {
+          foundCompleted = val;
+          break;
+        }
+      }
+
+      if (foundCompleted) {
+        completedItems.push({
+          delegate: delName,
+          completedAt: foundCompleted.completedAt,
+          systemType: foundCompleted.systemType,
+          hasManuallyCompleted: true,
+          totalWeight,
+        });
+      } else {
+        remainingItems.push({
+          delegate: delName,
+          systemType: 'APP',
+          hasManuallyCompleted: false,
+          totalWeight,
+        });
+      }
+    });
+
+    completedItems.sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+    remainingItems.sort((a, b) => b.totalWeight - a.totalWeight);
+
+    const combined = [...completedItems, ...remainingItems];
+
+    return combined.map((item, idx) => ({
+      ...item,
+      displayRank: idx + 1,
+    }));
+  }, [isPastTargetTime, completedDelegatesList, delegatesList, todaysEntries]);
 
   // Number of delegates completed today for Admin overview
   const completedCount = Object.keys(completedDelegates).length;
@@ -484,17 +713,76 @@ export const DailySalesCompletionBar: React.FC = () => {
         </div>
       )}
 
-      {/* The Split Two-Halves Bar: 50% Button, 50% Countdown on Mobile, Tablet & Desktop */}
-      <div className="w-full" dir="rtl">
+      {/* Activation Modal (إدارة وتفعيل مبيعات المندوبين) */}
+      {showActivationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+          <div className={`w-full max-w-md rounded-2xl p-5 shadow-2xl border space-y-4 ${
+            isDarkMode ? 'bg-slate-900 border-amber-500/40 text-white' : 'bg-white border-amber-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <h3 className="text-base font-black flex items-center gap-2 text-amber-400">
+                <span>⚙️ إدارة وتفعيل مبيعات المندوبين</span>
+              </h3>
+              <button onClick={() => setShowActivationModal(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs font-bold text-slate-400">
+              تفعيل أو إلغاء تفعيل إتمام مبيعات اليوم للمندوبين يدوياً:
+            </p>
+
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {delegatesList.map(del => (
+                <label key={del} className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                  selectedActivationDelegates[del]
+                    ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+                    : 'bg-slate-800/40 border-slate-700 text-slate-300'
+                }`}>
+                  <span className="font-black text-xs">{del}</span>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedActivationDelegates[del]}
+                    onChange={(e) => setSelectedActivationDelegates({
+                      ...selectedActivationDelegates,
+                      [del]: e.target.checked
+                    })}
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-700/50">
+              <button
+                onClick={() => setShowActivationModal(false)}
+                className="flex-1 py-2 rounded-xl font-black text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleSaveActivation}
+                className="flex-1 py-2 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md cursor-pointer"
+              >
+                حفظ التغيرات
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <div className="w-full space-y-3" dir="rtl">
+        {/* The Split Two-Halves Bar: 50% Button, 50% Countdown */}
         <div
-          className={`p-1.5 sm:p-2.5 rounded-2xl border shadow-sm transition-all ${
+          className={`p-1.5 sm:p-2.5 rounded-2xl border shadow-xl transition-all duration-500 ${
             isDarkMode
-              ? 'bg-slate-900/90 border-slate-800 text-white'
+              ? 'bg-gradient-to-br from-[#0a1b4b] via-[#08153a] to-[#050c26] border-[#1e293b] text-white'
               : 'bg-white border-slate-200 text-slate-900'
           }`}
         >
           <div className="grid grid-cols-2 gap-1.5 sm:gap-2.5 items-stretch">
-            {/* Half 1: Action Button / Completed Status (Exactly 50%) */}
+            {/* Half 1: Action Button / Completed Status */}
             <div className="w-full flex">
               {activeDelegateName ? (
                 isDelegateCompleted ? (
@@ -529,7 +817,7 @@ export const DailySalesCompletionBar: React.FC = () => {
               )}
             </div>
 
-            {/* Half 2: Ultra-Modern Countdown Timer Box (Modern UI Theme + Clear Explanatory Closing Time Label) */}
+            {/* Half 2: Ultra-Modern Countdown Timer Box */}
             <div className="w-full flex">
               <div
                 className={`relative overflow-hidden w-full min-h-[48px] sm:min-h-[54px] px-2.5 sm:px-3 py-1.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2 transition-all duration-300 shadow-sm backdrop-blur-xs ${
@@ -590,7 +878,6 @@ export const DailySalesCompletionBar: React.FC = () => {
 
                 {/* Modern UI Segmented Digital Countdown Timer */}
                 <div className="flex items-center gap-1 sm:gap-1.5 shrink-0" dir="ltr">
-                  {/* Digital Segments */}
                   <div className="flex items-center gap-1">
                     {/* Hours */}
                     <div className="flex flex-col items-center">
@@ -675,6 +962,141 @@ export const DailySalesCompletionBar: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* 📊 Admin Completed Delegates Priority Table */}
+        {currentUser?.isAdmin && (isPastTargetTime ? priorityTableDelegates.length > 0 : completedDelegatesList.length > 0) && (
+          <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-2.5 sm:p-4 text-white shadow-xl space-y-3 w-full animate-in fade-in duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xs sm:text-sm font-black text-amber-400 flex items-center gap-1.5">
+                  <span>📊</span>
+                  <span>جدول المندوبين الذين أكملوا مبيعات اليوم (حسب التسلسل الزمني للأسبقية):</span>
+                </h3>
+                {isPastTargetTime && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black">
+                    ✓ بعد الإغلاق الرسمي ({formattedTargetTime}) — عرض كافة المندوبين ({priorityTableDelegates.length})
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenActivationModal}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
+              >
+                <span>⚙️ إدارة وتفعيل المبيعات</span>
+              </button>
+            </div>
+            <div className="overflow-x-auto w-full">
+              <table className="w-full min-w-[580px] text-xs text-center border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-700 text-slate-300 font-bold">
+                    <th className="p-2">نظام (SAP / APP)</th>
+                    <th className="p-2">اسم المندوب</th>
+                    <th className="p-2">عدد الفواتير الكلية</th>
+                    <th className="p-2">الهدف اليومي للمندوب</th>
+                    <th className="p-2">وزن المبيعات اليومي</th>
+                    <th className="p-2">النسبة المئوية بين الهدف والمبيعات</th>
+                    <th className="p-2">المبلغ الكلي</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {priorityTableDelegates.map((item) => {
+                    const delName = item.delegate;
+                    const delEntries = todaysEntries.filter(e => isDelMatch(e.delegateName, delName));
+                    const invoiceCount = new Set(delEntries.map(e => `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`)).size;
+                    const totalWeight = delEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
+                    const totalAmount = delEntries.reduce((sum, e) => {
+                      const prod = productsList.find(p => p.productName === e.productName);
+                      const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                      return sum + (price * e.quantity);
+                    }, 0);
+                    const targetWeight = DEFAULT_CATEGORIES_LIST.filter(c => !isExcludedDelegateCategory(c)).reduce((sum, cat) => {
+                      const found = delegateTargets.find(t => 
+                        isDelMatch(t.delegateName, delName) &&
+                        t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
+                      );
+                      return sum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
+                    }, 0);
+                    const pct = targetWeight > 0 ? (totalWeight / targetWeight) * 100 : 0;
+
+                    const delMonthlyTargets = monthlyItemTargets.filter(t => isDelMatch(t.delegateName, delName));
+                    const totalMonthlyTarget = delMonthlyTargets.reduce((sum, t) => sum + (Number(t.monthlyTarget) || 0), 0);
+                    const totalMonthlySales = delMonthlyTargets.reduce((sum, t) => sum + (Number(t.monthlySales) || 0), 0);
+                    const monthlyPct = totalMonthlyTarget > 0 ? (totalMonthlySales / totalMonthlyTarget) * 100 : 0;
+                    const isLowMonthlyAchievement = totalMonthlyTarget > 0 && monthlyPct < 30;
+
+                    return (
+                      <tr key={delName} className={`transition-all ${
+                        isLowMonthlyAchievement 
+                          ? 'bg-rose-950/50 hover:bg-rose-900/60 border-b border-rose-500/40 shadow-[inset_0_0_10px_rgba(244,63,94,0.15)]' 
+                          : 'hover:bg-slate-800/50'
+                      }`}>
+                        <td 
+                          className="p-2 text-center cursor-pointer"
+                          onClick={(e) => {
+                            const selectEl = e.currentTarget.querySelector('select');
+                            if (selectEl) selectEl.focus();
+                          }}
+                        >
+                          <div className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-xl border transition-all ${
+                            savingStatusMap[delName]
+                              ? 'border-emerald-400 bg-emerald-500/30 scale-105 animate-pulse shadow-lg'
+                              : isDarkMode
+                              ? 'bg-slate-800 border-slate-700'
+                              : 'bg-slate-100 border-slate-300'
+                          }`}>
+                            <select
+                              value={item.systemType || 'SAP'}
+                              onChange={(e) => handleUpdateSystemType(delName, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`bg-transparent font-black text-xs cursor-pointer focus:outline-none ${
+                                item.systemType === 'APP'
+                                  ? 'text-blue-400 font-extrabold'
+                                  : 'text-amber-400 font-extrabold'
+                              }`}
+                            >
+                              <option value="SAP" className="bg-slate-900 text-amber-400 font-bold">SAP</option>
+                              <option value="APP" className="bg-slate-900 text-blue-400 font-bold">APP</option>
+                            </select>
+                            {savingStatusMap[delName] && (
+                              <span className="text-[10px] text-emerald-300 font-bold">✓</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2 font-bold text-white">
+                          <div className="flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                              <span>{delName}</span>
+                              {isLowMonthlyAchievement && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black text-[9px] shadow-sm animate-pulse" title={`إنجاز شهري أقل من 30% (${monthlyPct.toFixed(1)}%)`}>
+                                  ⚠️ منخفض (<strong className="font-mono">{monthlyPct.toFixed(0)}%</strong>)
+                                </span>
+                              )}
+                            </div>
+                            {item.hasManuallyCompleted && item.completedAt ? (
+                              <span className="text-[9px] text-emerald-400 font-bold mt-0.5">
+                                أتم المبيعات: {formatCompletionTime(item.completedAt)}
+                              </span>
+                            ) : isPastTargetTime ? (
+                              <span className="text-[9px] text-slate-400 font-normal mt-0.5">
+                                إغلاق رسمي ({formattedTargetTime})
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
+                        <td className="p-2 font-bold">{formatWithCommas(parseFloat(targetWeight.toFixed(1)), true)} كجم</td>
+                        <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
+                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-red-500' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
+                        <td className="p-2 font-extrabold text-indigo-300">{formatWithCommas(totalAmount, true)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
