@@ -116,12 +116,12 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
 
   return (
     <div 
-      className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-5 bg-black/70 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto"
       onClick={onClose}
       dir="rtl"
     >
       <div 
-        className={`w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl shadow-2xl border overflow-hidden ${
+        className={`w-full max-w-[95vw] sm:max-w-3xl max-h-[88dvh] my-auto flex flex-col rounded-2xl sm:rounded-3xl shadow-2xl border overflow-hidden ${
           isDarkMode ? 'bg-slate-900 border-emerald-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}
         onClick={e => e.stopPropagation()}

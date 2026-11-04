@@ -364,19 +364,19 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto" 
       onClick={onClose}
       dir="rtl"
     >
       <div 
-        className={`w-[95%] sm:w-full max-w-md sm:max-w-xl h-[75vh] sm:h-[82vh] max-h-[620px] sm:max-h-[800px] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}
+        className={`w-full max-w-[95vw] sm:max-w-xl h-[85dvh] sm:h-[82vh] max-h-[620px] sm:max-h-[800px] my-auto flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}
         onClick={e => e.stopPropagation()}
       >
         
         {/* Header */}
         <div className={`flex items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3.5 border-b shrink-0 ${isDarkMode ? 'border-slate-800 bg-slate-800/60' : 'border-slate-100 bg-slate-50'}`}>
-          <h2 className="text-sm sm:text-base font-black flex items-center gap-2">
-            <div className="relative">
+          <h2 className="text-sm sm:text-base font-black flex items-center gap-2 min-w-0">
+            <div className="relative shrink-0">
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
               {(() => {
                 const count = alerts.length + notes.length + (!isAdminOrDataEntry ? globalNotifs.filter(n => !readsMap[n.id]).length : 0);
@@ -393,23 +393,23 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                 : `لوحة المندوب: ${currentUser?.name}`}
             </span>
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0">
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        {/* Tabs - Hiding daily tasks and notifications for Admin and Data Entry */}
-        <div className="flex items-center p-2 sm:p-3 gap-1.5 sm:gap-2 border-b border-slate-200 dark:border-slate-700 shrink-0">
+        {/* Tabs - Horizontal scrollable tab bar to avoid stretching modal width */}
+        <div className="flex items-center p-2 sm:p-3 gap-1.5 sm:gap-2 border-b border-slate-200 dark:border-slate-700 shrink-0 overflow-x-auto scrollbar-none">
           <button 
             onClick={() => setActiveTab('alerts')} 
-            className={`flex-1 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
+            className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
               activeTab === 'alerts' 
                 ? 'bg-emerald-500 text-white shadow-sm' 
                 : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
             }`}
           >
             <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>{isAdminOrDataEntry ? 'التنبيهات المشتركة' : 'تنبيهاتي'}</span>
+            <span className="whitespace-nowrap">{isAdminOrDataEntry ? 'التنبيهات المشتركة' : 'تنبيهاتي'}</span>
             {alerts.length > 0 && (
               <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
                 {alerts.length}
@@ -419,14 +419,14 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
 
           <button 
             onClick={() => setActiveTab('notes')} 
-            className={`flex-1 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
+            className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
               activeTab === 'notes' 
                 ? 'bg-emerald-500 text-white shadow-sm' 
                 : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
             }`}
           >
             <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>{isAdminOrDataEntry ? 'الملاحظات المشتركة' : 'ملاحظاتي'}</span>
+            <span className="whitespace-nowrap">{isAdminOrDataEntry ? 'الملاحظات المشتركة' : 'ملاحظاتي'}</span>
             {notes.length > 0 && (
               <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
                 {notes.length}
@@ -439,7 +439,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
             <>
               <button 
                 onClick={() => setActiveTab('notifications')} 
-                className={`flex-1 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors ${
+                className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors whitespace-nowrap ${
                   activeTab === 'notifications' 
                     ? 'bg-emerald-500 text-white' 
                     : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
@@ -449,7 +449,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
               </button>
               <button 
                 onClick={() => setActiveTab('tasks')} 
-                className={`flex-1 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors ${
+                className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors whitespace-nowrap ${
                   activeTab === 'tasks' 
                     ? 'bg-emerald-500 text-white' 
                     : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
@@ -462,7 +462,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-5">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 min-w-0">
           {activeTab === 'alerts' && (
             <div className="space-y-4 sm:space-y-5">
               <div className={`p-3 sm:p-4 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>

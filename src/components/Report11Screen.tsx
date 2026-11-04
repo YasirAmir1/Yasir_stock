@@ -1684,18 +1684,6 @@ export const Report11Screen: React.FC = () => {
         count++;
       });
 
-      // Write push notifications to delegate_alerts for all delegates
-      delegateNamesList.forEach((delName) => {
-        const alertRef = doc(collection(db, 'delegate_alerts'));
-        batch.set(alertRef, {
-          delegateName: delName,
-          note: `تنبيه: قام الأدمن بتحديث ملف أهداف ومبيعات المنتج المحدد (${activeProdName}).`,
-          targetTime: Date.now(),
-          notified: false,
-          createdAt: new Date().toISOString()
-        });
-      });
-
       await batch.commit();
 
       setSpecificProductUploadMessage({
@@ -2284,18 +2272,6 @@ export const Report11Screen: React.FC = () => {
         const specRef = doc(db, 'specific_product_targets', `del_${delName}`.replace(/[\/\s#$[\]]/g, '_'));
         batch.set(specRef, { ...specData, updatedAt: new Date().toISOString() }, { merge: true });
         specCount++;
-      });
-
-      // Send push notification alerts to all delegates upon Excel targets upload
-      delegateNamesList.forEach((delName) => {
-        const alertRef = doc(collection(db, 'delegate_alerts'));
-        batch.set(alertRef, {
-          delegateName: delName,
-          note: `تنبيه: قام الأدمن بتحديث أهدافك ومبيعاتك الشهرية وحوافزك لشهر ${new Date().toLocaleDateString('ar-IQ', { month: 'long', year: 'numeric' })}.`,
-          targetTime: Date.now(),
-          notified: false,
-          createdAt: new Date().toISOString()
-        });
       });
 
       // For all delegates in the uploaded Excel, ensure any omitted category has monthlyTarget: 0 and monthlySales: 0

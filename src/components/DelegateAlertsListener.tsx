@@ -38,6 +38,10 @@ export const DelegateAlertsListener: React.FC = () => {
           snap.forEach((d: any) => {
             const data = d.data() as AlertData;
             if (!data.notified) {
+              if (data.note && (data.note.includes('قام الأدمن بتحديث') || data.note.includes('أهدافك ومبيعاتك') || data.note.includes('ملف أهداف'))) {
+                updateDoc(doc(db, 'admin_data_entry_alerts', d.id), { notified: true }).catch(() => {});
+                return;
+              }
               loaded.push({ ...data, id: d.id });
             }
           });
@@ -56,6 +60,10 @@ export const DelegateAlertsListener: React.FC = () => {
           snap.forEach((d: any) => {
             const data = d.data() as AlertData;
             if (!data.notified) {
+              if (data.note && (data.note.includes('قام الأدمن بتحديث') || data.note.includes('أهدافك ومبيعاتك') || data.note.includes('ملف أهداف'))) {
+                updateDoc(doc(db, 'delegate_alerts', d.id), { notified: true }).catch(() => {});
+                return;
+              }
               loaded.push({ ...data, id: d.id });
             }
           });
