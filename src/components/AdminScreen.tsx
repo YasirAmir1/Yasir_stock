@@ -86,6 +86,7 @@ export const AdminScreen: React.FC = () => {
     isPowerSavingMode,
     togglePowerSavingMode,
     importRoutesFromExcel,
+    routes: contextRoutes = [],
   } = useSales();
 
   const [debts, setDebts] = useState<DebtItem[]>([]);
@@ -160,7 +161,12 @@ export const AdminScreen: React.FC = () => {
   const [newDelegateData, setNewDelegateData] = useState({ oldName: '', oldUsername: '', newName: '', newUsername: '', newPassword: '' });
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
 
-  const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [routes, setRoutes] = useState<RouteItem[]>(() => contextRoutes);
+  useEffect(() => {
+    if (contextRoutes && contextRoutes.length > 0) {
+      setRoutes(contextRoutes);
+    }
+  }, [contextRoutes]);
   const [allAlerts, setAllAlerts] = useState<AlertItem[]>([]);
   const [allNotes, setAllNotes] = useState<NoteItem[]>([]);
   const [routeFilterDelegate, setRouteFilterDelegate] = useState('');
@@ -273,23 +279,9 @@ export const AdminScreen: React.FC = () => {
     }
   };
 
-  // Fetch Routes and Delegate Data
+  // Fetch Delegate Alerts and Notes (Routes are efficiently provided from SalesContext)
   useEffect(() => {
     if (isGlobalQuotaExceeded()) return;
-    // Make sure we are fetching ALL routes for admin to display in list,
-    // and correctly filtering for delegates
-    const q = query(collection(db, 'routes'));
-    const unsubRoutes = safeOnSnapshot(
-      q, 
-      (snap: any) => {
-        const arr: RouteItem[] = [];
-        snap.forEach((d: any) => arr.push({ id: d.id, ...d.data() } as RouteItem));
-        console.log('Fetched routes:', arr.length);
-        setRoutes(arr);
-      },
-      (err: any) => logFirestoreErrorGracefully(err, 'admin_routes'),
-      'admin_routes'
-    );
 
     const alertsQ = query(collection(db, 'delegate_alerts'));
     const unsubAlerts = safeOnSnapshot(
@@ -316,7 +308,6 @@ export const AdminScreen: React.FC = () => {
     );
 
     return () => {
-      unsubRoutes();
       unsubAlerts();
       unsubNotes();
     };

@@ -65,6 +65,7 @@ export const OldInvoicesScreen: React.FC = () => {
     productsList = [], 
     delegatesList = [], 
     delegateAccounts = [],
+    routes: contextRoutes = [],
     isDarkMode, 
     setActiveTab 
   } = useSales();
@@ -111,12 +112,8 @@ export const OldInvoicesScreen: React.FC = () => {
   const [timeTick, setTimeTick] = useState<number>(Date.now());
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
 
-  const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [debts, setDebts] = useState<DebtItem[]>([]);
-  const [monthlyReportMonth, setMonthlyReportMonth] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [monthlyOrderedSearch, setMonthlyOrderedSearch] = useState<string>('');
   const [monthlyOrderedDelegate, setMonthlyOrderedDelegate] = useState<string>('الكل');
   const [monthlyOrderedShowAll, setMonthlyOrderedShowAll] = useState<boolean>(false);
@@ -124,22 +121,13 @@ export const OldInvoicesScreen: React.FC = () => {
   const [monthlyUnorderedDelegate, setMonthlyUnorderedDelegate] = useState<string>('الكل');
   const [monthlyUnorderedShowAll, setMonthlyUnorderedShowAll] = useState<boolean>(false);
 
+  const [routes, setRoutes] = useState<RouteItem[]>(() => contextRoutes);
+
   useEffect(() => {
-    const q = query(collection(db, 'routes'));
-    const unsub = safeOnSnapshot(
-      q, 
-      (snap: any) => {
-        const loaded: RouteItem[] = [];
-        snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as RouteItem));
-        setRoutes(loaded);
-      },
-      (err: any) => {
-        logFirestoreErrorGracefully(err, 'routes in OldInvoicesScreen');
-      },
-      'OldInvoices-routes'
-    );
-    return () => unsub();
-  }, []);
+    if (contextRoutes.length > 0) {
+      setRoutes(contextRoutes);
+    }
+  }, [contextRoutes]);
 
   useEffect(() => {
     const q = query(collection(db, 'debts'));

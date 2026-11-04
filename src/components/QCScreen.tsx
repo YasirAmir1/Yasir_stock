@@ -24,11 +24,17 @@ import {
 import { formatWithCommas } from '../utils/numberUtils';
 
 export const QCScreen: React.FC = () => {
-  const { currentUser, isDarkMode, addToast, delegatesList = [], productsList = [] } = useSales();
+  const { currentUser, isDarkMode, addToast, delegatesList = [], productsList = [], routes: contextRoutes = [] } = useSales();
   const [damagedProducts, setDamagedProducts] = useState<DamagedProductItem[]>([]);
   const [isDamagedProductModalOpen, setIsDamagedProductModalOpen] = useState(false);
   const [editingDamagedProduct, setEditingDamagedProduct] = useState<DamagedProductItem | null>(null);
-  const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [routes, setRoutes] = useState<RouteItem[]>(() => contextRoutes);
+
+  useEffect(() => {
+    if (contextRoutes.length > 0) {
+      setRoutes(contextRoutes);
+    }
+  }, [contextRoutes]);
 
   useEffect(() => {
     const q = query(collection(db, 'damaged_products'));
@@ -47,19 +53,6 @@ export const QCScreen: React.FC = () => {
       },
       'QCScreen-damaged-products'
     );
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = safeOnSnapshot(collection(db, 'routes'), (snapshot: any) => {
-      const items: RouteItem[] = [];
-      snapshot.forEach((doc: any) => {
-        items.push({ id: doc.id, ...doc.data() } as RouteItem);
-      });
-      setRoutes(items);
-    }, (err: any) => {
-      console.error('Error fetching routes in QCScreen:', err);
-    }, 'QCScreen-routes');
     return () => unsub();
   }, []);
 

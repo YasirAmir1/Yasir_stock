@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, getDocs, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useSales } from '../context/SalesContext';
 import { DebtItem } from '../types';
@@ -13,7 +13,7 @@ interface AlertData {
 }
 
 export const DelegateAlertsListener: React.FC = () => {
-  const { currentUser } = useSales();
+  const { currentUser, addToast } = useSales();
   const [activeAlerts, setActiveAlerts] = useState<AlertData[]>([]);
 
   const isAdminOrDataEntry = Boolean(
@@ -69,21 +69,37 @@ export const DelegateAlertsListener: React.FC = () => {
     const checkDebts = async () => {
       if (isGlobalQuotaExceeded()) return;
       try {
-        const debtsSnap = await getDocs(collection(db, 'debts'));
+        // Selective query: non-admins only fetch their own debts
+        const debtsQuery = currentUser.isAdmin
+          ? collection(db, 'debts')
+          : query(collection(db, 'debts'), where('delegateName', '==', currentUser.name));
+
+        const debtsSnap = await getDocs(debtsQuery);
         const now = Date.now();
         const twoDaysInMs = 2 * 24 * 60 * 60 * 1000;
+        const batch = writeBatch(db);
+        let updateCount = 0;
 
-        debtsSnap.forEach(async (d) => {
+        debtsSnap.forEach((d) => {
           const debt = { id: d.id, ...d.data() } as DebtItem;
           const dueDate = new Date(debt.paymentDueDate).getTime();
           
           if (dueDate - now <= twoDaysInMs && dueDate - now > 0 && !debt.notified) {
-            if (currentUser.isAdmin || currentUser.name === debt.delegateName) {
-              alert(`تنبيه: فاتورة الزبون ${debt.customerName} تستحق السداد خلال يومين!`);
-              await updateDoc(doc(db, 'debts', d.id), { notified: true }).catch(() => {});
-            }
+            addToast({
+              type: 'reminder',
+              title: 'تنبيه موعد سداد دين ⏳',
+              message: `فاتورة الزبون (${debt.customerName}) تستحق السداد خلال يومين!`,
+              delegateName: debt.delegateName,
+            });
+            batch.update(d.ref, { notified: true });
+            updateCount++;
           }
         });
+
+        // Eliminate N+1 roundtrips with a single batch commit
+        if (updateCount > 0) {
+          await batch.commit().catch(() => {});
+        }
       } catch (err) {
         logFirestoreErrorGracefully(err, 'checkDebts');
       }
@@ -96,9 +112,7 @@ export const DelegateAlertsListener: React.FC = () => {
       if (unsub) unsub();
       clearInterval(interval);
     };
-  }, [currentUser, isAdminOrDataEntry]);
-
-  const { addToast } = useSales();
+  }, [currentUser, isAdminOrDataEntry, addToast]);
 
   useEffect(() => {
     if (activeAlerts.length === 0) return;

@@ -488,10 +488,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubList: (() => void)[] = [];
     const timers: any[] = [];
 
-    // Phase 1: Immediate light account seeds / check
+    // Phase 1: Immediate light account seeds / check (batched)
     if (!isFirestoreQuotaExceeded) {
       (async () => {
         try {
+          const seedBatch = writeBatch(db);
           const rafatSeed: DelegateAccount = {
             username: 'rafatdata',
             password: '10001',
@@ -500,7 +501,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             isAdmin: true,
             role: 'dataEntry',
           };
-          await setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true });
+          seedBatch.set(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true });
 
           const mohammedSeed: DelegateAccount = {
             username: 'mohammedsauce',
@@ -510,7 +511,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             isAdmin: false,
             role: 'sauceOnly',
           };
-          await setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true });
+          seedBatch.set(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true });
+          await seedBatch.commit();
         } catch (err) {
           handleFirestoreError(err, 'seed_accounts');
         }
@@ -593,7 +595,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, 100);
     timers.push(tProducts);
 
-    // Phase 3 (Order 2): Load & sanitize Routes in order (T+450ms) with non-blocking chunking
+    // Phase 2 (Order 1): Load & sanitize Routes immediately (T+20ms) for instant display
     const tRoutes = setTimeout(() => {
       if (isCancelled) return;
       const unsubRoutes = safeOnSnapshot(
@@ -1394,16 +1396,26 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         (p.previousWholesalePrice !== undefined && p.previousWholesalePrice !== p.wholesalePrice)
       ));
 
-      for (const p of targets) {
-        try {
+      if (targets.length > 0) {
+        let ackBatch = writeBatch(db);
+        let ackCount = 0;
+        const now = Date.now();
+        for (const p of targets) {
           const docRef = doc(db, 'products_catalog', p.id);
-          await setDoc(docRef, {
+          ackBatch.set(docRef, {
             previousRetailPrice: p.retailPrice,
             previousWholesalePrice: p.wholesalePrice,
-            priceUpdatedAt: Date.now()
+            priceUpdatedAt: now
           }, { merge: true });
-        } catch (err) {
-          console.error('Error acknowledging price change for', p.id, err);
+          ackCount++;
+          if (ackCount === 450) {
+            await ackBatch.commit();
+            ackBatch = writeBatch(db);
+            ackCount = 0;
+          }
+        }
+        if (ackCount > 0) {
+          await ackBatch.commit();
         }
       }
 
@@ -1938,7 +1950,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(pollingInterval);
   }, [isPowerSavingMode]);
 
-  // Lazy-load heavy historical invoices & archive datasets (T+1800ms) with non-blocking chunking
+  // Lazy-load historical invoices & archive datasets (T+1800ms) with non-blocking chunking & indexed scoping
   useEffect(() => {
     if (isFirestoreQuotaExceeded || isGlobalQuotaExceeded()) return;
 
@@ -1949,8 +1961,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const lazyTimer = setTimeout(() => {
       if (isCancelled) return;
 
+      const isSauceUser =
+        currentUser?.role === 'sauceOnly' ||
+        currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
+        currentUser?.name === 'محمد الصلصات';
+
+      const isDelegateUser = !currentUser?.isAdmin && !isSauceUser && Boolean(currentUser?.name);
+
+      // Scoped query: Delegate users only fetch their own sales archive
+      const archiveQuery = isDelegateUser
+        ? query(collection(db, 'sales_entries_archive'), where('delegateName', '==', currentUser.name))
+        : collection(db, 'sales_entries_archive');
+
       // 1. Asynchronously fetch archive in the background
-      getDocs(collection(db, 'sales_entries_archive'))
+      getDocs(archiveQuery)
         .then((snap) => {
           if (isCancelled) return;
           snap.forEach((doc) => {
@@ -1964,9 +1988,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           handleFirestoreError(err, 'sales_entries_archive');
         });
 
-      // 2. Safe live listener with chunked batched processing
+      // 2. Safe live listener with chunked batched processing (scoped for delegates)
+      const salesLiveQuery = isDelegateUser
+        ? query(collection(db, 'sales_entries'), where('delegateName', '==', currentUser.name))
+        : collection(db, 'sales_entries');
+
       unsubAll = safeOnSnapshot(
-        collection(db, 'sales_entries'),
+        salesLiveQuery,
         (snapshot: any) => {
           if (isCancelled) return;
 
@@ -2031,7 +2059,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try { unsubAll(); } catch {}
       }
     };
-  }, [isFirestoreQuotaExceeded]);
+  }, [isFirestoreQuotaExceeded, currentUser?.isAdmin, currentUser?.name, currentUser?.role]);
 
   useEffect(() => {
     try {
@@ -3166,10 +3194,21 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         currentUser?.username?.toLowerCase() === 'mohammedsauce' ||
         currentUser?.name === 'محمد الصلصات';
 
+      const isDelegateUser = !currentUser?.isAdmin && !isSauceUser && Boolean(currentUser?.name);
+
+      // Scoped queries utilizing composite indexes (delegateName + dateString + timestamp)
+      const salesQuery = isDelegateUser
+        ? query(collection(db, 'sales_entries'), where('delegateName', '==', currentUser.name))
+        : collection(db, 'sales_entries');
+
+      const archiveQuery = isDelegateUser
+        ? query(collection(db, 'sales_entries_archive'), where('delegateName', '==', currentUser.name))
+        : collection(db, 'sales_entries_archive');
+
       // 1. Fetch live sales entries and archive in parallel
       const [salesSnap, archiveSnap] = await Promise.all([
-        getDocs(collection(db, 'sales_entries')),
-        getDocs(collection(db, 'sales_entries_archive')).catch(() => null),
+        getDocs(salesQuery),
+        getDocs(archiveQuery).catch(() => null),
       ]);
 
       const incomingMap = new globalThis.Map<string, SalesEntry>();

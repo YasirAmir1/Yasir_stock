@@ -10,23 +10,22 @@ import { BottomNav } from './components/BottomNav';
 import { GlobalDialogModal } from './components/GlobalDialogModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 
-// Code-split heavy screens for optimized initial bundle size
-import { EntryScreen } from './components/EntryScreen';
-
-import { Report11Screen } from './components/Report11Screen';
-import { AdditionalTargetScreen } from './components/AdditionalTargetScreen';
-import { AdminScreen } from './components/AdminScreen';
-import { ProductsScreen } from './components/ProductsScreen';
-import { RoutesScreen } from './components/RoutesScreen';
-import { OldInvoicesScreen } from './components/OldInvoicesScreen';
-import { ReturnsScreen } from './components/ReturnsScreen';
-import { QCScreen } from './components/QCScreen';
-import { ItemTrackingScreen } from './components/ItemTrackingScreen';
+// Code-split heavy screens using React.lazy for optimized initial bundle size & faster FCP
+const EntryScreen = lazy(() => import('./components/EntryScreen').then(m => ({ default: m.EntryScreen })));
+const Report11Screen = lazy(() => import('./components/Report11Screen').then(m => ({ default: m.Report11Screen })));
+const AdditionalTargetScreen = lazy(() => import('./components/AdditionalTargetScreen').then(m => ({ default: m.AdditionalTargetScreen })));
+const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
+const ProductsScreen = lazy(() => import('./components/ProductsScreen').then(m => ({ default: m.ProductsScreen })));
+const RoutesScreen = lazy(() => import('./components/RoutesScreen').then(m => ({ default: m.RoutesScreen })));
+const OldInvoicesScreen = lazy(() => import('./components/OldInvoicesScreen').then(m => ({ default: m.OldInvoicesScreen })));
+const ReturnsScreen = lazy(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
+const QCScreen = lazy(() => import('./components/QCScreen').then(m => ({ default: m.QCScreen })));
+const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
 
 // Code-split heavy on-demand modals and widgets
-import { CalculatorModal } from './components/CalculatorModal';
-import { DelegatePanelModal } from './components/DelegatePanelModal';
-import { AccountSwitcherModal } from './components/AccountSwitcherModal';
+const CalculatorModal = lazy(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
+const DelegatePanelModal = lazy(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
+const AccountSwitcherModal = lazy(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -193,33 +192,39 @@ const MainAppContent: React.FC = () => {
 
       {/* Calculator Modal - Lazy Loaded */}
       {showCalculatorModal && (
-        <CalculatorModal
-          isOpen={showCalculatorModal}
-          onClose={() => setShowCalculatorModal(false)}
-        />
+        <Suspense fallback={null}>
+          <CalculatorModal
+            isOpen={showCalculatorModal}
+            onClose={() => setShowCalculatorModal(false)}
+          />
+        </Suspense>
       )}
 
       {/* Delegate Modal - Lazy Loaded */}
       {showDelegateModal && (
-        <DelegatePanelModal
-          onClose={() => setShowDelegateModal(false)}
-          isDarkMode={isDarkMode}
-        />
+        <Suspense fallback={null}>
+          <DelegatePanelModal
+            onClose={() => setShowDelegateModal(false)}
+            isDarkMode={isDarkMode}
+          />
+        </Suspense>
       )}
 
       {/* Account Switcher Modal - Lazy Loaded */}
       {showAccountModal && (
-        <AccountSwitcherModal
-          isOpen={showAccountModal}
-          onClose={() => setShowAccountModal(false)}
-          onAccountSelect={(isAdmin: boolean) => {
-            if (isAdmin) {
-              setActiveTab('admin');
-            } else {
-              setActiveTab('entry');
-            }
-          }}
-        />
+        <Suspense fallback={null}>
+          <AccountSwitcherModal
+            isOpen={showAccountModal}
+            onClose={() => setShowAccountModal(false)}
+            onAccountSelect={(isAdmin: boolean) => {
+              if (isAdmin) {
+                setActiveTab('admin');
+              } else {
+                setActiveTab('entry');
+              }
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Top Header Bar & Navigation Tabs - Pinned / Sticky on Laptop view */}

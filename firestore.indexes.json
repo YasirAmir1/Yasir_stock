@@ -1,0 +1,151 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "sales_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dateString", "order": "ASCENDING" },
+        { "fieldPath": "delegateName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "dateString", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dateString", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales_entries_archive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "dateString", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales_entries_archive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "daily_visits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "delegateCode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "additional_target_uploaded_sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dateString", "order": "ASCENDING" },
+        { "fieldPath": "delegateName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "additional_target_uploaded_sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "dateString", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "additional_target_willie_uploaded_sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dateString", "order": "ASCENDING" },
+        { "fieldPath": "delegateName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "additional_target_willie_uploaded_sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthString", "order": "ASCENDING" },
+        { "fieldPath": "delegateName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "daily_sales_completion",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "delegateCode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "damaged_products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "damaged_products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "debts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateCode", "order": "ASCENDING" },
+        { "fieldPath": "paymentDueDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "debts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "paymentDueDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateName", "order": "ASCENDING" },
+        { "fieldPath": "path", "order": "ASCENDING" },
+        { "fieldPath": "position", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "delegateCode", "order": "ASCENDING" },
+        { "fieldPath": "path", "order": "ASCENDING" },
+        { "fieldPath": "position", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
