@@ -2200,6 +2200,20 @@ export const AdditionalTargetScreen: React.FC = () => {
     );
   };
 
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 text-center">
+        <div className={`p-6 rounded-2xl border max-w-md ${isDarkMode ? 'bg-amber-950/30 border-amber-800 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-500 font-black text-xl">
+            🔒
+          </div>
+          <h3 className="text-base font-black mb-1">صفحة الهدف الإضافي خاصة بالأدمن فقط</h3>
+          <p className="text-xs opacity-80">تم حصر صلاحية استعراض وتعديل الهدف الإضافي بحساب الإدارة فقط.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <PullToRefresh
       onRefresh={async () => {

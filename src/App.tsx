@@ -107,14 +107,19 @@ const MainAppContent: React.FC = () => {
     currentUser?.username?.toLowerCase() === 'محمد الصلصات'
   );
 
-  // Strictly enforce that mohammedsauce is always on products or item_tracking
+  // Strictly enforce that mohammedsauce is always on products or item_tracking, and delegates cannot access admin tabs
   useEffect(() => {
     if (isSauceUser && activeTab !== 'products' && activeTab !== 'item_tracking') {
       setActiveTab('item_tracking');
+    } else if (!currentUser?.isAdmin && (activeTab === 'additional_target' || activeTab === 'old_invoices' || activeTab === 'admin')) {
+      setActiveTab('report_11');
     }
-  }, [isSauceUser, activeTab, setActiveTab]);
+  }, [isSauceUser, currentUser?.isAdmin, activeTab, setActiveTab]);
 
   const handleTabChange = (tab: string) => {
+    if (!currentUser?.isAdmin && (tab === 'additional_target' || tab === 'old_invoices' || tab === 'admin')) {
+      return;
+    }
     setIsLoading(true);
     setActiveTab(tab as any);
     setTimeout(() => setIsLoading(false), 500);
@@ -585,7 +590,7 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
-          {!isSauceUser && (
+          {currentUser?.isAdmin && !isSauceUser && (
             <button
               onClick={() => handleTabChange('additional_target')}
               onMouseEnter={() => {
@@ -791,7 +796,7 @@ const MainAppContent: React.FC = () => {
               {activeTab === 'routes' && <RoutesScreen />}
 
               {activeTab === 'report_11' && <Report11Screen />}
-              {activeTab === 'additional_target' && <AdditionalTargetScreen />}
+              {activeTab === 'additional_target' && currentUser?.isAdmin && <AdditionalTargetScreen />}
               {activeTab === 'products' && <ProductsScreen />}
               {activeTab === 'returns' && <ReturnsScreen />}
               {activeTab === 'qc' && <QCScreen />}
