@@ -63,8 +63,36 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
     customerName?: string;
   } | null>(null);
 
+  const isPrivileged = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.role === 'dataEntry');
+  const loggedInDelegateName = (currentUser?.delegateName || currentUser?.name || '').trim();
+
+  const normalizeText = (str: string) => {
+    return (str || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ى/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/\s+/g, ' ');
+  };
+
+  const normUser = normalizeText(loggedInDelegateName);
+
   // Filter items
   const filteredItems = damagedProducts.filter((item) => {
+    // Delegate-only role constraint: Non-admin users see strictly their own reports
+    if (!isPrivileged && normUser) {
+      const normItemDelegate = normalizeText(item.delegateName);
+      const normItemCreator = normalizeText(item.createdBy || '');
+
+      const matchesDelegate = normItemDelegate && (normItemDelegate.includes(normUser) || normUser.includes(normItemDelegate));
+      const matchesCreator = normItemCreator && (normItemCreator.includes(normUser) || normUser.includes(normItemCreator));
+
+      if (!matchesDelegate && !matchesCreator) {
+        return false;
+      }
+    }
+
     // Status filter
     if (filterStatus !== 'الكل' && item.status !== filterStatus) {
       return false;
@@ -231,7 +259,7 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                 منتجات تالفة (QC)
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                {damagedProducts.length} تقرير
+                {filteredItems.length} تقرير
               </span>
             </div>
             <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
@@ -293,24 +321,20 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
 
       {/* QC Table */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-        <table className="w-full text-[11px] sm:text-xs text-right whitespace-nowrap">
+        <table className="w-full text-[11px] sm:text-xs text-right">
           <thead
             className={`font-black ${
               isDarkMode ? 'bg-slate-800/90 text-slate-300 border-b border-slate-700' : 'bg-slate-100 text-slate-700 border-b border-slate-300'
             }`}
           >
             <tr>
-              <th className="px-3 py-2.5">#</th>
-              <th className="px-3 py-2.5">الزبون</th>
-              <th className="px-3 py-2.5">نوع وعنوان الزبون</th>
-              <th className="px-3 py-2.5">المنتج وكود الصنف</th>
-              <th className="px-3 py-2.5">اسم المندوب</th>
-              <th className="px-3 py-2.5">رقم الدفعة (Batch)</th>
-              <th className="px-3 py-2.5">تاريخ الشراء والكمية التالفة</th>
-              <th className="px-3 py-2.5">سبب العيب / المشكلة</th>
-              <th className="px-3 py-2.5">الصور المرفقة</th>
-              <th className="px-3 py-2.5 text-center">حالة التعويض (QC)</th>
-              {currentUser?.isAdmin && <th className="px-3 py-2.5 text-center">الإجراءات</th>}
+              <th className="px-2 py-2.5 w-8 text-center">#</th>
+              <th className="px-2.5 py-2.5">الزبون والعنوان</th>
+              <th className="px-2.5 py-2.5">المنتج والدفعة</th>
+              <th className="px-2.5 py-2.5">المندوب والتاريخ والكمية</th>
+              <th className="px-2.5 py-2.5">سبب العيب والمرفقات</th>
+              <th className="px-2.5 py-2.5 text-center">حالة التعويض (QC)</th>
+              {currentUser?.isAdmin && <th className="px-2.5 py-2.5 text-center">الإجراءات</th>}
             </tr>
           </thead>
           <tbody
@@ -320,15 +344,19 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
           >
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={currentUser?.isAdmin ? 11 : 10} className="text-center py-10 text-slate-500 font-bold">
-                  {damagedProducts.length === 0 ? (
+                <td colSpan={currentUser?.isAdmin ? 7 : 6} className="text-center py-10 text-slate-500 font-bold">
+                  {damagedProducts.length === 0 || !isPrivileged ? (
                     <div className="flex flex-col items-center justify-center gap-2">
                       <AlertTriangle className="w-8 h-8 text-slate-400" />
-                      <span>لا توجد تقارير منتجات تالفة مسجلة بعد.</span>
+                      <span>
+                        {!isPrivileged
+                          ? 'لا توجد تقارير منتجات تالفة مسجلة باسمك بعد.'
+                          : 'لا توجد تقارير منتجات تالفة مسجلة بعد.'}
+                      </span>
                       <button
                         type="button"
                         onClick={onAddNew}
-                        className="text-rose-600 hover:underline text-xs mt-1"
+                        className="text-rose-600 hover:underline text-xs mt-1 cursor-pointer"
                       >
                         + اضغط هنا لتسجيل أول تقرير
                       </button>
@@ -345,207 +373,192 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                   className={`transition-colors hover:${isDarkMode ? 'bg-slate-800/40' : 'bg-slate-50'}`}
                 >
                   {/* # Index */}
-                  <td className="px-3 py-3 text-slate-400 font-mono text-[10px]">{idx + 1}</td>
+                  <td className="px-2 py-2.5 text-center text-slate-400 font-mono text-[10px] align-top">{idx + 1}</td>
 
-                  {/* Customer Code & Name */}
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col">
-                      <span className="font-black text-slate-900 dark:text-white">{item.customerName}</span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                        كود: {item.customerCode}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Customer Type & Address */}
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-amber-600 dark:text-amber-400">
-                        {item.customerType}
-                      </span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 max-w-[140px] truncate" title={item.customerAddress}>
-                        {item.customerAddress || '—'}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Product Name & Code */}
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col">
-                      <span className="font-black text-emerald-600 dark:text-emerald-400">{item.productName}</span>
-                      {item.productCode && (
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                          كود: {item.productCode}
+                  {/* Customer Info */}
+                  <td className="px-2.5 py-2.5 align-top min-w-[150px]">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-black text-slate-900 dark:text-white text-xs">{item.customerName}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                        {item.customerType && (
+                          <span className="px-1.5 py-0.2 rounded font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            {item.customerType}
+                          </span>
+                        )}
+                        {item.customerCode && (
+                          <span className="text-slate-500 dark:text-slate-400 font-mono">
+                            كود: {item.customerCode}
+                          </span>
+                        )}
+                      </div>
+                      {item.customerAddress && (
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title={item.customerAddress}>
+                          📍 {item.customerAddress}
                         </span>
                       )}
                     </div>
                   </td>
 
-                  {/* Representative Name */}
-                  <td className="px-3 py-3 font-bold text-slate-800 dark:text-slate-200">
-                    {item.delegateName}
-                  </td>
-
-                  {/* Batch Number */}
-                  <td className="px-3 py-3 font-mono text-[11px]">
-                    {item.batchNumber ? (
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                        {item.batchNumber}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-
-                  {/* Purchase Date & Quantity */}
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col font-mono text-[11px]">
-                      <span>{item.purchaseDate || '—'}</span>
-                      <span className="text-[10px] text-rose-600 dark:text-rose-400 font-black">
-                        الكمية: {item.purchaseQuantity || 1} قطعة
-                      </span>
+                  {/* Product & Batch */}
+                  <td className="px-2.5 py-2.5 align-top min-w-[140px]">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs">{item.productName}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                        {item.productCode && (
+                          <span className="text-slate-500 dark:text-slate-400 font-mono">
+                            كود: {item.productCode}
+                          </span>
+                        )}
+                        {item.batchNumber && (
+                          <span className="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono text-[10px]">
+                            دفعة: {item.batchNumber}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
 
-                  {/* Defect Reason */}
-                  <td className="px-3 py-3 max-w-[200px] whitespace-normal">
-                    <div className="text-[11px] text-slate-700 dark:text-slate-300 line-clamp-2" title={item.defectReason}>
-                      {item.defectReason}
+                  {/* Delegate, Date & Quantity */}
+                  <td className="px-2.5 py-2.5 align-top min-w-[140px]">
+                    <div className="flex flex-col gap-0.5 text-[11px]">
+                      <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                        👤 {item.delegateName || '—'}
+                      </span>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 flex-wrap">
+                        <span>📅 {item.purchaseDate || '—'}</span>
+                        <span className="font-black text-rose-600 dark:text-rose-400">
+                          📦 {item.purchaseQuantity || 1} قطعة
+                        </span>
+                      </div>
                     </div>
                   </td>
 
-                  {/* Images - Clickable links stacked vertically one below another with Delete button for Admin */}
-                  <td className="px-3 py-3">
-                    {(item.images && item.images.length > 0) || item.invoiceImage ? (
-                      <div className="flex flex-col gap-1.5 items-start">
-                        {item.images && item.images.map((imgUrl, imgIdx) => {
-                          const isDeletingThis = isDeletingImageKey === `${item.id}-${imgIdx}`;
-                          return (
-                            <div key={imgIdx} className="flex items-center gap-1.5">
+                  {/* Defect Reason & Images */}
+                  <td className="px-2.5 py-2.5 align-top min-w-[180px] max-w-[260px] whitespace-normal">
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[11px] font-medium text-slate-700 dark:text-slate-300 leading-snug line-clamp-2" title={item.defectReason}>
+                        {item.defectReason || 'لا يوجد سبب مكتوب'}
+                      </p>
+
+                      {/* Images & Invoice Link */}
+                      {((item.images && item.images.length > 0) || item.invoiceImage) && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                          {item.images && item.images.map((imgUrl, imgIdx) => {
+                            const isDeletingThis = isDeletingImageKey === `${item.id}-${imgIdx}`;
+                            return (
+                              <div key={imgIdx} className="flex items-center gap-1 bg-sky-50 dark:bg-sky-950/40 px-1.5 py-0.5 rounded border border-sky-200 dark:border-sky-900/60">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewImage({
+                                      url: imgUrl,
+                                      title: `${item.productName} - ${item.customerName} (صورة ${imgIdx + 1})`,
+                                      itemId: item.id,
+                                      imageIndex: imgIdx,
+                                    })
+                                  }
+                                  className="text-[10px] text-sky-600 dark:text-sky-400 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                                  title="فتح الصورة"
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                  <span>صورة {imgIdx + 1}</span>
+                                </button>
+
+                                {currentUser?.isAdmin && (
+                                  <button
+                                    type="button"
+                                    disabled={isDeletingThis}
+                                    onClick={(e) => openDeleteImageModal(item.id, imgIdx, imgUrl, item.productName, item.customerName, e)}
+                                    className="text-rose-500 hover:text-rose-700 dark:text-rose-400 p-0.5 rounded hover:bg-rose-100 dark:hover:bg-rose-900/50"
+                                    title="حذف هذه الصورة"
+                                  >
+                                    {isDeletingThis ? (
+                                      <span className="w-2.5 h-2.5 border border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
+                                    ) : (
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {item.invoiceImage && (
+                            <div className="flex items-center gap-1 bg-teal-50 dark:bg-teal-950/40 px-1.5 py-0.5 rounded border border-teal-200 dark:border-teal-900/60">
                               <button
                                 type="button"
                                 onClick={() =>
                                   setPreviewImage({
-                                    url: imgUrl,
-                                    title: `${item.productName} - ${item.customerName} (صورة ${imgIdx + 1})`,
+                                    url: item.invoiceImage!,
+                                    title: `فاتورة الزبون: ${item.customerName} - ${item.productName}`,
                                     itemId: item.id,
-                                    imageIndex: imgIdx,
+                                    isInvoice: true,
                                   })
                                 }
-                                className="text-[11px] text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300 hover:underline flex items-center gap-1 font-bold active:scale-95 transition-all cursor-pointer"
-                                title="انقر لفتح الصورة بالحجم الكامل"
+                                className="text-[10px] text-teal-600 dark:text-teal-400 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                                title="فتح صورة الفاتورة"
                               >
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                                <span>رابط صورة {imgIdx + 1}</span>
+                                <FileText className="w-2.5 h-2.5" />
+                                <span>الفاتورة 🧾</span>
                               </button>
 
-                              {/* Delete Image Button: Visible and functional ONLY for Admin */}
                               {currentUser?.isAdmin && (
                                 <button
                                   type="button"
-                                  disabled={isDeletingThis}
-                                  onClick={(e) => openDeleteImageModal(item.id, imgIdx, imgUrl, item.productName, item.customerName, e)}
-                                  className="px-1.5 py-0.5 rounded text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 transition-colors flex items-center gap-0.5 text-[10px] font-bold disabled:opacity-50"
-                                  title="حذف هذه الصورة (خاص بالإدارة)"
+                                  disabled={isDeletingImageKey === `${item.id}-invoice`}
+                                  onClick={(e) => openDeleteInvoiceImageModal(item.id, item.invoiceImage!, item.productName, item.customerName, e)}
+                                  className="text-rose-500 hover:text-rose-700 dark:text-rose-400 p-0.5 rounded hover:bg-rose-100 dark:hover:bg-rose-900/50"
+                                  title="حذف صورة الفاتورة"
                                 >
-                                  {isDeletingThis ? (
-                                    <span className="w-3 h-3 border-2 border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
+                                  {isDeletingImageKey === `${item.id}-invoice` ? (
+                                    <span className="w-2.5 h-2.5 border border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
                                   ) : (
-                                    <>
-                                      <Trash2 className="w-3 h-3 text-rose-500" />
-                                      <span className="text-[9px]">حذف</span>
-                                    </>
+                                    <Trash2 className="w-2.5 h-2.5" />
                                   )}
                                 </button>
                               )}
                             </div>
-                          );
-                        })}
-
-                        {/* Customer Invoice Image Link if attached */}
-                        {item.invoiceImage && (
-                          <div className="flex items-center gap-1.5 mt-0.5 pt-1 border-t border-slate-200 dark:border-slate-800 w-full">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPreviewImage({
-                                  url: item.invoiceImage!,
-                                  title: `فاتورة الزبون: ${item.customerName} - ${item.productName}`,
-                                  itemId: item.id,
-                                  isInvoice: true,
-                                })
-                              }
-                              className="text-[11px] text-teal-600 hover:text-teal-500 dark:text-teal-400 dark:hover:text-teal-300 hover:underline flex items-center gap-1 font-bold active:scale-95 transition-all cursor-pointer"
-                              title="انقر لفتح صورة فاتورة الزبون بالحجم الكامل"
-                            >
-                              <FileText className="w-3 h-3 shrink-0" />
-                              <span>صورة الفاتورة 🧾</span>
-                            </button>
-
-                            {/* Delete Invoice Image for Admin */}
-                            {currentUser?.isAdmin && (
-                              <button
-                                type="button"
-                                disabled={isDeletingImageKey === `${item.id}-invoice`}
-                                onClick={(e) => openDeleteInvoiceImageModal(item.id, item.invoiceImage!, item.productName, item.customerName, e)}
-                                className="px-1.5 py-0.5 rounded text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 transition-colors flex items-center gap-0.5 text-[10px] font-bold disabled:opacity-50"
-                                title="حذف صورة الفاتورة (خاص بالإدارة)"
-                              >
-                                {isDeletingImageKey === `${item.id}-invoice` ? (
-                                  <span className="w-3 h-3 border-2 border-rose-600 border-t-transparent rounded-full animate-spin inline-block" />
-                                ) : (
-                                  <>
-                                    <Trash2 className="w-3 h-3 text-rose-500" />
-                                    <span className="text-[9px]">حذف</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-400 text-[10px]">لا توجد صور</span>
-                    )}
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
 
-                  {/* 2. Status Column: Editable only for Admin, view-only for representatives */}
-                  <td className="px-3 py-3 text-center">
+                  {/* Status Column */}
+                  <td className="px-2.5 py-2.5 align-top text-center min-w-[130px]">
                     {currentUser?.isAdmin ? (
-                      <div className="relative inline-block">
-                        <select
-                          value={item.status}
-                          disabled={isUpdatingStatusId === item.id}
-                          onChange={(e) =>
-                            handleStatusChangeInternal(item.id, e.target.value as DamagedProductStatus)
-                          }
-                          className={`text-[11px] font-black px-2.5 py-1.5 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all ${getStatusColor(
-                            item.status
-                          )}`}
-                          title="تعديل حالة التعويض (خاص بالإدارة)"
-                        >
-                          <option value="لم يتم تعويضه لحد الان">لم يتم تعويضه لحد الان</option>
-                          <option value="تم ارسال ايميل به">تم ارسال ايميل به</option>
-                          <option value="تم تعويضه">تم تعويضه</option>
-                          <option value="تم رفض التعويض">تم رفض التعويض</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <span
-                        className={`inline-block text-[11px] font-black px-2.5 py-1 rounded-xl border shadow-sm ${getStatusColor(
+                      <select
+                        value={item.status}
+                        disabled={isUpdatingStatusId === item.id}
+                        onChange={(e) =>
+                          handleStatusChangeInternal(item.id, e.target.value as DamagedProductStatus)
+                        }
+                        className={`text-[10px] font-black px-2 py-1 rounded-lg border cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all ${getStatusColor(
                           item.status
                         )}`}
-                        title="حالة التعويض (للقراءة فقط للمندوب)"
+                        title="تعديل حالة التعويض (خاص بالإدارة)"
+                      >
+                        <option value="لم يتم تعويضه لحد الان">لم يتم تعويضه لحد الان</option>
+                        <option value="تم ارسال ايميل به">تم ارسال ايميل به</option>
+                        <option value="تم تعويضه">تم تعويضه</option>
+                        <option value="تم رفض التعويض">تم رفض التعويض</option>
+                      </select>
+                    ) : (
+                      <span
+                        className={`inline-block text-[10px] font-black px-2 py-1 rounded-lg border shadow-sm ${getStatusColor(
+                          item.status
+                        )}`}
+                        title="حالة التعويض"
                       >
                         {item.status}
                       </span>
                     )}
                   </td>
 
-                  {/* 3. Actions Column: Visible and accessible exclusively to the Admin */}
+                  {/* Actions Column */}
                   {currentUser?.isAdmin && (
-                    <td className="px-3 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
+                    <td className="px-2.5 py-2.5 align-top text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
                           onClick={() => onEdit(item)}
@@ -562,7 +575,6 @@ export const DamagedProductsQCSection: React.FC<DamagedProductsQCSectionProps> =
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                        {/* PDF Download Button per Customer - Positioned right next to Delete button, Admin only */}
                         <button
                           type="button"
                           disabled={generatingPdfId === item.id}

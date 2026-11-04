@@ -4882,11 +4882,14 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
   remainingDays,
   renderPercentBadge,
   onStartEdit,
-  defaultLayoutMode = 'table',
+  defaultLayoutMode,
   supervisorTable,
   isRafatJamal
 }) => {
-  const [layoutMode, setLayoutMode] = useState<'cards' | 'table'>(defaultLayoutMode);
+  const [layoutMode, setLayoutMode] = useState<'cards' | 'table'>(() => {
+    if (defaultLayoutMode) return defaultLayoutMode;
+    return isAdmin ? 'table' : 'cards';
+  });
   const [sortOption, setSortOption] = useState<'default' | 'categories' | 'monthlyDesc' | 'salesDesc' | 'pctAsc' | 'alphabetical'>('default');
 
   const isDailyTargetAchieved = table.totals.totalDailyTarget <= 0 || table.totals.totalDailySales >= table.totals.totalDailyTarget;
