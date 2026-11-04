@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle, FileSpreadsheet, Target } from 'lucide-react';
 import { AppTab } from '../types';
 
 interface BottomNavProps {
@@ -32,6 +32,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         { id: 'routes', label: 'المسارات', icon: MapPin },
 
         { id: 'report_11', label: 'التقرير (11)', icon: FileSpreadsheet },
+        { id: 'additional_target', label: 'الهدف الإضافي', icon: Target },
         ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },

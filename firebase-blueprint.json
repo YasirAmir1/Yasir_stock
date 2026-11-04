@@ -131,6 +131,77 @@
         "readAtIso": { "type": "string" }
       },
       "required": ["userKey", "lastReadTimestamp"]
+    },
+    "additional_target_delegate_config": {
+      "title": "Additional Target Delegate Config",
+      "description": "Targets and overrides for a delegate for ESL milk and Willie cheese",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "familyDailyWeightTargetKg": { "type": "number" },
+        "familyTargetShopsCount": { "type": "number" },
+        "familyMinWeightPerShopKg": { "type": "number" },
+        "smallDailyWeightTargetKg": { "type": "number" },
+        "smallTargetShopsCount": { "type": "number" },
+        "smallMinWeightPerShopKg": { "type": "number" },
+        "willieDailyWeightTargetKg": { "type": "number" },
+        "willieTargetShopsCount": { "type": "number" },
+        "willieMinWeightPerInvoiceKg": { "type": "number" },
+        "willieMinWeightPerCustomerMonthKg": { "type": "number" },
+        "manualSalesOverride": { "type": "object" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["delegateName"]
+    },
+    "uploaded_sales_entry": {
+      "title": "Uploaded Sales Entry",
+      "description": "Sales entry imported from Excel for additional target tracking",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "dateString": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["delegateName", "customerCode", "productCode", "dateString"]
+    },
+    "uploaded_willie_sales_entry": {
+      "title": "Uploaded Willie Sales Entry",
+      "description": "Willie cheese sales entry imported from Excel",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "dateString": { "type": "string" },
+        "monthString": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["delegateName", "customerCode", "productCode", "dateString"]
+    },
+    "product_customer_target": {
+      "title": "Product Customer Target",
+      "description": "Specific weight target for a product at a specific customer",
+      "type": "object",
+      "properties": {
+        "delegateName": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "productCode": { "type": "string" },
+        "productName": { "type": "string" },
+        "targetWeightKg": { "type": "number" }
+      },
+      "required": ["delegateName", "customerCode", "productCode", "targetWeightKg"]
     }
   },
   "firestore": {
@@ -201,6 +272,38 @@
     "/monthly_delegate_returns/{returnId}": {
       "schema": "monthly_delegate_return",
       "description": "Monthly delegate returns records",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/additional_targets_delegates/{configId}": {
+      "schema": "additional_target_delegate_config",
+      "description": "Delegate specific targets for ESL milk",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/additional_target_uploaded_sales/{entryId}": {
+      "schema": "uploaded_sales_entry",
+      "description": "Sales data uploaded from Excel for additional target tracking",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/product_customer_targets/{targetId}": {
+      "schema": "product_customer_target",
+      "description": "Product level targets for specific customers",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/additional_target_willie_uploaded_sales/{entryId}": {
+      "schema": "uploaded_willie_sales_entry",
+      "description": "Willie cheese sales data uploaded from Excel",
       "allow": {
         "read": "true",
         "write": "true"

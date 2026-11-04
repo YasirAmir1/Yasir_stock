@@ -84,7 +84,8 @@ export const AdminScreen: React.FC = () => {
     allSalesEntries,
     selectedDate,
     isPowerSavingMode,
-    togglePowerSavingMode
+    togglePowerSavingMode,
+    importRoutesFromExcel,
   } = useSales();
 
   const [debts, setDebts] = useState<DebtItem[]>([]);
@@ -218,43 +219,17 @@ export const AdminScreen: React.FC = () => {
   const handleRouteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setRouteUploadMessage('جاري معالجة ورفع مسارات المندوبين...');
+    setRouteUploadMessage('جاري معالجة وتحديث مسارات المندوبين بالترتيب...');
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-      
-      if (jsonData.length <= 1) {
-        setRouteUploadMessage('الملف فارغ أو لا يحتوي على بيانات صحيحة.');
-        return;
+      if (importRoutesFromExcel) {
+        await importRoutesFromExcel(file);
       }
-
-      const batch = writeBatch(db);
-      
-      const oldRoutes = await getDocs(collection(db, 'routes'));
-      oldRoutes.docs.forEach((docSnap) => batch.delete(docSnap.ref));
-
-      for (let i = 1; i < jsonData.length; i++) {
-        const row = jsonData[i];
-        if (!row || row.length === 0) continue;
-        const docRef = doc(collection(db, 'routes'));
-        batch.set(docRef, {
-          customerCode: row[0] || '',
-          customerName: row[1] || '',
-          customerAddress: row[2] || '',
-          path: row[3] || '',
-          customerType: row[4] || 'مفرد',
-          delegateName: row[5] || '',
-        });
-      }
-      
-      await batch.commit();
       setRouteUploadMessage('تم رفع وتحديث المسارات بنجاح!');
-      e.target.value = '';
     } catch (err) {
       console.error(err);
-      setRouteUploadMessage('حدث خطأ أثناء الرفع.');
+      setRouteUploadMessage('حدث خطأ أثناء الرفع. يرجى التأكد من الملف.');
+    } finally {
+      e.target.value = '';
     }
   };
 

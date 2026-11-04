@@ -2,6 +2,42 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Suppress Vite HMR WebSocket connection errors (HMR is disabled in this environment)
+      (function() {
+        var origConsoleError = console.error;
+        console.error = function() {
+          var text = Array.prototype.slice.call(arguments).map(function(item) {
+            return String(item && item.stack ? item.stack : (item && item.message ? item.message : item));
+          }).join(' ');
+          if (text.includes('WebSocket') || text.includes('@vite/client') || text.includes('[vite]')) {
+            return;
+          }
+          origConsoleError.apply(console, arguments);
+        };
+
+        window.addEventListener('error', function(e) {
+          var msg = String(e.message || '');
+          var file = String(e.filename || '');
+          var stack = String(e.error && e.error.stack ? e.error.stack : '');
+          if (msg.includes('WebSocket') || file.includes('@vite/client') || stack.includes('WebSocket') || msg.includes('vite')) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e.reason;
+          var msg = String(reason && reason.message ? reason.message : reason || '');
+          if (msg.includes('WebSocket') || msg.includes('@vite/client') || msg.includes('vite')) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />

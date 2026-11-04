@@ -5,6 +5,8 @@ import { collection, doc, query, setDoc, where, writeBatch, deleteDoc } from 'fi
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { formatWithCommas } from '../utils/numberUtils';
 import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X } from 'lucide-react';
+import { REPORT_11_CATEGORIES, isMatchingReport11Category, calculateRemainingWorkingDaysInMonth } from './Report11Screen';
+import { Report11Config } from '../types';
 
 export const DailySalesCompletionBar: React.FC = () => {
   const {
@@ -48,8 +50,26 @@ export const DailySalesCompletionBar: React.FC = () => {
   const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
   const [savingStatusMap, setSavingStatusMap] = useState<Record<string, boolean>>({});
 
-  // Monthly targets for low achievement warnings
-  const [monthlyItemTargets, setMonthlyItemTargets] = useState<Array<{ categoryName: string; delegateName: string; monthlyTarget: number; monthlySales: number }>>([]);
+  // Monthly targets for low achievement warnings and Report 11 daily targets sync
+  const [monthlyItemTargets, setMonthlyItemTargets] = useState<Array<{ categoryName: string; delegateName: string; monthlyTarget: number; monthlySales: number }>>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_targets');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  // Report 11 config (workingDays & remainingDays) to calculate identical daily target
+  const [report11Config, setReport11Config] = useState<Report11Config>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_config');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return {
+      workingDays: 26,
+      remainingDays: calculateRemainingWorkingDaysInMonth(),
+    };
+  });
 
   // Determine active delegate
   const activeDelegateName = currentUser?.isAdmin
@@ -131,6 +151,32 @@ export const DailySalesCompletionBar: React.FC = () => {
       },
       (err: any) => logFirestoreErrorGracefully(err, 'report11_targets'),
       'CompletionBar-report11-targets'
+    );
+    return () => unsub();
+  }, []);
+
+  // Real-time listener for report11_config
+  useEffect(() => {
+    const unsub = safeOnSnapshot(
+      doc(db, 'app_settings', 'report11_config'),
+      (snap: any) => {
+        if (snap.exists()) {
+          const data = snap.data() as Report11Config;
+          if (data) {
+            setReport11Config((prev) => ({
+              workingDays: typeof data.workingDays === 'number' ? data.workingDays : prev.workingDays,
+              remainingDays: typeof data.remainingDays === 'number' ? data.remainingDays : prev.remainingDays,
+              updatedAt: data.updatedAt,
+              updatedBy: data.updatedBy,
+            }));
+            try {
+              localStorage.setItem('cache_report11_config', JSON.stringify(data));
+            } catch {}
+          }
+        }
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'report11_config'),
+      'CompletionBar-report11-config'
     );
     return () => unsub();
   }, []);
@@ -1010,13 +1056,34 @@ export const DailySalesCompletionBar: React.FC = () => {
                       const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
                       return sum + (price * e.quantity);
                     }, 0);
-                    const targetWeight = DEFAULT_CATEGORIES_LIST.filter(c => !isExcludedDelegateCategory(c)).reduce((sum, cat) => {
-                      const found = delegateTargets.find(t => 
-                        isDelMatch(t.delegateName, delName) &&
-                        t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
-                      );
-                      return sum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
-                    }, 0);
+                    // Daily target calculation matching "جدول التقرير الكلي لجميع المندوبين (اليوم الحالي)" in Report11Screen:
+                    // (المتبقي من الهدف الشهري لكل صنف / عدد الأيام المتبقية)
+                    const remainingDays = Math.max(1, report11Config.remainingDays || 1);
+                    let targetWeight = 0;
+                    REPORT_11_CATEGORIES.forEach((categoryName) => {
+                      const targetObj = monthlyItemTargets.find((t) => {
+                        if (!isDelMatch(t.delegateName, delName)) return false;
+                        return isMatchingReport11Category(t.categoryName, categoryName);
+                      });
+                      if (targetObj) {
+                        const mTarget = Number(targetObj.monthlyTarget) || 0;
+                        const mSales = Number(targetObj.monthlySales) || 0;
+                        const remMonthly = Math.max(0, mTarget - mSales);
+                        const catDaily = remainingDays > 0 ? (remMonthly / remainingDays) : 0;
+                        targetWeight += catDaily;
+                      }
+                    });
+
+                    // Fallback to delegateTargets if no Report 11 targets exist at all for this delegate
+                    if (targetWeight === 0 && delegateTargets.length > 0) {
+                      targetWeight = DEFAULT_CATEGORIES_LIST.filter((c) => !isExcludedDelegateCategory(c)).reduce((sum, cat) => {
+                        const found = delegateTargets.find((t) =>
+                          isDelMatch(t.delegateName, delName) &&
+                          t.categoryName?.trim().toLowerCase() === cat.trim().toLowerCase()
+                        );
+                        return sum + (found ? (Number(found.dailyTargetWeightKg) || 0) : 0);
+                      }, 0);
+                    }
                     const pct = targetWeight > 0 ? (totalWeight / targetWeight) * 100 : 0;
 
                     const delMonthlyTargets = monthlyItemTargets.filter(t => isDelMatch(t.delegateName, delName));
@@ -1085,7 +1152,7 @@ export const DailySalesCompletionBar: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
-                        <td className="p-2 font-bold">{formatWithCommas(parseFloat(targetWeight.toFixed(1)), true)} كجم</td>
+                        <td className="p-2 font-bold">{formatWithCommas(Math.round(targetWeight * 10) / 10, true)} كجم</td>
                         <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
                         <td className={`p-2 font-extrabold ${pct < 100 ? 'text-red-500' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
                         <td className="p-2 font-extrabold text-indigo-300">{formatWithCommas(totalAmount, true)}</td>

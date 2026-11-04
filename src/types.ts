@@ -1,4 +1,76 @@
-export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'report_11' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking';
+export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'report_11' | 'additional_target' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking';
+
+export interface AdditionalTargetDelegateConfig {
+  id?: string;
+  delegateName: string;
+  familyMonthlyWeightTargetKg: number;
+  familyTargetShopsCount: number;
+  familyMinWeightPerShopKg: number;
+  smallMonthlyWeightTargetKg: number;
+  smallTargetShopsCount: number;
+  smallMinWeightPerShopKg: number;
+  // Willie Targets
+  willieOval100gMonthlyWeightTarget?: number;
+  willieOval100gShopsTarget?: number;
+  willieOval200gMonthlyWeightTarget?: number;
+  willieOval200gShopsTarget?: number;
+  willieOvalLight200gMonthlyWeightTarget?: number;
+  willieOvalLight200gShopsTarget?: number;
+  // Legacy daily/weight fields for backwards compatibility
+  familyDailyWeightTargetKg?: number;
+  smallDailyWeightTargetKg?: number;
+  willieOval100gWeightTarget?: number;
+  willieOval200gWeightTarget?: number;
+  willieOvalLight200gWeightTarget?: number;
+  willieMinWeightPerInvoiceKg?: number;
+  willieMinWeightPerCustomerMonthKg?: number;
+  manualSalesOverride?: {
+    familySalesWeight: number;
+    smallSalesWeight: number;
+    willieOval100gSalesWeight?: number;
+    willieOval200gSalesWeight?: number;
+    willieOvalLight200gSalesWeight?: number;
+  };
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface UploadedWillieSalesEntry {
+  id: string;
+  delegateName: string;
+  customerCode: string;
+  customerName: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  totalWeightKg: number;
+  dateString: string;
+  monthString: string; // For the 4kg per month check
+  uploadedAt: string;
+}
+
+export interface UploadedSalesEntry {
+  id: string;
+  delegateName: string;
+  customerCode: string;
+  customerName: string;
+  productCode: string;
+  productName: string;
+  categoryName?: string; // Added categoryName
+  quantity: number;
+  totalWeightKg: number; // Renamed from netWeightKg
+  dateString: string;
+  monthString?: string;
+  uploadedAt: string;
+}
+
+export interface AdditionalTargetGlobalConfig {
+  defaultFamilyMinWeightPerShopKg: number;
+  defaultSmallMinWeightPerShopKg: number;
+  monthlyWorkingDaysCount?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
 
 export interface Report11CategoryTarget {
   id?: string;
@@ -171,6 +243,17 @@ export interface DailyEvaluationRecord {
   };
   timestamp: number;
 }
+
+export interface ProductCustomerTarget {
+  id: string; // delegateName_customerCode_productCode
+  delegateName: string;
+  customerCode: string;
+  customerName: string;
+  productCode: string;
+  productName: string;
+  targetWeightKg: number;
+}
+
 export interface ProductItem {
   id: string;
   productName: string;      // اسم المنتج

@@ -13,6 +13,7 @@ import {
   Sparkles,
   Info
 } from 'lucide-react';
+import { showConfirm } from '../utils/dialogService';
 
 interface GiftsManagementTableProps {
   giftPromotions: GiftPromotion[];
@@ -380,8 +381,9 @@ export const GiftsManagementTable: React.FC<GiftsManagementTableProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                if (window.confirm(`هل أنت متأكد من حذف عرض الهدية للمنتج (${gift.productName})؟`)) {
+                              onClick={async () => {
+                                const confirmed = await showConfirm(`هل أنت متأكد من حذف عرض الهدية للمنتج (${gift.productName})؟`, { title: 'تنبيه' });
+                                if (confirmed) {
                                   onDeleteGift(gift.id);
                                 }
                               }}
@@ -596,8 +598,9 @@ export const GiftsManagementTable: React.FC<GiftsManagementTableProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    if (window.confirm(`هل أنت متأكد من حذف عرض الهدية للمنتج (${gift.productName})؟`)) {
+                                  onClick={async () => {
+                                    const confirmed = await showConfirm(`هل أنت متأكد من حذف عرض الهدية للمنتج (${gift.productName})؟`, { title: 'تنبيه' });
+                                    if (confirmed) {
                                       onDeleteGift(gift.id);
                                     }
                                   }}

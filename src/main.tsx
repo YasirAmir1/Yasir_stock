@@ -5,6 +5,15 @@ import './index.css';
 
 // Global error handlers to intercept Firestore quota exhaustion and Vite websocket closure
 if (typeof window !== 'undefined') {
+  const origError = console.error;
+  console.error = (...args: any[]) => {
+    const text = args.map(a => String(a?.stack || a?.message || a || '')).join(' ');
+    if (text.includes('WebSocket') || text.includes('@vite/client') || text.includes('[vite]')) {
+      return;
+    }
+    origError.apply(console, args);
+  };
+
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;
     const msg = String(reason?.message || reason || '');

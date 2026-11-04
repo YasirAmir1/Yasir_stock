@@ -14,6 +14,7 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { EntryScreen } from './components/EntryScreen';
 
 import { Report11Screen } from './components/Report11Screen';
+import { AdditionalTargetScreen } from './components/AdditionalTargetScreen';
 import { AdminScreen } from './components/AdminScreen';
 import { ProductsScreen } from './components/ProductsScreen';
 import { RoutesScreen } from './components/RoutesScreen';
@@ -584,6 +585,27 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
+          {!isSauceUser && (
+            <button
+              onClick={() => handleTabChange('additional_target')}
+              onMouseEnter={() => {
+                import('./components/AdditionalTargetScreen');
+              }}
+              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+                activeTab === 'additional_target'
+                  ? isDarkMode
+                    ? 'border-blue-400 text-blue-300 bg-blue-900/30'
+                    : 'border-blue-600 text-blue-800 bg-blue-100/70'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <Target className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" />
+              <span>الهدف الإضافي</span>
+            </button>
+          )}
+
           {/* ITEM TRACKING TAB (متابعة الأصناف) - ADMIN, DATA ENTRY & MOHAMMEDSAUCE */}
           {isAllowedItemTracking && (
             <button
@@ -769,6 +791,7 @@ const MainAppContent: React.FC = () => {
               {activeTab === 'routes' && <RoutesScreen />}
 
               {activeTab === 'report_11' && <Report11Screen />}
+              {activeTab === 'additional_target' && <AdditionalTargetScreen />}
               {activeTab === 'products' && <ProductsScreen />}
               {activeTab === 'returns' && <ReturnsScreen />}
               {activeTab === 'qc' && <QCScreen />}

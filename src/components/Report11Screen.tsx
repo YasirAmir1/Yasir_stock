@@ -7,7 +7,9 @@ import { collection, doc, setDoc, writeBatch, query, where } from 'firebase/fire
 import { safeOnSnapshot, logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
 import { SalesEntry, Report11CategoryTarget, Report11Config } from '../types';
 import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
+import { showConfirm } from '../utils/dialogService';
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas-pro';
 import {
   FileSpreadsheet,
   Calendar,
@@ -456,7 +458,7 @@ export const matchSalesEntryToReport11Category = (entry: SalesEntry): Report11Ca
 };
 
 // Calculate default remaining working days in current month excluding Fridays
-const calculateRemainingWorkingDaysInMonth = (): number => {
+export const calculateRemainingWorkingDaysInMonth = (): number => {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -490,6 +492,58 @@ export const Report11Screen: React.FC = () => {
   } = useSales();
 
   const printRef = useRef<HTMLDivElement>(null);
+  const allSalesTableRef = useRef<HTMLDivElement>(null);
+
+  const handleExportAllSalesTableJpeg = async () => {
+    if (!allSalesTableRef.current) return;
+    try {
+      setUserMessage('جاري تجهيز وتحويل الجدول إلى صورة JPEG... 📸');
+      const canvas = await html2canvas(allSalesTableRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#1c1917'
+      });
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `تقرير_مبيعات_الكل_${todayDateString}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      if (navigator.canShare && navigator.canShare({ files: [new File([], 'test')] })) {
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            const file = new File([blob], `تقرير_مبيعات_الكل_${todayDateString}.jpg`, { type: 'image/jpeg' });
+            try {
+              await navigator.share({
+                title: 'تقرير مبيعات الكل',
+                text: `📊 تقرير مبيعات الكل (مفرد + جملة) - التاريخ: ${todayDateString}`,
+                files: [file]
+              });
+              setUserMessage('تم مشاركة صورة التقرير بنجاح 📤✅');
+              return;
+            } catch (e) {}
+          }
+        }, 'image/jpeg', 0.95);
+      }
+
+      let text = `📊 *تقرير مبيعات الكل (مفرد + جملة)*\n`;
+      text += `📅 *التاريخ:* ${todayDateString}\n`;
+      text += `📦 *إجمالي الفواتير:* ${totalAllStats.count}\n`;
+      text += `⚖️ *إجمالي الوزن:* ${formatWithCommas(Math.round(totalAllStats.weight * 10) / 10, true)} كغم\n`;
+      text += `💰 *إجمالي المبلغ:* ${formatWithCommas(totalAllStats.amount, true)}\n`;
+      text += `(تم تنزيل صورة التقرير بصيغة JPEG على جهازك 📷✅)`;
+
+      const encoded = encodeURIComponent(text);
+      window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
+      setUserMessage('تم تنزيل صورة التقرير JPEG وفتح واتساب بنجاح 🖼️📲');
+    } catch (err) {
+      console.error('Error exporting table to JPEG:', err);
+      setUserMessage('حدث خطأ أثناء تصدير الجدول كصورة');
+    }
+  };
 
   const isDataEntry = Boolean(
     currentUser?.role === 'dataEntry' ||
@@ -507,8 +561,8 @@ export const Report11Screen: React.FC = () => {
   );
 
   // Comprehensive report view tab & collapse state
-  const [comprehensiveViewTab, setComprehensiveViewTab] = useState<'all' | 'retail' | 'wholesale' | 'three_tables'>('three_tables');
-  const [isComprehensiveCollapsed, setIsComprehensiveCollapsed] = useState(false);
+  const [comprehensiveViewTab, setComprehensiveViewTab] = useState<'all' | 'retail' | 'wholesale' | 'three_tables'>('all');
+  const [isComprehensiveCollapsed, setIsComprehensiveCollapsed] = useState(true);
 
   // Targets state: loaded from Firestore collection report11_targets
   const [categoryTargets, setCategoryTargets] = useState<Report11CategoryTarget[]>(() => {
@@ -544,31 +598,30 @@ export const Report11Screen: React.FC = () => {
     return Boolean(completedDelegatesMap[norm] || completedDelegatesMap[name.trim()]);
   }, [completedDelegatesMap]);
 
-  // List of active delegates to present (excluding system/admin names)
+  // List of active delegates to present (excluding system/admin names and شرقاط)
   const delegateNamesList = useMemo(() => {
     const list = delegatesList.filter(
-      d => d !== 'الكل' && d !== 'الأدمن' && d !== 'رأفت جمال' && !d.toLowerCase().includes('sauce') && !d.includes('مندوب عام 1') && !d.includes('مندوب عام 2')
+      d => d !== 'الكل' && d !== 'الأدمن' && d !== 'رأفت جمال' && !d.toLowerCase().includes('sauce') && !d.includes('مندوب عام 1') && !d.includes('مندوب عام 2') && !normalizeArabic(d).includes('شرقاط')
     );
-    // Guarantee the standard delegates always exist
+    // Guarantee the standard delegates always exist (excluding شرقاط)
     const standard = ['بكر بدران', 'فيصل فؤاد', 'خلدون جمال', 'محمد جاسم', 'ناجي خلف', 'صباح فرحان'];
     standard.forEach(s => {
-      if (!list.includes(s)) list.push(s);
+      if (!list.includes(s) && !normalizeArabic(s).includes('شرقاط')) list.push(s);
     });
     return list;
   }, [delegatesList]);
 
   // Active delegate selection:
-  // If delegate, locked strictly to their own name.
-  // If admin, can pick any delegate or "all"
+  // Standard default for admin is supervisor view (__SUPERVISOR__).
   const defaultDelegate = useMemo(() => {
     if (!isAdmin) {
       return currentUser?.name || 'مندوب';
     }
-    return delegateNamesList[0] || 'مندوب';
-  }, [isAdmin, currentUser, delegateNamesList]);
+    return '__SUPERVISOR__';
+  }, [isAdmin, currentUser]);
 
   const [activeDelegate, setActiveDelegate] = useState<string>(defaultDelegate);
-  const [viewMode, setViewMode] = useState<'single' | 'all'>(isAdmin ? 'single' : 'single');
+  const [viewMode, setViewMode] = useState<'single' | 'all'>('all');
 
   // Excel Upload state
   const [isUploading, setIsUploading] = useState(false);
@@ -1695,7 +1748,8 @@ export const Report11Screen: React.FC = () => {
   };
 
   const handleClearSpecificProductData = async () => {
-    if (!window.confirm('هل أنت متأكد من مسح وتفريغ كافة بيانات ملف الإكسل للصنف المحدد؟')) return;
+    const confirmed = await showConfirm('هل أنت متأكد من مسح وتفريغ كافة بيانات ملف الإكسل للصنف المحدد؟');
+    if (!confirmed) return;
     try {
       const batch = writeBatch(db);
       specificProductTargets.forEach((t) => {
@@ -2347,7 +2401,8 @@ export const Report11Screen: React.FC = () => {
 
   // Clear & Reset All Excel Category Targets & Monthly Sales for Admin
   const handleClearAllCategoryTargets = async () => {
-    if (!window.confirm('هل أنت متأكد من مسح وتفريغ كافة أهداف ومبيعات الإكسل لجميع الأصناف والمندوبين وتصفيرها إلى 0؟')) return;
+    const confirmed = await showConfirm('هل أنت متأكد من مسح وتفريغ كافة أهداف ومبيعات الإكسل لجميع الأصناف والمندوبين وتصفيرها إلى 0؟');
+    if (!confirmed) return;
     try {
       setIsUploading(true);
       const batch = writeBatch(db);
@@ -2731,6 +2786,22 @@ export const Report11Screen: React.FC = () => {
           <div className="flex flex-wrap gap-2 overflow-x-auto pb-1 scrollbar-hide">
 
             <button
+              onClick={() => {
+                setActiveDelegate('__SUPERVISOR__');
+                setViewMode('single');
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all border whitespace-nowrap shadow-sm cursor-pointer ${
+                activeDelegate === '__SUPERVISOR__' && viewMode === 'single'
+                  ? 'bg-indigo-600 border-indigo-500 text-white'
+                  : isDarkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                  : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              مشرف (إجمالي المندوبين)
+            </button>
+
+            <button
               onClick={() => setViewMode('all')}
               className={`px-4 py-2 rounded-xl text-xs font-black transition-all border whitespace-nowrap shadow-sm cursor-pointer ${
                 viewMode === 'all'
@@ -2884,6 +2955,7 @@ export const Report11Screen: React.FC = () => {
                   className="hidden"
                 />
               </label>
+              {/*
               <button
                 type="button"
                 onClick={handleClearAllCategoryTargets}
@@ -2894,6 +2966,7 @@ export const Report11Screen: React.FC = () => {
                 <Trash2 className="w-4 h-4" />
                 <span>تصفير المبيعات الأسبوعية/الشهرية</span>
               </button>
+              */}
             </div>
 
             {uploadFeedback && (
@@ -3134,11 +3207,24 @@ export const Report11Screen: React.FC = () => {
 
             {/* 3. All Sales Summary Table */}
             {(comprehensiveViewTab === 'three_tables' || comprehensiveViewTab === 'all') && (
-              <div className="bg-amber-950/70 border border-amber-600/60 rounded-xl p-2 sm:p-4 text-white shadow-lg w-full">
-                <h4 className="font-black mb-2 text-sm sm:text-base text-amber-400 flex items-center gap-1.5">
-                  <span>🏆</span>
-                  <span>جدول مبيعات الكل (مفرد + جملة)</span>
-                </h4>
+              <div ref={allSalesTableRef} className="bg-amber-950/70 border border-amber-600/60 rounded-xl p-2 sm:p-4 text-white shadow-lg w-full">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <h4 className="font-black text-sm sm:text-base text-amber-400 flex items-center gap-1.5">
+                    <span>🏆</span>
+                    <span>جدول مبيعات الكل (مفرد + جملة)</span>
+                  </h4>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleExportAllSalesTableJpeg}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="إرسال صورة التقرير بصيغة JPEG إلى واتساب"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>واتساب (صورة JPEG)</span>
+                    </button>
+                  )}
+                </div>
                 <div className="overflow-x-auto w-full">
                   <table className="w-full min-w-full text-xs sm:text-sm font-bold text-center border-collapse border border-white/30">
                     <thead>

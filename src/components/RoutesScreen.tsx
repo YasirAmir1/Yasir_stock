@@ -1445,37 +1445,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     if (!file) return;
 
     try {
-      const XLSX = await import('xlsx');
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
-
-      const batch = writeBatch(db);
-      const routesSnap = await getDocs(collection(db, 'routes'));
-      routesSnap.forEach(r => batch.delete(r.ref));
-
-      jsonData.forEach((row: any) => {
-        const keys = Object.keys(row);
-        const newRoute = {
-          customerName: row[keys[0]] || '',
-          customerCode: row[keys[1]] || '',
-          path: row[keys[2]] || '',
-          delegateName: row[keys[3]] || '',
-          customerType: row[keys[4]] || 'مفرد',
-          customerAddress: row[keys[5]] || '',
-          delegateCode: String(row[keys[6]] || '').trim(), // Column G
-        };
-        
-        const routeRef = doc(collection(db, 'routes'));
-        batch.set(routeRef, newRoute);
-      });
-      
-      await batch.commit();
-      addToast({ message: 'تم استيراد المسارات بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'استيراد', percentage: 0 });
+      if (salesContext.importRoutesFromExcel) {
+        await salesContext.importRoutesFromExcel(file);
+      }
+      addToast({ message: 'تم استيراد ومعالجة المسارات بنجاح ✅', type: 'success', delegateName: currentUser?.name || '', title: 'استيراد', percentage: 0 });
     } catch (e) {
       console.error('Error importing routes:', e);
-      addToast({ message: 'فشل استيراد المسارات.', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
+      addToast({ message: 'فشل استيراد المسارات. تأكد من صحة الملف.', type: 'info', delegateName: currentUser?.name || '', title: 'خطأ', percentage: 0 });
+    } finally {
+      e.target.value = '';
     }
   };
 

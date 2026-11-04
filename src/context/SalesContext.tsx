@@ -448,54 +448,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return 'report_11';
   });
 
-  useEffect(() => {
-    if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const q = query(collection(db, 'routes'));
-    const unsub = safeOnSnapshot(
-      q,
-      (snap: any) => {
-        const loaded: RouteItem[] = [];
-        snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as RouteItem));
-        setRoutes(loaded);
-        try {
-          localStorage.setItem('cache_routes', JSON.stringify(loaded));
-        } catch {}
-      },
-      (err: any) => {
-        handleFirestoreError(err, 'routes');
-      },
-      'routes'
-    );
-    return () => unsub();
-  }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
-
-  useEffect(() => {
-    if (isFirestoreQuotaExceeded) return;
-    // Seed and guarantee rafatdata exists in Firestore
-    const rafatSeed: DelegateAccount = {
-      username: 'rafatdata',
-      password: '10001',
-      delegateName: 'رأفت جمال',
-      monthlyTargetKg: 0,
-      isAdmin: true,
-      role: 'dataEntry',
-    };
-    setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true })
-      .catch((err) => handleFirestoreError(err, 'seed_rafatdata'));
-
-    // Seed and guarantee mohammedsauce exists in Firestore as sauceOnly view account
-    const mohammedSeed: DelegateAccount = {
-      username: 'mohammedsauce',
-      password: 'm12343',
-      delegateName: 'محمد الصلصات',
-      monthlyTargetKg: 0,
-      isAdmin: false,
-      role: 'sauceOnly',
-    };
-    setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true })
-      .catch((err) => handleFirestoreError(err, 'seed_mohammedsauce'));
-  }, [isFirestoreQuotaExceeded]);
-
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', unitsPerCarton: 12, totalPieces: 120, totalUnits: 120, totalCartons: 10, cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
   ];
@@ -511,58 +463,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return DEFAULT_PRODUCTS_LIST;
   });
 
-  useEffect(() => {
-    if (isFirestoreQuotaExceeded) return;
-    const unsub = safeOnSnapshot(
-      collection(db, 'products_catalog'),
-      (snapshot: any) => {
-        const products: ProductItem[] = [];
-        if (!snapshot.empty) {
-          snapshot.forEach((docSnap: any) => {
-            const data = docSnap.data() as any;
-            if (data) {
-              const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || 12;
-              const totalUnits = Number(
-                data.totalUnits !== undefined 
-                  ? data.totalUnits 
-                  : (data.totalPieces !== undefined 
-                      ? data.totalPieces 
-                      : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
-              );
-              const totalCartons = data.totalCartons !== undefined 
-                ? Number(data.totalCartons) 
-                : Math.floor(totalUnits / unitsPerCarton);
-
-              products.push({
-                ...data,
-                id: docSnap.id,
-                unitsPerCarton,
-                cartonQuantity: unitsPerCarton,
-                totalPieces: totalUnits,
-                totalUnits,
-                totalCartons,
-                stockCartons: totalCartons,
-              });
-            }
-          });
-        } else {
-          // If empty, fall back to default
-          DEFAULT_PRODUCTS_LIST.forEach(p => products.push(p));
-        }
-        
-        setProductsList(products);
-        try {
-          localStorage.setItem('app_products_catalog', JSON.stringify(products));
-        } catch {}
-      },
-      (err: any) => {
-        handleFirestoreError(err, 'products_catalog');
-      },
-      'products_catalog'
-    );
-    return () => unsub();
-  }, [isFirestoreQuotaExceeded]);
-
   const [inventoryLogs, setInventoryLogs] = useState<InventoryLogRecord[]>(() => {
     try {
       const saved = localStorage.getItem('app_inventory_logs');
@@ -572,40 +472,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
 
-  useEffect(() => {
-    if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = safeOnSnapshot(
-      collection(db, 'inventory_notifications'),
-      (snapshot: any) => {
-        const logs: InventoryLogRecord[] = [];
-        snapshot.forEach((docSnap: any) => {
-          const d = docSnap.data();
-          if (d) {
-            logs.push({
-              id: docSnap.id,
-              timestamp: d.timestamp || 0,
-              dateFormatted: d.dateFormatted || '',
-              uploaderName: d.uploaderName || 'مسؤول المخزن',
-              totalProductsCount: d.totalProductsCount || 0,
-              restockedCount: d.restockedCount || 0,
-              restockedProducts: d.restockedProducts || [],
-            });
-          }
-        });
-        logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        setInventoryLogs(logs);
-        try {
-          localStorage.setItem('app_inventory_logs', JSON.stringify(logs));
-        } catch {}
-      },
-      (err: any) => {
-        handleFirestoreError(err, 'inventory_notifications');
-      },
-      'inventory_notifications'
-    );
-    return () => unsub();
-  }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
-
   const [inventoryStockByCode, setInventoryStockByCode] = useState<Record<string, number>>(() => {
     try {
       const saved = localStorage.getItem('inventory_stock_by_code');
@@ -614,27 +480,242 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return {};
   });
 
+  // Sequential & Staged loading mechanism to prevent startup freezing and sluggishness
   useEffect(() => {
-    if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = safeOnSnapshot(
-      doc(db, 'app_settings', 'inventory_stock'),
-      (snap: any) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data && data.stockByCode) {
-            setInventoryStockByCode(data.stockByCode);
-            try {
-              localStorage.setItem('inventory_stock_by_code', JSON.stringify(data.stockByCode));
-            } catch {}
-          }
+    if (isPowerSavingMode) return;
+
+    let isCancelled = false;
+    const unsubList: (() => void)[] = [];
+    const timers: any[] = [];
+
+    // Phase 1: Immediate light account seeds / check
+    if (!isFirestoreQuotaExceeded) {
+      (async () => {
+        try {
+          const rafatSeed: DelegateAccount = {
+            username: 'rafatdata',
+            password: '10001',
+            delegateName: 'رأفت جمال',
+            monthlyTargetKg: 0,
+            isAdmin: true,
+            role: 'dataEntry',
+          };
+          await setDoc(doc(db, 'delegate_accounts', 'rafatdata'), rafatSeed, { merge: true });
+
+          const mohammedSeed: DelegateAccount = {
+            username: 'mohammedsauce',
+            password: 'm12343',
+            delegateName: 'محمد الصلصات',
+            monthlyTargetKg: 0,
+            isAdmin: false,
+            role: 'sauceOnly',
+          };
+          await setDoc(doc(db, 'delegate_accounts', 'mohammedsauce'), mohammedSeed, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, 'seed_accounts');
         }
-      },
-      (err: any) => {
-        console.error('Error fetching inventory_stock setting:', err);
-      },
-      'inventory_stock'
-    );
-    return () => unsub();
+      })();
+    }
+
+    // Phase 2 (Order 1): Load & sanitize Products (T+100ms) with non-blocking chunking
+    const tProducts = setTimeout(() => {
+      if (isCancelled) return;
+      const unsubProducts = safeOnSnapshot(
+        collection(db, 'products_catalog'),
+        (snapshot: any) => {
+          if (isCancelled) return;
+          const docs = snapshot.docs || [];
+          const products: ProductItem[] = [];
+
+          const parseProductDoc = (docSnap: any) => {
+            const data = docSnap.data() as any;
+            if (!data) return null;
+            const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || 12;
+            const totalUnits = Number(
+              data.totalUnits !== undefined 
+                ? data.totalUnits 
+                : (data.totalPieces !== undefined 
+                    ? data.totalPieces 
+                    : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
+            );
+            const totalCartons = data.totalCartons !== undefined 
+              ? Number(data.totalCartons) 
+              : Math.floor(totalUnits / unitsPerCarton);
+
+            return {
+              ...data,
+              id: docSnap.id,
+              productName: String(data.productName || '').trim(),
+              productCode: String(data.productCode || '').trim(),
+              categoryName: String(data.categoryName || 'عام').trim(),
+              unitsPerCarton,
+              cartonQuantity: unitsPerCarton,
+              totalPieces: totalUnits,
+              totalUnits,
+              totalCartons,
+              stockCartons: totalCartons,
+              pieceWeightKg: Number(data.pieceWeightKg) || 0.2,
+              retailPrice: Number(data.retailPrice) || 0,
+              wholesalePrice: Number(data.wholesalePrice) || 0,
+            } as ProductItem;
+          };
+
+          if (docs.length > 150) {
+            let pIdx = 0;
+            const processProductChunk = () => {
+              if (isCancelled) return;
+              const limit = Math.min(pIdx + 150, docs.length);
+              for (; pIdx < limit; pIdx++) {
+                const item = parseProductDoc(docs[pIdx]);
+                if (item) products.push(item);
+              }
+              if (pIdx < docs.length) {
+                setTimeout(processProductChunk, 5);
+              } else {
+                setProductsList(products);
+                try { localStorage.setItem('app_products_catalog', JSON.stringify(products)); } catch {}
+              }
+            };
+            processProductChunk();
+          } else {
+            docs.forEach((d: any) => {
+              const item = parseProductDoc(d);
+              if (item) products.push(item);
+            });
+            setProductsList(products);
+            try { localStorage.setItem('app_products_catalog', JSON.stringify(products)); } catch {}
+          }
+        },
+        (err: any) => handleFirestoreError(err, 'products_catalog'),
+        'products_catalog'
+      );
+      unsubList.push(unsubProducts);
+    }, 100);
+    timers.push(tProducts);
+
+    // Phase 3 (Order 2): Load & sanitize Routes in order (T+450ms) with non-blocking chunking
+    const tRoutes = setTimeout(() => {
+      if (isCancelled) return;
+      const unsubRoutes = safeOnSnapshot(
+        query(collection(db, 'routes')),
+        (snap: any) => {
+          if (isCancelled) return;
+          const docs = snap.docs || [];
+          const loaded: RouteItem[] = [];
+
+          const parseRouteDoc = (d: any) => {
+            const data = d.data();
+            if (!data) return null;
+            return {
+              id: d.id,
+              ...data,
+              customerName: String(data.customerName || '').trim(),
+              customerCode: String(data.customerCode || '').trim(),
+              customerAddress: String(data.customerAddress || '').trim(),
+              customerPhone: data.customerPhone ? String(data.customerPhone).trim() : '',
+              delegateName: String(data.delegateName || '').trim(),
+              delegateCode: String(data.delegateCode || '').trim(),
+              path: String(data.path || '').trim(),
+              customerType: data.customerType || 'مفرد',
+              position: typeof data.position === 'number' ? data.position : 0,
+            } as RouteItem;
+          };
+
+          if (docs.length > 200) {
+            let rIdx = 0;
+            const processRouteChunk = () => {
+              if (isCancelled) return;
+              const limit = Math.min(rIdx + 200, docs.length);
+              for (; rIdx < limit; rIdx++) {
+                const item = parseRouteDoc(docs[rIdx]);
+                if (item) loaded.push(item);
+              }
+              if (rIdx < docs.length) {
+                setTimeout(processRouteChunk, 5);
+              } else {
+                setRoutes(loaded);
+                try { localStorage.setItem('cache_routes', JSON.stringify(loaded)); } catch {}
+              }
+            };
+            processRouteChunk();
+          } else {
+            docs.forEach((d: any) => {
+              const item = parseRouteDoc(d);
+              if (item) loaded.push(item);
+            });
+            setRoutes(loaded);
+            try { localStorage.setItem('cache_routes', JSON.stringify(loaded)); } catch {}
+          }
+        },
+        (err: any) => handleFirestoreError(err, 'routes'),
+        'routes'
+      );
+      unsubList.push(unsubRoutes);
+    }, 450);
+    timers.push(tRoutes);
+
+    // Phase 4 (Order 3): Load Inventory Notifications (T+850ms)
+    const tInventory = setTimeout(() => {
+      if (isCancelled) return;
+      const unsubInventory = safeOnSnapshot(
+        collection(db, 'inventory_notifications'),
+        (snapshot: any) => {
+          if (isCancelled) return;
+          const logs: InventoryLogRecord[] = [];
+          snapshot.forEach((docSnap: any) => {
+            const d = docSnap.data();
+            if (d) {
+              logs.push({
+                id: docSnap.id,
+                timestamp: d.timestamp || 0,
+                dateFormatted: d.dateFormatted || '',
+                uploaderName: d.uploaderName || 'مسؤول المخزن',
+                totalProductsCount: d.totalProductsCount || 0,
+                restockedCount: d.restockedCount || 0,
+                restockedProducts: d.restockedProducts || [],
+              });
+            }
+          });
+          logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          setInventoryLogs(logs);
+          try { localStorage.setItem('app_inventory_logs', JSON.stringify(logs)); } catch {}
+        },
+        (err: any) => handleFirestoreError(err, 'inventory_notifications'),
+        'inventory_notifications'
+      );
+      unsubList.push(unsubInventory);
+    }, 850);
+    timers.push(tInventory);
+
+    // Phase 5 (Order 4): Load Inventory Stock (T+1150ms)
+    const tStock = setTimeout(() => {
+      if (isCancelled) return;
+      const unsubStock = safeOnSnapshot(
+        doc(db, 'app_settings', 'inventory_stock'),
+        (snap: any) => {
+          if (isCancelled) return;
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data && data.stockByCode) {
+              setInventoryStockByCode(data.stockByCode);
+              try { localStorage.setItem('inventory_stock_by_code', JSON.stringify(data.stockByCode)); } catch {}
+            }
+          }
+        },
+        (err: any) => console.error('Error fetching inventory_stock setting:', err),
+        'inventory_stock'
+      );
+      unsubList.push(unsubStock);
+    }, 1150);
+    timers.push(tStock);
+
+    return () => {
+      isCancelled = true;
+      timers.forEach(t => clearTimeout(t));
+      unsubList.forEach(unsub => {
+        try { unsub(); } catch {}
+      });
+    };
   }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
 
   const todaySalesByProductName = useMemo(() => {
@@ -658,7 +739,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const soldToday = todaySalesByProductName[name] || 0;
     const unitsPerCarton = Number(prod.unitsPerCarton || prod.cartonQuantity) || 12;
     
-    // إجمالي المخزون المتاح (baseline units before sales)
     const baselineUnits = Number(
       prod.totalUnits !== undefined 
         ? prod.totalUnits 
@@ -964,6 +1044,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         });
 
+        // Clean base64 images exceeding size limits
+        const cleanedProducts = parsedProducts.map(p => {
+          let img = p.imageUrl || '';
+          if (img.startsWith('data:') && img.length > 20000) img = '';
+          return { ...p, imageUrl: img };
+        });
+
+        const cleanedRestockedList = restockedList.map(item => {
+          let img = item.imageUrl || '';
+          if (img.startsWith('data:') && img.length > 20000) img = '';
+          return { ...item, imageUrl: img };
+        });
+
         // Generate formatted timestamp with English numerals
         const now = new Date();
         const dateFormatted = now.toLocaleDateString('en-US', {
@@ -983,24 +1076,29 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           timestamp: Date.now(),
           dateFormatted,
           uploaderName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'مسؤول المخزن',
-          totalProductsCount: parsedProducts.length,
-          restockedCount: restockedList.length,
-          restockedProducts: restockedList,
+          totalProductsCount: cleanedProducts.length,
+          restockedCount: cleanedRestockedList.length,
+          restockedProducts: cleanedRestockedList,
         };
 
-        // Save inventory notification to Firestore
+        // Save inventory notification to Firestore (protecting against 1MB limit)
         try {
-          await setDoc(doc(db, 'inventory_notifications', logId), newInventoryLog);
+          const logPayload = cleanFirestoreData(newInventoryLog);
+          let jsonStr = JSON.stringify(logPayload);
+          if (jsonStr.length > 950000) {
+            logPayload.restockedProducts = cleanedRestockedList.slice(0, 40);
+          }
+          await setDoc(doc(db, 'inventory_notifications', logId), logPayload);
         } catch (err) {
           console.error('Error saving inventory notification log to Firestore:', err);
         }
 
         // Update local state immediately for fast feedback
-        setProductsList(parsedProducts);
+        setProductsList(cleanedProducts);
         
         // Build inventoryStockByCode map
         const newStockByCode: Record<string, number> = {};
-        parsedProducts.forEach(p => {
+        cleanedProducts.forEach(p => {
           const code = String(p.productCode || '').trim();
           const name = String(p.productName || '').trim();
           const cartons = Number(p.initialStockCartons ?? p.stockCartons ?? 0);
@@ -1015,11 +1113,17 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setInventoryStockByCode(prev => ({ ...prev, ...newStockByCode }));
 
         try {
-          localStorage.setItem('app_products_catalog', JSON.stringify(parsedProducts));
+          try {
+            localStorage.setItem('app_products_catalog', JSON.stringify(cleanedProducts));
+          } catch (storageErr) {
+            // If quota exceeded, fallback to ultra-clean items without images
+            const ultraClean = cleanedProducts.map(p => ({ ...p, imageUrl: '' }));
+            localStorage.setItem('app_products_catalog', JSON.stringify(ultraClean));
+          }
           localStorage.setItem('inventory_stock_by_code', JSON.stringify(newStockByCode));
           const todayKey = new Date().toISOString().split('T')[0];
           const fixedStockMap: Record<string, number> = {};
-          parsedProducts.forEach(p => {
+          cleanedProducts.forEach(p => {
             fixedStockMap[p.id] = (p as any).initialStockCartons || p.stockCartons || 0;
             if (p.productCode) fixedStockMap[p.productCode] = (p as any).initialStockCartons || p.stockCartons || 0;
           });
@@ -1090,8 +1194,130 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const importRoutesFromExcel = async (file: File) => {
-    // ... need to define this, maybe just empty function for now to fix the crash
-    console.log("Importing routes not fully implemented yet");
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+
+      if (!jsonData || jsonData.length === 0) {
+        setUserMessage('ملف المسارات فارغ أو لا يحتوي على بيانات صالحة.');
+        return;
+      }
+
+      const parsedRoutes: RouteItem[] = jsonData.map((row: any, idx: number) => {
+        const keys = Object.keys(row);
+        const customerName = String(
+          row['اسم الزبون'] ?? row['الزبون'] ?? row['اسم العميل'] ?? row['العميل'] ?? row['Customer Name'] ?? row['Customer'] ??
+          (keys.length > 0 ? row[keys[0]] : '') ??
+          `زبون ${idx + 1}`
+        ).trim();
+
+        const customerCode = String(
+          row['كود الزبون'] ?? row['رمز الزبون'] ?? row['كود العميل'] ?? row['Customer Code'] ?? row['Code'] ??
+          (keys.length > 1 ? row[keys[1]] : '') ??
+          `CUST-${100 + idx}`
+        ).trim();
+
+        const path = String(
+          row['المسار'] ?? row['خط السير'] ?? row['اليوم'] ?? row['يوم المسار'] ?? row['Path'] ?? row['Route'] ??
+          (keys.length > 2 ? row[keys[2]] : '') ??
+          'مسار 1'
+        ).trim();
+
+        const delegateName = String(
+          row['اسم المندوب'] ?? row['المندوب'] ?? row['مندوب'] ?? row['Delegate'] ?? row['Delegate Name'] ??
+          (keys.length > 3 ? row[keys[3]] : '') ??
+          ''
+        ).trim();
+
+        const customerType = String(
+          row['نوع الزبون'] ?? row['النوع'] ?? row['فئة الزبون'] ?? row['Customer Type'] ?? row['Type'] ??
+          (keys.length > 4 ? row[keys[4]] : '') ??
+          'مفرد'
+        ).trim() === 'جملة' ? 'جملة' : 'مفرد';
+
+        const customerAddress = String(
+          row['العنوان'] ?? row['عنوان الزبون'] ?? row['المنطقة'] ?? row['Address'] ??
+          (keys.length > 5 ? row[keys[5]] : '') ??
+          ''
+        ).trim();
+
+        const delegateCode = String(
+          row['كود المندوب'] ?? row['رمز المندوب'] ?? row['Delegate Code'] ??
+          (keys.length > 6 ? row[keys[6]] : '') ??
+          ''
+        ).trim();
+
+        const customerPhone = String(
+          row['الهاتف'] ?? row['رقم الهاتف'] ?? row['الموبايل'] ?? row['Phone'] ?? ''
+        ).trim();
+
+        return {
+          id: `route_${Date.now()}_${idx}`,
+          customerName,
+          customerCode,
+          path,
+          delegateName,
+          customerType,
+          customerAddress,
+          delegateCode,
+          customerPhone,
+          position: idx + 1,
+        } as RouteItem;
+      });
+
+      // Update state and local cache immediately
+      setRoutes(parsedRoutes);
+      try {
+        localStorage.setItem('cache_routes', JSON.stringify(parsedRoutes));
+      } catch {}
+
+      // Batch save to Firestore in safe chunks (400 items per batch)
+      try {
+        const oldRoutesSnap = await getDocs(collection(db, 'routes'));
+        if (!oldRoutesSnap.empty) {
+          let delBatch = writeBatch(db);
+          let delCount = 0;
+          for (const docSnap of oldRoutesSnap.docs) {
+            delBatch.delete(docSnap.ref);
+            delCount++;
+            if (delCount === 400) {
+              await delBatch.commit();
+              delBatch = writeBatch(db);
+              delCount = 0;
+            }
+          }
+          if (delCount > 0) {
+            await delBatch.commit();
+          }
+        }
+
+        let insBatch = writeBatch(db);
+        let insCount = 0;
+        for (const item of parsedRoutes) {
+          const docRef = doc(collection(db, 'routes'));
+          insBatch.set(docRef, cleanFirestoreData(item));
+          insCount++;
+          if (insCount === 400) {
+            await insBatch.commit();
+            insBatch = writeBatch(db);
+            insCount = 0;
+          }
+        }
+        if (insCount > 0) {
+          await insBatch.commit();
+        }
+      } catch (err) {
+        console.error('Error saving routes to Firestore:', err);
+      }
+
+      setUserMessage(`تم استيراد ${parsedRoutes.length} مسار بنجاح وتحديث قاعدة البيانات بالترتيب 🗺️✅`);
+    } catch (err) {
+      console.error('Error importing routes from excel:', err);
+      setUserMessage('حدث خطأ أثناء قراءة ملف المسارات. تأكد من صحة الملف.');
+    }
   };
 
   const updateProduct = async (id: string, updatedData: Partial<ProductItem>) => {
@@ -1357,13 +1583,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (snap.exists()) {
               const data = snap.data() as any;
               unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || unitsPerCarton;
-              currentTotalUnits = Number(
-                data.totalUnits !== undefined 
-                  ? data.totalUnits 
-                  : (data.totalPieces !== undefined 
-                      ? data.totalPieces 
-                      : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
-              );
+              currentTotalUnits = Number(data.totalUnits ?? data.totalPieces ?? 0);
             }
 
             if (currentTotalUnits < item.requestedUnits) {
@@ -1459,29 +1679,43 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (isPowerSavingMode || isFirestoreQuotaExceeded) return;
-    const unsub = safeOnSnapshot(
-      collection(db, 'gift_promotions'),
-      (snapshot: any) => {
-        const list: GiftPromotion[] = [];
-        if (!snapshot.empty) {
-          snapshot.forEach((docSnap: any) => {
-            const data = docSnap.data() as GiftPromotion;
-            if (data) {
-              list.push({ ...data, id: docSnap.id });
-            }
-          });
-        }
-        setGiftPromotions(list);
-        try {
-          localStorage.setItem('app_gift_promotions', JSON.stringify(list));
-        } catch {}
-      },
-      (err: any) => {
-        handleFirestoreError(err, 'gift_promotions');
-      },
-      'gift_promotions'
-    );
-    return () => unsub();
+    let isCancelled = false;
+    let unsub: (() => void) | null = null;
+
+    const timer = setTimeout(() => {
+      if (isCancelled) return;
+      unsub = safeOnSnapshot(
+        collection(db, 'gift_promotions'),
+        (snapshot: any) => {
+          if (isCancelled) return;
+          const list: GiftPromotion[] = [];
+          if (!snapshot.empty) {
+            snapshot.forEach((docSnap: any) => {
+              const data = docSnap.data() as GiftPromotion;
+              if (data) {
+                list.push({ ...data, id: docSnap.id });
+              }
+            });
+          }
+          setGiftPromotions(list);
+          try {
+            localStorage.setItem('app_gift_promotions', JSON.stringify(list));
+          } catch {}
+        },
+        (err: any) => {
+          handleFirestoreError(err, 'gift_promotions');
+        },
+        'gift_promotions'
+      );
+    }, 1400);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+      if (unsub) {
+        try { unsub(); } catch {}
+      }
+    };
   }, [isPowerSavingMode, isFirestoreQuotaExceeded]);
 
   const addGiftPromotion = async (giftData: Omit<GiftPromotion, 'id' | 'createdAt'>) => {
@@ -1704,48 +1938,99 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(pollingInterval);
   }, [isPowerSavingMode]);
 
+  // Lazy-load heavy historical invoices & archive datasets (T+1800ms) with non-blocking chunking
   useEffect(() => {
     if (isFirestoreQuotaExceeded || isGlobalQuotaExceeded()) return;
-    let archiveMap = new globalThis.Map<string, SalesEntry>();
-    // Pre-load any existing archive entries once to guarantee complete historical records
-    getDocs(collection(db, 'sales_entries_archive')).then((snap) => {
-      snap.forEach((doc) => {
-        const data = doc.data() as SalesEntry;
-        if (data && data.id) {
-          archiveMap.set(data.id, data);
-        }
-      });
-    }).catch((err) => {
-      handleFirestoreError(err, 'sales_entries_archive');
-    });
 
-    const unsubAll = safeOnSnapshot(
-      collection(db, 'sales_entries'),
-      (snapshot: any) => {
-        const entriesMap = new globalThis.Map<string, SalesEntry>();
-        // First populate archived records
-        archiveMap.forEach((entry, id) => {
-          entriesMap.set(id, entry);
+    let isCancelled = false;
+    let unsubAll: (() => void) | null = null;
+    const archiveMap = new globalThis.Map<string, SalesEntry>();
+
+    const lazyTimer = setTimeout(() => {
+      if (isCancelled) return;
+
+      // 1. Asynchronously fetch archive in the background
+      getDocs(collection(db, 'sales_entries_archive'))
+        .then((snap) => {
+          if (isCancelled) return;
+          snap.forEach((doc) => {
+            const data = doc.data() as SalesEntry;
+            if (data && data.id) {
+              archiveMap.set(data.id, data);
+            }
+          });
+        })
+        .catch((err) => {
+          handleFirestoreError(err, 'sales_entries_archive');
         });
-        // Merge live sales entries (overrides archive if present)
-        snapshot.forEach((doc: any) => {
-          const data = doc.data() as SalesEntry;
-          if (data && data.id) {
-            entriesMap.set(data.id, data);
+
+      // 2. Safe live listener with chunked batched processing
+      unsubAll = safeOnSnapshot(
+        collection(db, 'sales_entries'),
+        (snapshot: any) => {
+          if (isCancelled) return;
+
+          const docs = snapshot.docs || [];
+          const entriesMap = new globalThis.Map<string, SalesEntry>();
+
+          archiveMap.forEach((entry, id) => {
+            entriesMap.set(id, entry);
+          });
+
+          // Non-blocking chunking for heavy datasets (>250 rows)
+          const CHUNK_SIZE = 250;
+          if (docs.length > CHUNK_SIZE) {
+            let idx = 0;
+            const processBatch = () => {
+              if (isCancelled) return;
+              const limit = Math.min(idx + CHUNK_SIZE, docs.length);
+              for (; idx < limit; idx++) {
+                const docSnap = docs[idx];
+                const data = docSnap.data() as SalesEntry;
+                if (data && data.id) {
+                  entriesMap.set(data.id, data);
+                }
+              }
+
+              if (idx < docs.length) {
+                setTimeout(processBatch, 8);
+              } else {
+                const allArr = Array.from(entriesMap.values());
+                setAllSalesEntries(allArr);
+                try {
+                  localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
+                } catch {}
+              }
+            };
+            processBatch();
+          } else {
+            docs.forEach((docSnap: any) => {
+              const data = docSnap.data() as SalesEntry;
+              if (data && data.id) {
+                entriesMap.set(data.id, data);
+              }
+            });
+            const allArr = Array.from(entriesMap.values());
+            setAllSalesEntries(allArr);
+            try {
+              localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
+            } catch {}
           }
-        });
-        const allArr = Array.from(entriesMap.values());
-        setAllSalesEntries(allArr);
-        try {
-          localStorage.setItem('cache_all_sales_entries', JSON.stringify(allArr));
-        } catch {}
-      },
-      (err: any) => {
-        handleFirestoreError(err, 'sales_entries_all');
-      },
-      'sales_entries_all'
-    );
-    return () => unsubAll();
+        },
+        (err: any) => {
+          handleFirestoreError(err, 'sales_entries_all');
+        },
+        'sales_entries_all'
+      );
+    }, 1800);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(lazyTimer);
+      if (unsubAll) {
+        try { unsubAll(); } catch {}
+      }
+    };
   }, [isFirestoreQuotaExceeded]);
 
   useEffect(() => {
