@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useSales } from '../context/SalesContext';
+import { useSales, getCategoryPriorityIndex } from '../context/SalesContext';
 import { ProductItem, GiftPromotion } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -323,7 +323,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     // Default to retail
     return 'retail';
   });
-  const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'name');
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('pref_sortBy') || 'category');
   const [mobileGridCols, setMobileGridCols] = useState(() => localStorage.getItem('pref_mobileGridCols') || '2');
 
   const isAdminUser = Boolean(currentUser?.isAdmin || currentUser?.role === 'admin');
@@ -556,7 +556,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       }
     });
 
-    const sortedCats = Array.from(cats).sort((a, b) => a.localeCompare(b, 'ar'));
+    const sortedCats = Array.from(cats).sort((a, b) => {
+      const prioA = getCategoryPriorityIndex(a);
+      const prioB = getCategoryPriorityIndex(b);
+      if (prioA !== prioB) return prioA - prioB;
+      return a.localeCompare(b, 'ar');
+    });
     return ['الكل', ...sortedCats];
   }, [productsList, isSauceUser, isAdmin, getProductLiveStock]);
 
@@ -605,41 +610,45 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       return matchSearch && matchCat;
     });
 
-    if (sortBy === 'price_changed') {
-      filtered.sort((a, b) => {
+    filtered.sort((a, b) => {
+      // 1. Primary Sort: Category Priority Order
+      const prioA = getCategoryPriorityIndex(a.categoryName);
+      const prioB = getCategoryPriorityIndex(b.categoryName);
+      if (prioA !== prioB) return prioA - prioB;
+
+      // 2. Secondary Sort: Selected user criteria within the same category
+      if (sortBy === 'price_changed') {
         const changeA = getPriceChangeStatus(a, priceMode).hasAnyChange ? 1 : 0;
         const changeB = getPriceChangeStatus(b, priceMode).hasAnyChange ? 1 : 0;
         if (changeA !== changeB) return changeB - changeA;
         return (b.priceUpdatedAt || 0) - (a.priceUpdatedAt || 0);
-      });
-    } else if (sortBy === 'most_sold') {
-      const salesMap = new globalThis.Map<string, number>();
-      rawSavedEntries?.forEach(entry => {
-        salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
-      });
-      filtered.sort((a, b) => {
+      } else if (sortBy === 'most_sold') {
+        const salesMap = new globalThis.Map<string, number>();
+        rawSavedEntries?.forEach(entry => {
+          salesMap.set(entry.productName, (salesMap.get(entry.productName) || 0) + entry.quantity);
+        });
         const salesA = salesMap.get(a.productName) || 0;
         const salesB = salesMap.get(b.productName) || 0;
-        return salesB - salesA;
-      });
-    } else if (sortBy === 'file_order') {
-      filtered.sort((a, b) => {
+        if (salesA !== salesB) return salesB - salesA;
+      } else if (sortBy === 'file_order') {
         return productsList.indexOf(a) - productsList.indexOf(b);
-      });
-    } else {
-      filtered.sort((a, b) => {
-        if (sortBy === 'name') return a.productName.localeCompare(b.productName);
-        if (sortBy === 'category') return a.categoryName.localeCompare(b.categoryName);
-        if (sortBy === 'weight') return (Number(b.pieceWeightKg) || 0) - (Number(a.pieceWeightKg) || 0);
-        if (sortBy === 'price') {
-          const priceA = (priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0;
-          const priceB = (priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0;
-          return (priceB * (Number(a.cartonQuantity) || 1)) - (priceA * (Number(b.cartonQuantity) || 1));
-        }
-        if (sortBy === 'stock') return (b.stockCartons || 0) - (a.stockCartons || 0);
-        return 0;
-      });
-    }
+      } else if (sortBy === 'weight') {
+        const wA = Number(a.pieceWeightKg) || 0;
+        const wB = Number(b.pieceWeightKg) || 0;
+        if (wA !== wB) return wB - wA;
+      } else if (sortBy === 'price') {
+        const priceA = ((priceMode === 'retail' ? a.retailPrice : a.wholesalePrice) || 0) * (Number(a.cartonQuantity) || 1);
+        const priceB = ((priceMode === 'retail' ? b.retailPrice : b.wholesalePrice) || 0) * (Number(b.cartonQuantity) || 1);
+        if (priceA !== priceB) return priceB - priceA;
+      } else if (sortBy === 'stock') {
+        const stockA = a.stockCartons || 0;
+        const stockB = b.stockCartons || 0;
+        if (stockA !== stockB) return stockB - stockA;
+      }
+
+      // Default secondary: Product Name
+      return a.productName.localeCompare(b.productName, 'ar');
+    });
 
     return filtered;
   }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged]);

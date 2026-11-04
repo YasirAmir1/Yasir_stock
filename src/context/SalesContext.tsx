@@ -21,23 +21,81 @@ import {
   RestockedProductItem
 } from '../types';
 
-export const DEFAULT_CATEGORIES_LIST = [
-  'الكل',
+export const ORDERED_CATEGORY_PRIORITY = [
   'قشطة',
+  'جبن بيتزا',
   'جبن 1',
   'جبن ويلي',
   'لبن',
-  'جبن بيتزا',
   'حليب بطل',
   'حليب باكيت',
-  'دوغ',
   'عصير',
-  'صوصج',
+  'دوغ',
   'دانيت',
   'حلويات',
+  'خضراوات مجمدة و فنكر',
+  'صوصج',
+  'مربى',
+];
+
+export const getCategoryPriorityIndex = (catName?: string): number => {
+  if (!catName) return 999;
+  const norm = catName.trim().toLowerCase()
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/[يى]/g, 'ي')
+    .replace(/\s+/g, ' ');
+
+  // 1. Exact match check
+  for (let i = 0; i < ORDERED_CATEGORY_PRIORITY.length; i++) {
+    const target = ORDERED_CATEGORY_PRIORITY[i].trim().toLowerCase()
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/[يى]/g, 'ي')
+      .replace(/\s+/g, ' ');
+
+    if (norm === target) {
+      return i;
+    }
+  }
+
+  // 2. Contains match check
+  for (let i = 0; i < ORDERED_CATEGORY_PRIORITY.length; i++) {
+    const target = ORDERED_CATEGORY_PRIORITY[i].trim().toLowerCase()
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/[يى]/g, 'ي')
+      .replace(/\s+/g, ' ');
+
+    if (norm.includes(target) || target.includes(norm)) {
+      return i;
+    }
+  }
+
+  if (norm.includes('خضراوات') || norm.includes('خضروات') || norm.includes('فنكر')) {
+    return 11;
+  }
+
+  return 999;
+};
+
+export const DEFAULT_CATEGORIES_LIST = [
+  'الكل',
+  'قشطة',
+  'جبن بيتزا',
+  'جبن 1',
+  'جبن ويلي',
+  'لبن',
+  'حليب بطل',
+  'حليب باكيت',
+  'عصير',
+  'دوغ',
+  'دانيت',
+  'حلويات',
+  'خضراوات مجمدة و فنكر',
+  'صوصج',
   'مربى',
   'بيتزا جاهز وبركر ومقرمش',
-  'خضراوات مجمدة و فنكر',
   'صلصات',
   'منتجات بروتين',
   'بروميلك',
