@@ -1713,7 +1713,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
                               {totalWeightToday > 0 && (
                                   <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded text-[9px] font-black">
-                                      {totalWeightToday.toFixed(1)} كجم
+                                      {totalWeightToday.toFixed(0)} كجم
                                   </span>
                               )}
                             </div>

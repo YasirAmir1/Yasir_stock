@@ -653,7 +653,7 @@ export const DailySalesCompletionBar: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 dark:text-slate-400">إجمالي وزن اليوم:</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-black">
-                  {totalWeight.toFixed(2)} كجم
+                  {totalWeight.toFixed(0)} كجم
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -1135,7 +1135,7 @@ export const DailySalesCompletionBar: React.FC = () => {
                             <div className="flex items-center gap-1.5 flex-wrap justify-center">
                               <span>{delName}</span>
                               {isLowMonthlyAchievement && (
-                                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black text-[9px] shadow-sm animate-pulse" title={`إنجاز شهري أقل من 30% (${monthlyPct.toFixed(1)}%)`}>
+                                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black text-[9px] shadow-sm animate-pulse" title={`إنجاز شهري أقل من 30% (${monthlyPct.toFixed(0)}%)`}>
                                   ⚠️ منخفض (<strong className="font-mono">{monthlyPct.toFixed(0)}%</strong>)
                                 </span>
                               )}
@@ -1152,9 +1152,9 @@ export const DailySalesCompletionBar: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-2 font-bold">{formatWithCommas(invoiceCount)}</td>
-                        <td className="p-2 font-bold">{formatWithCommas(Math.round(targetWeight * 10) / 10, true)} كجم</td>
-                        <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(1)), true)} كجم</td>
-                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-red-500' : 'text-emerald-400'}`}>{pct.toFixed(1)}%</td>
+                        <td className="p-2 font-bold">{formatWithCommas(Math.round(targetWeight), true)} كجم</td>
+                        <td className="p-2 font-bold text-emerald-300">{formatWithCommas(parseFloat(totalWeight.toFixed(0)), true)} كجم</td>
+                        <td className={`p-2 font-extrabold ${pct < 100 ? 'text-red-500' : 'text-emerald-400'}`}>{pct.toFixed(0)}%</td>
                         <td className="p-2 font-extrabold text-indigo-300">{formatWithCommas(totalAmount, true)}</td>
                       </tr>
                     );

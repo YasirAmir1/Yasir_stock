@@ -367,7 +367,7 @@ export const MonthlyWeightReport: React.FC<{
                             <td className="px-1 py-1 sm:p-3 font-mono text-amber-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlyTarget), true)}</td>
                             <td className="px-1 py-1 sm:p-3 font-mono text-emerald-400 border border-slate-700/30 font-black">{formatWithCommas(Math.round(row.monthlySales), true)}</td>
                             <td className={`px-1 py-1 sm:p-3 font-black border border-slate-700/30 whitespace-nowrap ${row.pct < 30 ? 'text-rose-500 animate-pulse bg-rose-500/5' : row.pct >= 100 ? 'text-emerald-500 bg-emerald-500/5' : 'text-amber-500'}`}>
-                                {row.pct.toFixed(1)}%
+                                {row.pct.toFixed(0)}%
                             </td>
                             <td className="px-1 py-1 sm:p-3 font-mono text-slate-400 border border-slate-700/30">{formatWithCommas(Math.round(row.remaining), true)}</td>
                         </tr>

@@ -32,13 +32,10 @@ export function parseArabicNumber(input: string | number): number {
 /**
  * Formats a number with thousand separators (e.g. 1,000)
  */
-export function formatWithCommas(num: number, hasDecimals: boolean = false): string {
+export function formatWithCommas(num: number, _hasDecimals: boolean = false): string {
   if (num === null || num === undefined || isNaN(num)) return '0';
-  if (hasDecimals) {
-    // Only show up to 2 decimal places, but do not force .0 if it's a whole number
-    return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  }
-  return num.toLocaleString('en-US');
+  // Always round to nearest integer and show 0 decimal places as requested
+  return Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 /**

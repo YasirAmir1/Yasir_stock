@@ -532,7 +532,7 @@ export const Report11Screen: React.FC = () => {
       let text = `📊 *تقرير مبيعات الكل (مفرد + جملة)*\n`;
       text += `📅 *التاريخ:* ${todayDateString}\n`;
       text += `📦 *إجمالي الفواتير:* ${totalAllStats.count}\n`;
-      text += `⚖️ *إجمالي الوزن:* ${formatWithCommas(Math.round(totalAllStats.weight * 10) / 10, true)} كغم\n`;
+      text += `⚖️ *إجمالي الوزن:* ${formatWithCommas(Math.round(totalAllStats.weight), true)} كغم\n`;
       text += `💰 *إجمالي المبلغ:* ${formatWithCommas(totalAllStats.amount, true)}\n`;
       text += `(تم تنزيل صورة التقرير بصيغة JPEG على جهازك 📷✅)`;
 
@@ -1500,7 +1500,7 @@ export const Report11Screen: React.FC = () => {
 
       let salesCartons = record?.salesCartonsOverride || 0;
       if (salesCartons === 0 && cartonQty > 0 && salesPieces > 0) {
-        salesCartons = parseFloat((salesPieces / cartonQty).toFixed(1));
+        salesCartons = parseFloat((salesPieces / cartonQty).toFixed(0));
       }
 
       let targetPieces = record?.targetPieces || 0;
@@ -1508,7 +1508,7 @@ export const Report11Screen: React.FC = () => {
       if (targetPieces === 0 && targetCartons > 0 && cartonQty > 0) {
         targetPieces = Math.round(targetCartons * cartonQty);
       } else if (targetCartons === 0 && targetPieces > 0 && cartonQty > 0) {
-        targetCartons = parseFloat((targetPieces / cartonQty).toFixed(1));
+        targetCartons = parseFloat((targetPieces / cartonQty).toFixed(0));
       }
 
       const salesPct = targetPieces > 0 ? (salesPieces / targetPieces) * 100 : (targetCartons > 0 ? (salesCartons / targetCartons) * 100 : 0);
@@ -2503,12 +2503,12 @@ export const Report11Screen: React.FC = () => {
           rows.push({
             'اسم المندوب': del,
             'الصنف': r.categoryName,
-            'التاركت اليومي (كغم)': Math.round(r.dailyTarget * 10) / 10,
-            'المبيعات اليومية (كغم)': Math.round(r.dailySales * 10) / 10,
+            'التاركت اليومي (كغم)': Math.round(r.dailyTarget),
+            'المبيعات اليومية (كغم)': Math.round(r.dailySales),
             'نسبة الإنجاز اليومية %': `${Math.round(r.dailyPct)}%`,
             'التاركت الشهري (كغم)': r.monthlyTarget,
             'المبيعات الشهرية (كغم)': r.monthlySales,
-            'المتبقي من الهدف الشهري (كغم)': Math.round(r.remainingMonthly * 10) / 10,
+            'المتبقي من الهدف الشهري (كغم)': Math.round(r.remainingMonthly),
             'نسبة الإنجاز الشهرية %': `${Math.round(r.monthlyPct)}%`
           });
         });
@@ -2517,12 +2517,12 @@ export const Report11Screen: React.FC = () => {
         rows.push({
           'اسم المندوب': `مجموع ${del}`,
           'الصنف': 'المجموع الكلي',
-          'التاركت اليومي (كغم)': Math.round(delTable.totals.totalDailyTarget * 10) / 10,
-          'المبيعات اليومية (كغم)': Math.round(delTable.totals.totalDailySales * 10) / 10,
+          'التاركت اليومي (كغم)': Math.round(delTable.totals.totalDailyTarget),
+          'المبيعات اليومية (كغم)': Math.round(delTable.totals.totalDailySales),
           'نسبة الإنجاز اليومية %': `${Math.round(delTable.totals.totalDailyPct)}%`,
           'التاركت الشهري (كغم)': delTable.totals.totalMonthlyTarget,
           'المبيعات الشهرية (كغم)': delTable.totals.totalMonthlySales,
-          'المتبقي من الهدف الشهري (كغم)': Math.round(delTable.totals.totalRemainingMonthly * 10) / 10,
+          'المتبقي من الهدف الشهري (كغم)': Math.round(delTable.totals.totalRemainingMonthly),
           'نسبة الإنجاز الشهرية %': `${Math.round(delTable.totals.totalMonthlyPct)}%`
         });
       });
@@ -2608,12 +2608,12 @@ export const Report11Screen: React.FC = () => {
     text += `━━━━━━━━━━━━━━━━━━━━\n`;
     text += `🎯 *إجمالي التاركت اليومي:* ${formatWithCommas(Math.round(table.totals.totalDailyTarget))} كغم\n`;
     text += `📦 *إجمالي المبيعات اليومية:* ${formatWithCommas(Math.round(table.totals.totalDailySales))} كغم\n`;
-    text += `⚡ *نسبة الإنجاز اليومية:* ${table.totals.totalDailyPct.toFixed(1)}%\n`;
+    text += `⚡ *نسبة الإنجاز اليومية:* ${table.totals.totalDailyPct.toFixed(0)}%\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n`;
     text += `🏆 *إجمالي التاركت الشهري:* ${formatWithCommas(table.totals.totalMonthlyTarget)} كغم\n`;
     text += `💰 *إجمالي المبيعات الشهرية:* ${formatWithCommas(table.totals.totalMonthlySales)} كغم\n`;
     text += `⏳ *المتبقي من الهدف الشهري:* ${formatWithCommas(Math.round(table.totals.totalRemainingMonthly))} كغم\n`;
-    text += `📈 *نسبة الإنجاز الشهرية:* ${table.totals.totalMonthlyPct.toFixed(1)}%\n`;
+    text += `📈 *نسبة الإنجاز الشهرية:* ${table.totals.totalMonthlyPct.toFixed(0)}%\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n`;
     text += `*تفاصيل الأصناف (15 صنف):*\n`;
 
@@ -2665,11 +2665,11 @@ export const Report11Screen: React.FC = () => {
 
     return (
       <span
-        title={isUnder75 ? 'النسبة أقل من 75% (تحت المستهدف)' : isOver120 ? 'النسبة تتجاوز 120% (إنجاز فائق)' : `النسبة: ${pct.toFixed(1)}%`}
+        title={isUnder75 ? 'النسبة أقل من 75% (تحت المستهدف)' : isOver120 ? 'النسبة تتجاوز 120% (إنجاز فائق)' : `النسبة: ${pct.toFixed(0)}%`}
         className={`inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-black border transition-all ${colorClass}`}
       >
         {icon}
-        <span>{pct.toFixed(1)}%</span>
+        <span>{pct.toFixed(0)}%</span>
       </span>
     );
   };
@@ -3045,7 +3045,7 @@ export const Report11Screen: React.FC = () => {
 
           <div className="p-2.5 sm:p-3 rounded-xl bg-slate-800/90 border border-slate-700/80">
             <span className="text-[11px] text-slate-400 block font-bold">إجمالي الوزن لليوم</span>
-            <span className="text-base sm:text-xl font-black text-amber-400">{formatWithCommas(Math.round(totalAllStats.weight * 10) / 10, true)} <span className="text-xs font-normal">كغم</span></span>
+            <span className="text-base sm:text-xl font-black text-amber-400">{formatWithCommas(Math.round(totalAllStats.weight), true)} <span className="text-xs font-normal">كغم</span></span>
             <span className="text-[10px] text-slate-400 block">مفرد ({formatWithCommas(Math.round(totalRetailStats.weight))}) + جملة ({formatWithCommas(Math.round(totalWholesaleStats.weight))})</span>
           </div>
 
@@ -3058,7 +3058,7 @@ export const Report11Screen: React.FC = () => {
           <div className="p-2.5 sm:p-3 rounded-xl bg-slate-800/90 border border-slate-700/80">
             <span className="text-[11px] text-slate-400 block font-bold">الهدف اليومي للفرع</span>
             <span className="text-base sm:text-xl font-black text-indigo-400">{formatWithCommas(Math.round(supervisorTableData.totals.totalDailyTarget), true)} <span className="text-xs font-normal">كغم</span></span>
-            <span className="text-[10px] text-slate-400 block">نسبة التحقيق: {supervisorTableData.totals.totalDailyPct.toFixed(1)}%</span>
+            <span className="text-[10px] text-slate-400 block">نسبة التحقيق: {supervisorTableData.totals.totalDailyPct.toFixed(0)}%</span>
           </div>
         </div>
 
@@ -3099,7 +3099,7 @@ export const Report11Screen: React.FC = () => {
                             </div>
                           </td>
                           <td className={`py-2 px-2 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
+                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(0)), true)}</td>
                           <td className="py-2 px-2 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                       ))}
@@ -3111,7 +3111,7 @@ export const Report11Screen: React.FC = () => {
                           {isAdmin ? totalRetailStats.count : (retailSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.count || 0)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
-                          {formatWithCommas(Number((isAdmin ? totalRetailStats.weight : (retailSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(1)), true)}
+                          {formatWithCommas(Number((isAdmin ? totalRetailStats.weight : (retailSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(0)), true)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
                           {formatWithCommas(isAdmin ? totalRetailStats.amount : (retailSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.amount || 0), true)}
@@ -3157,7 +3157,7 @@ export const Report11Screen: React.FC = () => {
                             </div>
                           </td>
                           <td className={`py-2 px-2 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
+                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(0)), true)}</td>
                           <td className="py-2 px-2 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                       ))}
@@ -3169,7 +3169,7 @@ export const Report11Screen: React.FC = () => {
                           {isAdmin ? totalWholesaleStats.count : (wholesaleSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.count || 0)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
-                          {formatWithCommas(Number((isAdmin ? totalWholesaleStats.weight : (wholesaleSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(1)), true)}
+                          {formatWithCommas(Number((isAdmin ? totalWholesaleStats.weight : (wholesaleSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(0)), true)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
                           {formatWithCommas(isAdmin ? totalWholesaleStats.amount : (wholesaleSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.amount || 0), true)}
@@ -3228,7 +3228,7 @@ export const Report11Screen: React.FC = () => {
                             </div>
                           </td>
                           <td className={`py-2 px-2 font-black border border-white/20 ${s.count < 1 ? 'text-red-400' : ''}`}>{s.count}</td>
-                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(1)), true)}</td>
+                          <td className="py-2 px-2 font-bold border border-white/20">{formatWithCommas(Number(s.weight.toFixed(0)), true)}</td>
                           <td className="py-2 px-2 font-black border border-white/20">{formatWithCommas(s.amount, true)}</td>
                         </tr>
                       ))}
@@ -3240,7 +3240,7 @@ export const Report11Screen: React.FC = () => {
                           {isAdmin ? totalAllStats.count : (allSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.count || 0)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
-                          {formatWithCommas(Number((isAdmin ? totalAllStats.weight : (allSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(1)), true)}
+                          {formatWithCommas(Number((isAdmin ? totalAllStats.weight : (allSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.weight || 0)).toFixed(0)), true)}
                         </td>
                         <td className="py-2 px-2 border border-white/30">
                           {formatWithCommas(isAdmin ? totalAllStats.amount : (allSalesList.find(s => normalizeArabic(s.name) === normalizeArabic(currentUser?.name || ''))?.amount || 0), true)}
@@ -3323,10 +3323,10 @@ export const Report11Screen: React.FC = () => {
                         {item.invoiceCount}
                       </td>
                       <td className="py-2 px-3 font-bold">
-                        {formatWithCommas(Math.round(item.dailySalesWeight * 10) / 10, true)}
+                        {formatWithCommas(Math.round(item.dailySalesWeight), true)}
                       </td>
                       <td className="py-2 px-3 font-bold">
-                        {formatWithCommas(Math.round(item.dailyTarget * 10) / 10, true)}
+                        {formatWithCommas(Math.round(item.dailyTarget), true)}
                       </td>
                       <td className="py-2 px-3">
                         {renderPercentBadge(item.pct)}
@@ -3361,10 +3361,10 @@ export const Report11Screen: React.FC = () => {
                     {branchDelegateDailyTotals.invoiceCount}
                   </td>
                   <td className="py-2.5 px-3 font-black">
-                    {formatWithCommas(Math.round(branchDelegateDailyTotals.dailySalesWeight * 10) / 10, true)}
+                    {formatWithCommas(Math.round(branchDelegateDailyTotals.dailySalesWeight), true)}
                   </td>
                   <td className="py-2.5 px-3 font-black">
-                    {formatWithCommas(Math.round(branchDelegateDailyTotals.dailyTarget * 10) / 10, true)}
+                    {formatWithCommas(Math.round(branchDelegateDailyTotals.dailyTarget), true)}
                   </td>
                   <td className="py-2.5 px-3">
                     {renderPercentBadge(branchDelegateDailyTotals.pct)}
@@ -3455,7 +3455,7 @@ export const Report11Screen: React.FC = () => {
                     ) : (
                       <span className="flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span>حقق التاركت اليومي ({status ? status.totalDailyPct.toFixed(1) : 0}%)</span>
+                        <span>حقق التاركت اليومي ({status ? status.totalDailyPct.toFixed(0) : 0}%)</span>
                       </span>
                     )}
                   </div>
@@ -3562,7 +3562,7 @@ export const Report11Screen: React.FC = () => {
                   <Scale className="w-4 h-4 text-indigo-500" />
                 </div>
                 <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-                  {formatWithCommas(currentTable.totals.totalMonthlyTarget)} <span className="text-xs font-normal text-slate-400">كغم</span>
+                  {formatWithCommas(Math.round(currentTable.totals.totalMonthlyTarget))} <span className="text-xs font-normal text-slate-400">كغم</span>
                 </div>
                 <p className="text-[10px] text-slate-400">من ملف الإكسل المرفوع</p>
               </div>
@@ -3576,7 +3576,7 @@ export const Report11Screen: React.FC = () => {
                   <Percent className="w-4 h-4 text-amber-500" />
                 </div>
                 <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center justify-between">
-                  <span>{formatWithCommas(currentTable.totals.totalMonthlySales)} <span className="text-xs font-normal text-slate-400">كغم</span></span>
+                  <span>{formatWithCommas(Math.round(currentTable.totals.totalMonthlySales))} <span className="text-xs font-normal text-slate-400">كغم</span></span>
                   {renderPercentBadge(currentTable.totals.totalMonthlyPct)}
                 </div>
                 <p className="text-[10px] text-slate-400">المتبقي: {formatWithCommas(Math.round(currentTable.totals.totalRemainingMonthly))} كغم</p>
@@ -3780,21 +3780,21 @@ export const Report11Screen: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">تاركت ديناري شهري:</span>
                 <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                  {formatWithCommas(Number(extraTargetsStats.iqdTarget.toFixed(1)), true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
+                  {formatWithCommas(Number(extraTargetsStats.iqdTarget.toFixed(0)), true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">مبيعات ديناري شهري:</span>
                 <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-                  {formatWithCommas(Number(extraTargetsStats.iqdSales.toFixed(1)), true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
+                  {formatWithCommas(Number(extraTargetsStats.iqdSales.toFixed(0)), true)} <span className="text-[9px] text-slate-400 font-normal">د.ع</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
                 <span className={`font-mono font-black text-sm ${extraTargetsStats.iqdPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-blue-600 dark:text-blue-400'}`}>
-                  {extraTargetsStats.iqdPct.toFixed(1)}%
+                  {extraTargetsStats.iqdPct.toFixed(0)}%
                 </span>
               </div>
 
@@ -3838,21 +3838,21 @@ export const Report11Screen: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">مطلوب تبيع لعدد محلات:</span>
                 <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                  {extraTargetsStats.shopsTarget.toFixed(1)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                  {extraTargetsStats.shopsTarget.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لعدد محلات:</span>
                 <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-                  {extraTargetsStats.shopsActual.toFixed(1)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
+                  {extraTargetsStats.shopsActual.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">محل</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
                 <span className={`font-mono font-black text-sm ${extraTargetsStats.shopsPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-blue-600 dark:text-blue-400'}`}>
-                  {extraTargetsStats.shopsPct.toFixed(1)}%
+                  {extraTargetsStats.shopsPct.toFixed(0)}%
                 </span>
               </div>
 
@@ -3903,21 +3903,21 @@ export const Report11Screen: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">تاركت زبائن شهري:</span>
                 <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                  {extraTargetsStats.extraCustTarget.toFixed(1)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                  {extraTargetsStats.extraCustTarget.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400 font-bold">تم بيع لهم:</span>
                 <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-                  {extraTargetsStats.extraCustActual.toFixed(1)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
+                  {extraTargetsStats.extraCustActual.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">زبون</span>
                 </span>
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-500 dark:text-slate-400 font-extrabold">النسبة %:</span>
                 <span className={`font-mono font-black text-sm ${extraTargetsStats.extraCustPct >= 100 ? 'text-lime-500 dark:text-[#39ff14]' : 'text-purple-600 dark:text-purple-400'}`}>
-                  {extraTargetsStats.extraCustPct.toFixed(1)}%
+                  {extraTargetsStats.extraCustPct.toFixed(0)}%
                 </span>
               </div>
 
@@ -4130,7 +4130,7 @@ export const Report11Screen: React.FC = () => {
                 {specificProductStats.salesPct >= 100 && (
                   <Crown className="w-4 h-4 fill-amber-400 text-amber-400 inline" />
                 )}
-                <span>{specificProductStats.salesPct.toFixed(1)}%</span>
+                <span>{specificProductStats.salesPct.toFixed(0)}%</span>
                 {specificProductStats.salesPct >= 100 && (
                   <span className="text-xs">🏆</span>
                 )}
@@ -4252,7 +4252,7 @@ export const Report11Screen: React.FC = () => {
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <span>{specificProductStats.shopsPct.toFixed(1)}%</span>
+                <span>{specificProductStats.shopsPct.toFixed(0)}%</span>
               </div>
             </div>
 
@@ -4390,7 +4390,7 @@ export const Report11Screen: React.FC = () => {
                               {isSalesAchieved && (
                                 <Crown className="w-3 h-3 fill-amber-400 text-amber-400 inline" />
                               )}
-                              {del.salesPct.toFixed(1)}%
+                              {del.salesPct.toFixed(0)}%
                             </span>
                           </td>
                           <td className="p-2.5 text-center font-mono font-bold text-slate-500 dark:text-slate-400">
@@ -4410,7 +4410,7 @@ export const Report11Screen: React.FC = () => {
                                   : 'text-slate-700 dark:text-slate-300'
                               }`}
                             >
-                              {del.shopsPct.toFixed(1)}%
+                              {del.shopsPct.toFixed(0)}%
                             </span>
                           </td>
                           <td className="p-2.5 text-center">
@@ -4991,7 +4991,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>تم تحقيق التاركت اليومي للمندوب ({table.delegateName}) بنجاح 🎯</span>
             </div>
-            <span className="font-bold">نسبة اليوم: {table.totals.totalDailyPct.toFixed(1)}%</span>
+            <span className="font-bold">نسبة اليوم: {table.totals.totalDailyPct.toFixed(0)}%</span>
           </div>
         )
       )}
@@ -5113,7 +5113,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         ? isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                         : isDarkMode ? 'text-slate-200' : 'text-slate-800'
                     }`}>
-                      {formatWithCommas(Math.round(row.dailySales * 10) / 10)}
+                      {formatWithCommas(Math.round(row.dailySales))}
                     </span>
                     <span className="text-[9px] text-slate-400 font-bold sm:hidden">(مبيعات)</span>
                   </div>
@@ -5123,7 +5123,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                     <span className={`font-black text-xs sm:text-base ${
                       isDarkMode ? 'text-slate-200' : 'text-slate-800'
                     }`}>
-                      {formatWithCommas(Math.round(row.dailyTarget * 10) / 10)}
+                      {formatWithCommas(Math.round(row.dailyTarget))}
                     </span>
                     <span className={`text-[9px] sm:text-[10px] font-bold mt-0.5 ${
                       isAchieved
@@ -5189,7 +5189,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                   {/* Center Right (RTL Child 2): Monthly Sales Value & Subtitle */}
                   <div className="col-span-3 sm:col-span-2 text-center flex flex-col items-center justify-center leading-tight min-w-0">
                     <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                      {formatWithCommas(Math.round(row.monthlySales * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(row.monthlySales))} كغم
                     </span>
                     <span className={`text-[9px] sm:text-[10px] font-bold mt-0.5 ${
                       isAchieved
@@ -5204,7 +5204,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                   {/* Center Left (RTL Child 3): Monthly Target Value & Subtitle */}
                   <div className="col-span-3 sm:col-span-2 text-center flex flex-col items-center justify-center leading-tight min-w-0">
                     <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                      {formatWithCommas(Math.round(row.monthlyTarget * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(row.monthlyTarget))} كغم
                     </span>
                     <span className={`text-[9px] sm:text-[10px] font-bold mt-0.5 ${
                       isAchieved
@@ -5232,13 +5232,13 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                           ? 'text-emerald-800 dark:text-emerald-300'
                           : 'text-slate-800 dark:text-slate-200'
                       }`}>
-                        {row.monthlyPct.toFixed(1)}%
+                        {row.monthlyPct.toFixed(0)}%
                       </span>
                     </div>
 
                     {row.remainingMonthly > 0 && (
                       <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate max-w-full">
-                        متبقي: {formatWithCommas(Math.round(row.remainingMonthly * 10) / 10)}
+                        متبقي: {formatWithCommas(Math.round(row.remainingMonthly))}
                       </span>
                     )}
 
@@ -5369,7 +5369,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : 'text-slate-700 dark:text-slate-300'
                   }`}>
-                    {table.totals.totalMonthlyPct.toFixed(1)}%
+                    {table.totals.totalMonthlyPct.toFixed(0)}%
                   </span>
                 </div>
 
@@ -5491,7 +5491,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         ? isDarkMode ? 'bg-emerald-950/90 text-emerald-200' : 'bg-emerald-100/90 text-emerald-950'
                         : 'text-slate-700 dark:text-slate-300'
                     }`}>
-                      {row.dailyTarget > 0 ? Math.round(row.dailyTarget * 10) / 10 : '0'}
+                      {row.dailyTarget > 0 ? Math.round(row.dailyTarget) : '0'}
                     </td>
 
                     {/* Daily Sales */}
@@ -5500,7 +5500,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         ? isDarkMode ? 'bg-emerald-950/90 text-emerald-200' : 'bg-emerald-100/90 text-emerald-950'
                         : hasSalesToday ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                     }`}>
-                      {hasSalesToday ? Math.round(row.dailySales * 10) / 10 : '0'}
+                      {hasSalesToday ? Math.round(row.dailySales) : '0'}
                     </td>
 
                     {/* Daily % */}
@@ -5514,17 +5514,17 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
 
                     {/* Monthly Target */}
                     <td className="p-1 text-center font-black text-slate-800 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.monthlyTarget > 0 ? Math.round(row.monthlyTarget * 10) / 10 : '0'}
+                      {row.monthlyTarget > 0 ? Math.round(row.monthlyTarget) : '0'}
                     </td>
 
                     {/* Monthly Sales */}
                     <td className="p-1 text-center font-black text-slate-800 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.monthlySales > 0 ? Math.round(row.monthlySales * 10) / 10 : '0'}
+                      {row.monthlySales > 0 ? Math.round(row.monthlySales) : '0'}
                     </td>
 
                     {/* Remaining Target */}
                     <td className="p-1 text-center font-black text-amber-700 dark:text-amber-400 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.remainingMonthly > 0 ? Math.round(row.remainingMonthly * 10) / 10 : '0'}
+                      {row.remainingMonthly > 0 ? Math.round(row.remainingMonthly) : '0'}
                     </td>
 
                     {/* Monthly % */}
@@ -5552,12 +5552,12 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
 
                 {/* Total Daily Target */}
                 <td className="p-3 text-center border-l border-slate-300 dark:border-slate-800 text-emerald-700 dark:text-emerald-300 font-black">
-                  {formatWithCommas(Math.round(table.totals.totalDailyTarget * 10) / 10)} كغم
+                  {formatWithCommas(Math.round(table.totals.totalDailyTarget))} كغم
                 </td>
 
                 {/* Total Daily Sales */}
                 <td className="p-3 text-center border-l border-slate-300 dark:border-slate-800 text-teal-700 dark:text-teal-300 font-black">
-                  {formatWithCommas(Math.round(table.totals.totalDailySales * 10) / 10)} كغم
+                  {formatWithCommas(Math.round(table.totals.totalDailySales))} كغم
                 </td>
 
                 {/* Total Daily % - Highlight red if <75%, green if >120% with warning if target missed */}
@@ -5580,12 +5580,12 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
 
                 {/* Total Monthly Target */}
                 <td className="p-3 text-center border-l border-slate-300 dark:border-slate-800 font-black">
-                  {formatWithCommas(Math.round(table.totals.totalMonthlyTarget * 10) / 10)} كغم
+                  {formatWithCommas(Math.round(table.totals.totalMonthlyTarget))} كغم
                 </td>
 
                 {/* Total Monthly Sales */}
                 <td className="p-3 text-center border-l border-slate-300 dark:border-slate-800 font-black">
-                  {formatWithCommas(Math.round(table.totals.totalMonthlySales * 10) / 10)} كغم
+                  {formatWithCommas(Math.round(table.totals.totalMonthlySales))} كغم
                 </td>
 
                 {/* Total Remaining */}
@@ -5724,7 +5724,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         </td>
                         <td className="p-2.5 text-center font-black text-slate-700 dark:text-slate-300 border-l border-indigo-100 dark:border-indigo-950">
                           <span className="text-xs">
-                            {row.dailyTarget > 0 ? `${formatWithCommas(Math.round(row.dailyTarget * 10) / 10)} كغم` : '0'}
+                            {row.dailyTarget > 0 ? `${formatWithCommas(Math.round(row.dailyTarget))} كغم` : '0'}
                           </span>
                         </td>
                         <td className={`p-2.5 text-center font-black border-l border-indigo-100 dark:border-indigo-950 ${
@@ -5732,7 +5732,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         }`}>
                           <div className="flex items-center justify-center gap-1">
                             <span className="text-xs">
-                              {hasSalesToday ? `${formatWithCommas(Math.round(row.dailySales * 10) / 10)} كغم` : '0'}
+                              {hasSalesToday ? `${formatWithCommas(Math.round(row.dailySales))} كغم` : '0'}
                             </span>
                             {row.dailyTarget > 0 && row.dailySales < row.dailyTarget && (
                               <span title={`لم يتحقق تاركت المشرف اليومي للصنف (متبقي ${Math.round(row.dailyTarget - row.dailySales)} كغم)`}>
@@ -5751,14 +5751,14 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                           {renderPercentBadge(row.dailyPct)}
                         </td>
                         <td className="p-2.5 text-center font-black text-slate-800 dark:text-slate-200 border-l border-indigo-100 dark:border-indigo-950">
-                          <span>{row.monthlyTarget > 0 ? `${formatWithCommas(Math.round(row.monthlyTarget * 10) / 10)} كغم` : '0'}</span>
+                          <span>{row.monthlyTarget > 0 ? `${formatWithCommas(Math.round(row.monthlyTarget))} كغم` : '0'}</span>
                         </td>
                         <td className="p-2.5 text-center font-black text-slate-800 dark:text-slate-200 border-l border-indigo-100 dark:border-indigo-950">
-                          <span>{row.monthlySales > 0 ? `${formatWithCommas(Math.round(row.monthlySales * 10) / 10)} كغم` : '0'}</span>
+                          <span>{row.monthlySales > 0 ? `${formatWithCommas(Math.round(row.monthlySales))} كغم` : '0'}</span>
                         </td>
                         <td className="p-2.5 text-center font-black text-amber-700 dark:text-amber-400 border-l border-indigo-100 dark:border-indigo-950">
                           <span className="text-xs">
-                            {row.remainingMonthly > 0 ? `${formatWithCommas(Math.round(row.remainingMonthly * 10) / 10)} كغم` : '0'}
+                            {row.remainingMonthly > 0 ? `${formatWithCommas(Math.round(row.remainingMonthly))} كغم` : '0'}
                           </span>
                         </td>
                         <td className={`p-2.5 text-center transition-colors ${
@@ -5787,10 +5787,10 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                       </div>
                     </td>
                     <td className="p-3 text-center border-l border-indigo-200 dark:border-indigo-900 text-emerald-700 dark:text-emerald-300 font-black">
-                      {formatWithCommas(Math.round(supervisorTable.totals.totalDailyTarget * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(supervisorTable.totals.totalDailyTarget))} كغم
                     </td>
                     <td className="p-3 text-center border-l border-indigo-200 dark:border-indigo-900 text-teal-700 dark:text-teal-300 font-black">
-                      {formatWithCommas(Math.round(supervisorTable.totals.totalDailySales * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(supervisorTable.totals.totalDailySales))} كغم
                     </td>
                     <td className={`p-3 text-center border-l border-indigo-200 dark:border-indigo-900 transition-colors ${
                       supervisorTable.totals.totalDailyPct < 75
@@ -5802,13 +5802,13 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                       {renderPercentBadge(supervisorTable.totals.totalDailyPct)}
                     </td>
                     <td className="p-3 text-center border-l border-indigo-200 dark:border-indigo-900 font-black">
-                      {formatWithCommas(Math.round(supervisorTable.totals.totalMonthlyTarget * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(supervisorTable.totals.totalMonthlyTarget))} كغم
                     </td>
                     <td className="p-3 text-center border-l border-indigo-200 dark:border-indigo-900 font-black">
-                      {formatWithCommas(Math.round(supervisorTable.totals.totalMonthlySales * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(supervisorTable.totals.totalMonthlySales))} كغم
                     </td>
                     <td className="p-3 text-center border-l border-indigo-200 dark:border-indigo-900 text-amber-700 dark:text-amber-400 font-black">
-                      {formatWithCommas(Math.round(supervisorTable.totals.totalRemainingMonthly * 10) / 10)} كغم
+                      {formatWithCommas(Math.round(supervisorTable.totals.totalRemainingMonthly))} كغم
                     </td>
                     <td className={`p-3 text-center transition-colors ${
                       supervisorTable.totals.totalMonthlyPct < 75

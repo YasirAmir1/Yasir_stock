@@ -468,7 +468,7 @@ export const ItemTrackingScreen: React.FC = () => {
           (t) => isDelMatch(t.delegateName, del) && isSauceCategory(t.categoryName)
         );
         if (monthlyMatch && Number(monthlyMatch.monthlyTarget) > 0) {
-          dailyTargetKg = Math.round((Number(monthlyMatch.monthlyTarget) / 26) * 10) / 10;
+          dailyTargetKg = Math.round((Number(monthlyMatch.monthlyTarget) / 26) );
         }
       }
 
@@ -657,12 +657,12 @@ export const ItemTrackingScreen: React.FC = () => {
         'ت': idx + 1,
         'اسم المندوب': item.delegateName,
         'التاريخ': selectedDate,
-        'الهدف اليومي (كغم)': parseFloat(item.dailyTargetKg.toFixed(1)),
-        'المبيعات اليومية (كغم)': parseFloat(item.dailySalesKg.toFixed(1)),
+        'الهدف اليومي (كغم)': parseFloat(item.dailyTargetKg.toFixed(0)),
+        'المبيعات اليومية (كغم)': parseFloat(item.dailySalesKg.toFixed(0)),
         'القطع المباعة': item.totalPieces,
         'عدد الفواتير': item.totalInvoices,
-        'نسبة الإنجاز اليومية (%)': `${item.percentage.toFixed(1)}%`,
-        'المتبقي (كغم)': parseFloat(item.remainingKg.toFixed(1)),
+        'نسبة الإنجاز اليومية (%)': `${item.percentage.toFixed(0)}%`,
+        'المتبقي (كغم)': parseFloat(item.remainingKg.toFixed(0)),
         'الحالة': item.isAchieved ? 'محقق' : 'قيد الإنجاز'
       }));
       // Add total row
@@ -670,12 +670,12 @@ export const ItemTrackingScreen: React.FC = () => {
         'ت': 'الإجمالي' as any,
         'اسم المندوب': 'إجمالي كافة المندوبين',
         'التاريخ': selectedDate,
-        'الهدف اليومي (كغم)': parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(1)),
-        'المبيعات اليومية (كغم)': parseFloat(dailySauceData.totals.totalDailySales.toFixed(1)),
+        'الهدف اليومي (كغم)': parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(0)),
+        'المبيعات اليومية (كغم)': parseFloat(dailySauceData.totals.totalDailySales.toFixed(0)),
         'القطع المباعة': dailySauceData.totals.totalDailyPieces,
         'عدد الفواتير': dailySauceData.totals.totalDailyInvoices,
-        'نسبة الإنجاز اليومية (%)': `${dailySauceData.totals.overallDailyPct.toFixed(1)}%`,
-        'المتبقي (كغم)': parseFloat(dailySauceData.totals.totalDailyRemaining.toFixed(1)),
+        'نسبة الإنجاز اليومية (%)': `${dailySauceData.totals.overallDailyPct.toFixed(0)}%`,
+        'المتبقي (كغم)': parseFloat(dailySauceData.totals.totalDailyRemaining.toFixed(0)),
         'الحالة': dailySauceData.totals.overallDailyPct >= 100 ? 'محقق بالكامل' : 'قيد الإنجاز'
       });
       const wsDaily = XLSX.utils.json_to_sheet(dailyRows);
@@ -686,11 +686,11 @@ export const ItemTrackingScreen: React.FC = () => {
         'ت': idx + 1,
         'اسم المندوب': item.delegateName,
         'الشهر': monthlySauceData.totals.currentMonthPrefix,
-        'الهدف الشهري (كغم)': parseFloat(item.monthlyTargetKg.toFixed(1)),
-        'المبيعات الشهرية لحد الآن (كغم)': parseFloat(item.monthlySalesKg.toFixed(1)),
-        'نسبة الإنجاز الشهري (%)': `${item.percentage.toFixed(1)}%`,
-        'المتبقي لنهاية الشهر (كغم)': parseFloat(item.remainingKg.toFixed(1)),
-        'المطلوب يومياً لنهاية الشهر (كغم)': parseFloat(item.dailyRequiredKg.toFixed(1)),
+        'الهدف الشهري (كغم)': parseFloat(item.monthlyTargetKg.toFixed(0)),
+        'المبيعات الشهرية لحد الآن (كغم)': parseFloat(item.monthlySalesKg.toFixed(0)),
+        'نسبة الإنجاز الشهري (%)': `${item.percentage.toFixed(0)}%`,
+        'المتبقي لنهاية الشهر (كغم)': parseFloat(item.remainingKg.toFixed(0)),
+        'المطلوب يومياً لنهاية الشهر (كغم)': parseFloat(item.dailyRequiredKg.toFixed(0)),
         'الحالة': item.isAchieved ? 'محقق' : 'قيد الإنجاز'
       }));
       // Add monthly total row
@@ -698,11 +698,11 @@ export const ItemTrackingScreen: React.FC = () => {
         'ت': 'الإجمالي' as any,
         'اسم المندوب': 'الإجمالي العام لكافة المندوبين',
         'الشهر': monthlySauceData.totals.currentMonthPrefix,
-        'الهدف الشهري (كغم)': parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(1)),
-        'المبيعات الشهرية لحد الآن (كغم)': parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(1)),
-        'نسبة الإنجاز الشهري (%)': `${monthlySauceData.totals.overallMonthlyPct.toFixed(1)}%`,
-        'المتبقي لنهاية الشهر (كغم)': parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(1)),
-        'المطلوب يومياً لنهاية الشهر (كغم)': parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(1)),
+        'الهدف الشهري (كغم)': parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(0)),
+        'المبيعات الشهرية لحد الآن (كغم)': parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(0)),
+        'نسبة الإنجاز الشهري (%)': `${monthlySauceData.totals.overallMonthlyPct.toFixed(0)}%`,
+        'المتبقي لنهاية الشهر (كغم)': parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(0)),
+        'المطلوب يومياً لنهاية الشهر (كغم)': parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(0)),
         'الحالة': monthlySauceData.totals.overallMonthlyPct >= 100 ? 'محقق بالكامل' : 'قيد الإنجاز'
       });
       const wsMonthly = XLSX.utils.json_to_sheet(monthlyRows);
@@ -974,7 +974,7 @@ export const ItemTrackingScreen: React.FC = () => {
               }`}>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">إجمالي هدف الصلصات اليوم</div>
                 <div className="text-lg sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(1)), true)} كجم
+                  {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(0)), true)} كجم
                 </div>
               </div>
 
@@ -983,7 +983,7 @@ export const ItemTrackingScreen: React.FC = () => {
               }`}>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">مبيعات الصلصات المحققة اليوم</div>
                 <div className="text-lg sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                  {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(1)), true)} كجم
+                  {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(0)), true)} كجم
                 </div>
               </div>
 
@@ -998,7 +998,7 @@ export const ItemTrackingScreen: React.FC = () => {
                     ? 'text-blue-500'
                     : 'text-rose-500'
                 }`}>
-                  {dailySauceData.totals.overallDailyPct.toFixed(1)}%
+                  {dailySauceData.totals.overallDailyPct.toFixed(0)}%
                 </div>
               </div>
 
@@ -1054,18 +1054,18 @@ export const ItemTrackingScreen: React.FC = () => {
                               </div>
                             </td>
                             <td className="py-3 px-3 text-center font-black text-emerald-600 dark:text-emerald-400">
-                              {formatWithCommas(parseFloat(item.dailySalesKg.toFixed(1)), true)}
+                              {formatWithCommas(parseFloat(item.dailySalesKg.toFixed(0)), true)}
                             </td>
                             <td className="py-3 px-3 text-center font-bold text-slate-600 dark:text-slate-400">
                               {formatWithCommas(item.totalPieces)}
                             </td>
                             <td className="py-3 px-3 text-center font-bold text-slate-500">
-                              {formatWithCommas(parseFloat(item.remainingKg.toFixed(1)), true)}
+                              {formatWithCommas(parseFloat(item.remainingKg.toFixed(0)), true)}
                             </td>
                             <td className="py-3 px-3 text-center">
                               <div className="space-y-1">
                                 <div className="flex items-center justify-between text-[11px] font-black">
-                                  <span>{item.percentage.toFixed(1)}%</span>
+                                  <span>{item.percentage.toFixed(0)}%</span>
                                 </div>
                                 <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                                   <div
@@ -1131,7 +1131,7 @@ export const ItemTrackingScreen: React.FC = () => {
                                         </span>
                                         <div className="flex items-center gap-2 text-[11px] font-black shrink-0">
                                           <span className="text-slate-500 dark:text-slate-400">{formatWithCommas(p.quantity)} ق</span>
-                                          <span className="text-emerald-600 dark:text-emerald-400">{formatWithCommas(parseFloat(p.weightKg.toFixed(1)), true)} كجم</span>
+                                          <span className="text-emerald-600 dark:text-emerald-400">{formatWithCommas(parseFloat(p.weightKg.toFixed(0)), true)} كجم</span>
                                         </div>
                                       </div>
                                     ))}
@@ -1155,16 +1155,16 @@ export const ItemTrackingScreen: React.FC = () => {
                       المجموع اليومي الكلي لكافة المندوبين:
                     </td>
                     <td className="py-3 px-3 text-center text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-3 text-center text-slate-600 dark:text-slate-300">
                       {formatWithCommas(dailySauceData.totals.totalDailyPieces)}
                     </td>
                     <td className="py-3 px-3 text-center text-slate-600 dark:text-slate-300">
-                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyRemaining.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyRemaining.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-3 text-center text-sm font-black">
-                      {dailySauceData.totals.overallDailyPct.toFixed(1)}%
+                      {dailySauceData.totals.overallDailyPct.toFixed(0)}%
                     </td>
                     <td colSpan={2} className="py-3 px-3 text-center">
                       <span className="px-2.5 py-1 rounded-full text-xs font-black bg-amber-500 text-slate-950 shadow-xs">
@@ -1241,7 +1241,7 @@ export const ItemTrackingScreen: React.FC = () => {
               }`}>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">إجمالي التاركت الشهري للصلصات</div>
                 <div className="text-lg sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(1)), true)} كجم
+                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(0)), true)} كجم
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">لكافة المندوبين مجتمعين</div>
               </div>
@@ -1251,7 +1251,7 @@ export const ItemTrackingScreen: React.FC = () => {
               }`}>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">إجمالي المبيعات الشهرية لحد الآن</div>
                 <div className="text-lg sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(1)), true)} كجم
+                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(0)), true)} كجم
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">محقق تراكمي</div>
               </div>
@@ -1267,7 +1267,7 @@ export const ItemTrackingScreen: React.FC = () => {
                     ? 'text-blue-500'
                     : 'text-rose-500'
                 }`}>
-                  {monthlySauceData.totals.overallMonthlyPct.toFixed(1)}%
+                  {monthlySauceData.totals.overallMonthlyPct.toFixed(0)}%
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">معدل الإنجاز التراكمي</div>
               </div>
@@ -1277,9 +1277,9 @@ export const ItemTrackingScreen: React.FC = () => {
               }`}>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">المطلوب يومياً لنهاية الشهر</div>
                 <div className="text-lg sm:text-2xl font-black text-indigo-500 mt-1">
-                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(1)), true)} كجم/يوم
+                  {formatWithCommas(parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(0)), true)} كجم/يوم
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">المتبقي: {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(1)), true)} كجم</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">المتبقي: {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(0)), true)} كجم</div>
               </div>
             </div>
 
@@ -1291,7 +1291,7 @@ export const ItemTrackingScreen: React.FC = () => {
                   مستوى الإنجاز التراكمي الشامل لصنف الصلصات للشهر الحالي ({monthlySauceData.totals.currentMonthPrefix})
                 </span>
                 <span className="text-sm text-emerald-600 dark:text-emerald-400 font-black">
-                  {monthlySauceData.totals.overallMonthlyPct.toFixed(1)}%
+                  {monthlySauceData.totals.overallMonthlyPct.toFixed(0)}%
                 </span>
               </div>
               <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-3 overflow-hidden p-0.5">
@@ -1356,21 +1356,21 @@ export const ItemTrackingScreen: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-3 px-3 text-center font-bold text-amber-700 dark:text-amber-400">
-                            {formatWithCommas(parseFloat(item.monthlyTargetKg.toFixed(1)), true)}
+                            {formatWithCommas(parseFloat(item.monthlyTargetKg.toFixed(0)), true)}
                           </td>
                           <td className="py-3 px-3 text-center font-black text-emerald-600 dark:text-emerald-400">
-                            {formatWithCommas(parseFloat(item.monthlySalesKg.toFixed(1)), true)}
+                            {formatWithCommas(parseFloat(item.monthlySalesKg.toFixed(0)), true)}
                           </td>
                           <td className="py-3 px-3 text-center font-bold text-slate-500">
-                            {formatWithCommas(parseFloat(item.remainingKg.toFixed(1)), true)}
+                            {formatWithCommas(parseFloat(item.remainingKg.toFixed(0)), true)}
                           </td>
                           <td className="py-3 px-3 text-center font-bold text-indigo-600 dark:text-indigo-400">
-                            {formatWithCommas(parseFloat(item.dailyRequiredKg.toFixed(1)), true)}
+                            {formatWithCommas(parseFloat(item.dailyRequiredKg.toFixed(0)), true)}
                           </td>
                           <td className="py-3 px-3 text-center">
                             <div className="space-y-1">
                               <div className="flex items-center justify-between text-[11px] font-black">
-                                <span>{item.percentage.toFixed(1)}%</span>
+                                <span>{item.percentage.toFixed(0)}%</span>
                               </div>
                               <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                                 <div
@@ -1387,7 +1387,7 @@ export const ItemTrackingScreen: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-3 px-3 text-center font-bold text-slate-600 dark:text-slate-400">
-                            {contributionPct.toFixed(1)}%
+                            {contributionPct.toFixed(0)}%
                           </td>
                           <td className="py-3 px-3 text-center">
                             {item.isAchieved && item.monthlyTargetKg > 0 ? (
@@ -1415,19 +1415,19 @@ export const ItemTrackingScreen: React.FC = () => {
                       الإجمالي التراكمي الشامل لكافة المندوبين:
                     </td>
                     <td className="py-3 px-3 text-center text-amber-700 dark:text-amber-400 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-3 text-center text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-3 text-center text-slate-600 dark:text-slate-300 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyRemaining.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-3 text-center text-indigo-600 dark:text-indigo-400 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(1)), true)} كجم/يوم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalDailyRequired.toFixed(0)), true)} كجم/يوم
                     </td>
                     <td className="py-3 px-3 text-center text-sm font-black">
-                      {monthlySauceData.totals.overallMonthlyPct.toFixed(1)}%
+                      {monthlySauceData.totals.overallMonthlyPct.toFixed(0)}%
                     </td>
                     <td className="py-3 px-3 text-center font-bold">100%</td>
                     <td className="py-3 px-3 text-center">
@@ -1505,10 +1505,10 @@ export const ItemTrackingScreen: React.FC = () => {
                       فرع تكريت
                     </td>
                     <td className="py-3 px-4 text-center font-bold text-amber-700 dark:text-amber-400 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlyTarget.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-4 text-center font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(monthlySauceData.totals.totalMonthlySales.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span className={`px-3 py-1 rounded-full text-xs font-black ${
@@ -1516,7 +1516,7 @@ export const ItemTrackingScreen: React.FC = () => {
                           ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                           : 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                       }`}>
-                        {monthlySauceData.totals.overallMonthlyPct.toFixed(1)}%
+                        {monthlySauceData.totals.overallMonthlyPct.toFixed(0)}%
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -1556,10 +1556,10 @@ export const ItemTrackingScreen: React.FC = () => {
                       فرع تكريت
                     </td>
                     <td className="py-3 px-4 text-center font-bold text-amber-700 dark:text-amber-400 text-sm">
-                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailyTarget.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-4 text-center font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(1)), true)} كجم
+                      {formatWithCommas(parseFloat(dailySauceData.totals.totalDailySales.toFixed(0)), true)} كجم
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span className={`px-3 py-1 rounded-full text-xs font-black ${
@@ -1567,7 +1567,7 @@ export const ItemTrackingScreen: React.FC = () => {
                           ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                           : 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                       }`}>
-                        {dailySauceData.totals.overallDailyPct.toFixed(1)}%
+                        {dailySauceData.totals.overallDailyPct.toFixed(0)}%
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">

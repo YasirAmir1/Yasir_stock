@@ -32,7 +32,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         { id: 'routes', label: 'المسارات', icon: MapPin },
 
         { id: 'report_11', label: 'التقرير (11)', icon: FileSpreadsheet },
-        ...(isAdmin ? [{ id: 'additional_target', label: 'الهدف الإضافي', icon: Target }] : []),
+        ...(!isSauceUser ? [{ id: 'additional_target', label: 'الاضافي', icon: Target }] : []),
         ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },

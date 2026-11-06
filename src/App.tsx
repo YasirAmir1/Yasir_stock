@@ -110,13 +110,13 @@ const MainAppContent: React.FC = () => {
   useEffect(() => {
     if (isSauceUser && activeTab !== 'products' && activeTab !== 'item_tracking') {
       setActiveTab('item_tracking');
-    } else if (!currentUser?.isAdmin && (activeTab === 'additional_target' || activeTab === 'old_invoices' || activeTab === 'admin')) {
+    } else if (!currentUser?.isAdmin && (activeTab === 'old_invoices' || activeTab === 'admin')) {
       setActiveTab('report_11');
     }
   }, [isSauceUser, currentUser?.isAdmin, activeTab, setActiveTab]);
 
   const handleTabChange = (tab: string) => {
-    if (!currentUser?.isAdmin && (tab === 'additional_target' || tab === 'old_invoices' || tab === 'admin')) {
+    if (!currentUser?.isAdmin && (tab === 'old_invoices' || tab === 'admin')) {
       return;
     }
     setIsLoading(true);
@@ -595,7 +595,7 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
-          {currentUser?.isAdmin && !isSauceUser && (
+          {!isSauceUser && (
             <button
               onClick={() => handleTabChange('additional_target')}
               onMouseEnter={() => {
@@ -612,7 +612,7 @@ const MainAppContent: React.FC = () => {
               }`}
             >
               <Target className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" />
-              <span>الهدف الإضافي</span>
+              <span>الاضافي</span>
             </button>
           )}
 
@@ -801,7 +801,7 @@ const MainAppContent: React.FC = () => {
               {activeTab === 'routes' && <RoutesScreen />}
 
               {activeTab === 'report_11' && <Report11Screen />}
-              {activeTab === 'additional_target' && currentUser?.isAdmin && <AdditionalTargetScreen />}
+              {activeTab === 'additional_target' && !isSauceUser && <AdditionalTargetScreen />}
               {activeTab === 'products' && <ProductsScreen />}
               {activeTab === 'returns' && <ReturnsScreen />}
               {activeTab === 'qc' && <QCScreen />}

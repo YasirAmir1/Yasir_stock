@@ -2427,7 +2427,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                             <span className="text-[10px] font-bold">
                               {entryModes[prod.id] === 'carton' ? 
                                 `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
-                                `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(2))} كارتون`}
+                                `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(0))} كارتون`}
                               {isCardOversold && ' (يتجاوز المخزون ⚠️)'}
                             </span>
                             <button
@@ -2617,7 +2617,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                   {currentInvoiceTotals.totalWeightKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span className="text-[10px] sm:text-xs font-bold text-slate-500">كغم</span>
                   {currentInvoiceTotals.totalWeightKg >= 1000 && (
                     <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold mr-1">
-                      ({(currentInvoiceTotals.totalWeightKg / 1000).toFixed(2)} طن)
+                      ({(currentInvoiceTotals.totalWeightKg / 1000).toFixed(0)} طن)
                     </span>
                   )}
                 </span>

@@ -5,11 +5,13 @@ import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { collection, getDocs, query, doc, writeBatch, where, setDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { SalesEntry, RouteItem, DebtItem } from '../types';
+import html2canvas from 'html2canvas-pro';
 import { 
   FileText, 
   Search, 
   Calendar, 
   Printer, 
+  MessageCircle,
   Download, 
   ShoppingCart, 
   Package, 
@@ -548,9 +550,62 @@ export const OldInvoicesScreen: React.FC = () => {
   }, [groupedOldInvoices]);
 
   // Exact Match Receipt Thermal Printing (matches EntryScreen print invoice)
+  const handleWhatsAppInvoice = (inv: typeof groupedOldInvoices[0]) => {
+    const delegateName = inv.entries[0]?.delegateName || 'غير محدد';
+    const customerAddress = inv.customerAddress || inv.entries[0]?.customerAddress || '';
+    const actualCustomerName = inv.customerName;
+    const customerPhone = inv.entries[0]?.customerPhone || '';
+
+    let totalPrice = 0;
+    let itemsText = '';
+    
+    inv.entries.forEach((e, idx) => {
+      const isGift = Boolean(e.isGift);
+      const prod = productsList.find(p => p.productName === e.productName);
+      const rowPrice = prod && !isGift ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
+      totalPrice += rowPrice;
+
+      itemsText += `${idx + 1}. ${e.productName} - ${e.quantity} قطعة ${isGift ? '(هدية)' : `- ${formatWithCommas(rowPrice, true)} د.ع`}\n`;
+    });
+
+    const message = `🧾 *فاتورة مبيعات سابقة - تطبيق ياسر للمبيعات*
+----------------------------------------
+👤 *اسم الزبون:* ${actualCustomerName}
+📍 *العنوان:* ${customerAddress || 'غير محدد'}
+👨‍💼 *المندوب:* ${delegateName}
+📅 *التاريخ:* ${inv.dateString || new Date().toLocaleDateString('en-GB')}
+----------------------------------------
+📦 *المواد المطلوبة:*
+${itemsText}
+----------------------------------------
+💰 *الإجمالي الكلي:* *${formatWithCommas(totalPrice, true)} د.ع*
+----------------------------------------
+شكراً لتعاملك معنا! 🙏`;
+
+    const formatWhatsAppPhone = (phone: string): string => {
+      if (!phone) return '';
+      let cleaned = phone.replace(/\D/g, '');
+      if (cleaned.startsWith('0')) {
+        cleaned = '964' + cleaned.substring(1);
+      } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+        cleaned = '964' + cleaned;
+      }
+      return cleaned;
+    };
+
+    const formattedPhone = formatWhatsAppPhone(customerPhone);
+    const url = formattedPhone
+      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    window.open(url, '_blank');
+  };
+
   const handlePrintInvoice = (inv: typeof groupedOldInvoices[0]) => {
     const actualCustomerName = inv.customerName;
     const entries = inv.entries;
+    const delegateName = entries[0]?.delegateName || 'غير محدد';
+    const customerAddress = inv.customerAddress || entries[0]?.customerAddress || '';
 
     let rowsHtml = '';
     let totalPrice = 0;
@@ -571,7 +626,7 @@ export const OldInvoicesScreen: React.FC = () => {
       } else if (cartonSize > 1) {
         const cVal = isCarton ? (e.enteredQuantity || (pieces / cartonSize)) : (pieces / cartonSize);
         totalCartons += cVal;
-        const displayCarton = cVal.toFixed(2).endsWith('.00') ? cVal.toFixed(0) : cVal.toFixed(2);
+        const displayCarton = cVal.toFixed(0).endsWith('.00') ? cVal.toFixed(0) : cVal.toFixed(0);
         quantityText = `<div style="font-weight: bold;">${pieces} قطعة</div><div style="font-size: 10px; color: #555;">(${displayCarton} كارتون)</div>`;
       } else {
         totalCartons += pieces;
@@ -593,7 +648,7 @@ export const OldInvoicesScreen: React.FC = () => {
       `;
     });
 
-    const displayTotalCartons = totalCartons.toFixed(2).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(2);
+    const displayTotalCartons = totalCartons.toFixed(0).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(0);
 
     rowsHtml += `
       <tr style="border-top: 2px solid #000; font-weight: bold; background-color: #f9f9f9;">
@@ -636,7 +691,48 @@ export const OldInvoicesScreen: React.FC = () => {
           </style>
         </head>
         <body class="invoice-print-view">
-          <button class="print-btn" onclick="window.print()">🖨️ طباعة الفاتورة الآن</button>
+          <div style="display: flex; gap: 6px; margin-bottom: 20px;">
+            <button class="print-btn" onclick="window.print()" style="flex: 1; margin-bottom: 0;">🖨️ طباعة الفاتورة الآن</button>
+            <button onclick="window.open('${(() => {
+              const customerPhone = entries[0]?.customerPhone || '';
+              let totalPriceCalc = 0;
+              let itemsTextCalc = '';
+              entries.forEach((e, idx) => {
+                const isGift = Boolean(e.isGift);
+                const prod = productsList.find(p => p.productName === e.productName);
+                const rowPrice = prod && !isGift ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
+                totalPriceCalc += rowPrice;
+                itemsTextCalc += `${idx + 1}. ${e.productName} - ${e.quantity} قطعة ${isGift ? '(هدية)' : `- ${formatWithCommas(rowPrice, true)} د.ع`}\n`;
+              });
+              const message = `🧾 *فاتورة مبيعات سابقة - تطبيق ياسر للمبيعات*
+----------------------------------------
+👤 *اسم الزبون:* ${actualCustomerName}
+📍 *العنوان:* ${customerAddress || 'غير محدد'}
+👨‍💼 *المندوب:* ${delegateName}
+📅 *التاريخ:* ${inv.dateString || new Date().toLocaleDateString('en-GB')}
+----------------------------------------
+📦 *المواد المطلوبة:*
+${itemsTextCalc}
+----------------------------------------
+💰 *الإجمالي الكلي:* *${formatWithCommas(totalPriceCalc, true)} د.ع*
+----------------------------------------
+شكراً لتعاملك معنا! 🙏`;
+              const formatWhatsAppPhone = (phone: string): string => {
+                if (!phone) return '';
+                let cleaned = phone.replace(/\D/g, '');
+                if (cleaned.startsWith('0')) {
+                  cleaned = '964' + cleaned.substring(1);
+                } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+                  cleaned = '964' + cleaned;
+                }
+                return cleaned;
+              };
+              const formattedPhone = formatWhatsAppPhone(customerPhone);
+              return formattedPhone
+                ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+                : `https://wa.me/?text=${encodeURIComponent(message)}`;
+            })()}', '_blank')" style="flex: 1; margin-bottom: 0; padding: 10px; background: #25d366; color: white; border: none; border-radius: 5px; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">💬 واتساب الزبون</button>
+          </div>
           
           <div style="border: 2px solid #000; padding: 6px; margin-bottom: 10px;">
             <div class="header-container">
@@ -677,7 +773,7 @@ export const OldInvoicesScreen: React.FC = () => {
             
             <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #000; font-size: 11px; display: flex; justify-content: space-between;">
               <span>مجموع الكراتين: <b>${displayTotalCartons}</b></span>
-              <span>الوزن الكلي: <b>${formatWithCommas(parseFloat(inv.totalWeight.toFixed(2)), true)} كجم</b></span>
+              <span>الوزن الكلي: <b>${formatWithCommas(parseFloat(inv.totalWeight.toFixed(0)), true)} كجم</b></span>
             </div>
             
             <div style="text-align: center; margin-top: 15px; font-size: 11px; border-top: 1px dashed #000; padding-top: 5px;">
@@ -1077,7 +1173,7 @@ export const OldInvoicesScreen: React.FC = () => {
       };
       if (!isDataEntry) {
         row['عدد الفواتير الشهرية'] = c.invoicesCount;
-        row['الوزن الكلي الشهري (كجم)'] = Number(c.totalWeight.toFixed(2));
+        row['الوزن الكلي الشهري (كجم)'] = Number(c.totalWeight.toFixed(0));
         row['المبلغ الكلي الشهري (د.ع)'] = Math.round(c.totalAmount);
       }
       row['الشهر المالي'] = monthlyReportMonth;
@@ -1317,7 +1413,7 @@ export const OldInvoicesScreen: React.FC = () => {
                       </td>
                       <td className="px-2.5 py-2 text-center">
                         <span className="inline-block px-2 py-0.5 rounded-md font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs">
-                          {c.totalWeight.toFixed(1)} كجم
+                          {c.totalWeight.toFixed(0)} كجم
                         </span>
                       </td>
                       <td className="px-2.5 py-2 text-center">
@@ -1339,7 +1435,7 @@ export const OldInvoicesScreen: React.FC = () => {
                       {currentFilteredInvoices.toLocaleString()}
                     </td>
                     <td className="px-2.5 py-2 text-center font-black text-emerald-700 dark:text-emerald-300 text-xs">
-                      {currentFilteredWeight.toFixed(1)} كجم
+                      {currentFilteredWeight.toFixed(0)} كجم
                     </td>
                     <td className="px-2.5 py-2 text-center font-black text-blue-700 dark:text-blue-300 text-xs">
                       {Math.round(currentFilteredAmount).toLocaleString()} د.ع
@@ -1706,7 +1802,7 @@ export const OldInvoicesScreen: React.FC = () => {
         <div className={`p-3 rounded-xl border shadow-xs text-center ${isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-slate-200'}`}>
           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">إجمالي الوزن</div>
           <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
-            {formatWithCommas(parseFloat(summaryMetrics.totalWeight.toFixed(1)), true)} كجم
+            {formatWithCommas(parseFloat(summaryMetrics.totalWeight.toFixed(0)), true)} كجم
           </div>
         </div>
 
@@ -1801,7 +1897,7 @@ export const OldInvoicesScreen: React.FC = () => {
               <Scale className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 {selectedProduct !== 'الكل' ? `وزن (${selectedProduct}): ` : 'الوزن الكلي: '}
-                <strong className="font-mono">{formatWithCommas(parseFloat(displayedProductWeight.toFixed(2)), true)}</strong> كجم
+                <strong className="font-mono">{formatWithCommas(parseFloat(displayedProductWeight.toFixed(0)), true)}</strong> كجم
               </span>
             </span>
           )}
@@ -2002,6 +2098,18 @@ export const OldInvoicesScreen: React.FC = () => {
                       >
                         <Printer className="w-4 h-4" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleWhatsAppInvoice(inv)}
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
+                          isDarkMode 
+                            ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' 
+                            : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'
+                        }`}
+                        title="إرسال الفاتورة عبر واتساب"
+                      >
+                        <MessageCircle className="w-4 h-4 text-emerald-500" />
+                      </button>
 
                       {currentUser?.isAdmin && (
                         <button
@@ -2055,7 +2163,7 @@ export const OldInvoicesScreen: React.FC = () => {
                     {/* 3. الوزن الكلي */}
                     <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-emerald-600 text-white font-black border border-emerald-700 shadow-sm text-center">
                       <span className="text-emerald-100 text-[9px] font-normal">الوزن:</span>
-                      <span>{formatWithCommas(parseFloat(inv.totalWeight.toFixed(2)), true)} كجم</span>
+                      <span>{formatWithCommas(parseFloat(inv.totalWeight.toFixed(0)), true)} كجم</span>
                     </div>
 
                     {/* 4. المبلغ الكلي */}
@@ -2137,7 +2245,7 @@ export const OldInvoicesScreen: React.FC = () => {
                               }`} title="الكراتين المدخلة">
                                 {entry.entryUnit === 'carton' 
                                   ? formatWithCommas(entry.enteredQuantity || 0) 
-                                  : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / cartonQty).toFixed(2)))} كارتون
+                                  : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / cartonQty).toFixed(0)))} كارتون
                               </div>
                             )}
                             <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${
@@ -2155,7 +2263,7 @@ export const OldInvoicesScreen: React.FC = () => {
                             <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
                               isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'
                             }`} title="وزن الإدخال">
-                              وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(2)), true)} كجم
+                              وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(0)), true)} كجم
                             </div>
                             <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
                               isGift

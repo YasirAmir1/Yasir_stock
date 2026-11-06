@@ -4,12 +4,13 @@ import { db } from '../lib/firebase';
 import { collection, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas-pro';
 
 export const EntryScreen: React.FC = () => {
   const {
@@ -529,6 +530,166 @@ export const EntryScreen: React.FC = () => {
     setSuccessMessage(null);
   };
 
+  const handleWhatsAppInvoice = async (customerName: string, entries: typeof safeSavedEntries) => {
+    const delegateName = entries[0]?.delegateName || 'غير محدد';
+    const customerAddress = entries[0]?.customerAddress || '';
+    const actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
+    const customerPhone = entries[0]?.customerPhone || '';
+    const customerCode = customerName.includes('كود:') ? customerName.split('كود: ')[1].split(' |')[0] : '';
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.top = '-9999px';
+    container.style.left = '-9999px';
+    container.style.width = '380px';
+    container.style.background = '#ffffff';
+    container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+    container.style.padding = '15px';
+    container.style.color = '#000000';
+    container.style.direction = 'rtl';
+    container.style.border = '2px solid #000';
+    container.style.boxSizing = 'border-box';
+
+    let rowsHtml = '';
+    let totalPrice = 0;
+    
+    entries.forEach((e, idx) => {
+      const isGift = Boolean(e.isGift);
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod && !isGift ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+      const rowPrice = price * e.quantity;
+      totalPrice += rowPrice;
+      
+      const cartonQty = Number(prod?.cartonQuantity) || 1;
+      const isCartonOrMore = e.quantity >= cartonQty;
+      let quantityText = '';
+      if (isGift) {
+        quantityText = `<div style="font-weight: bold; color: #d97706;">${formatWithCommas(e.quantity)} قطعة (هدية)</div>`;
+      } else if (isCartonOrMore) {
+        const cartons = (e.quantity / cartonQty).toFixed(0);
+        const displayCartons = cartons.endsWith('.00') ? cartons.slice(0, -3) : cartons;
+        quantityText = `${formatWithCommas(parseFloat(displayCartons))} كارتون<br><span style="font-size: 10px;">(${formatWithCommas(e.quantity)} قطعة)</span>`;
+      } else {
+        quantityText = `${formatWithCommas(e.quantity)} قطعة`;
+      }
+
+      rowsHtml += `
+        <tr style="border-bottom: 1px dashed #ccc; ${isGift ? 'background-color: #fffbeb;' : ''}">
+          <td style="padding: 6px 2px; text-align: center; border-bottom: 1px dashed #ccc;">${isGift ? '🎁' : (idx + 1)}</td>
+          <td style="padding: 6px 2px; text-align: right; border-bottom: 1px dashed #ccc;">
+            ${isGift ? '<span style="color: #b45309; font-weight: bold; margin-left: 4px;">[هدية]</span>' : ''}
+            ${e.productName}
+          </td>
+          <td style="padding: 6px 2px; text-align: center; border-bottom: 1px dashed #ccc;">${quantityText}</td>
+          <td style="padding: 6px 2px; text-align: left; border-bottom: 1px dashed #ccc; ${isGift ? 'font-weight: bold; color: #b45309;' : ''}">
+            ${isGift ? 'هدية' : `${formatWithCommas(rowPrice, true)} د.ع`}
+          </td>
+        </tr>
+      `;
+    });
+
+    container.innerHTML = `
+      <div style="text-align: center; margin-bottom: 8px;">
+        <div style="font-size: 16px; font-weight: 900; margin-bottom: 4px;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
+        <div style="border-top: 1px dashed #000; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 14px; font-weight: bold;">اسم الزبون: ${actualCustomerName}</span>
+          <span style="font-size: 11px; color: #333;">${new Date().toLocaleDateString('en-GB')}</span>
+        </div>
+        ${customerPhone ? `<div style="font-size: 13px; font-weight: bold; margin-top: 2px;" dir="ltr">${customerPhone}</div>` : ''}
+      </div>
+      
+      <div style="font-size: 12px; margin-bottom: 8px; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0;">
+        <div><b>اسم المندوب:</b> ${delegateName} ${customerCode ? `(${customerCode})` : ''}</div>
+        ${customerAddress ? `<div><b>عنوان الزبون:</b> ${customerAddress}</div>` : ''}
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
+        <thead>
+          <tr style="border-bottom: 1px solid #000;">
+            <th style="padding: 4px; text-align: center;">#</th>
+            <th style="padding: 4px; text-align: right;">المنتج</th>
+            <th style="padding: 4px; text-align: center;">الكمية</th>
+            <th style="padding: 4px; text-align: left;">السعر (جملة)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <div style="display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px; font-size: 14px; font-weight: bold;">
+        <span>الإجمالي</span>
+        <span>${formatWithCommas(totalPrice, true)} د.ع</span>
+      </div>
+
+      <div style="margin-top: 10px; font-size: 10px; text-align: center; border: 1px solid #000; padding: 4px;">
+        ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزن.
+      </div>
+      <div style="margin-top: 4px; font-size: 10px; text-align: center; border: 1px solid #000; padding: 4px; font-weight: bold;">
+        رقم المبيعات : 07718458337
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    try {
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      document.body.removeChild(container);
+
+      const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.jpg`;
+      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.95));
+
+      let shared = false;
+      if (blob && navigator.share && navigator.canShare) {
+        const file = new File([blob], fileName, { type: 'image/jpeg' });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `فاتورة ${actualCustomerName}`,
+              text: `فاتورة مبيعات الزبون: ${actualCustomerName} - الإجمالي: ${formatWithCommas(totalPrice, true)} د.ع`,
+            });
+            shared = true;
+          } catch (err) {
+            console.log('Share canceled:', err);
+          }
+        }
+      }
+
+      if (!shared) {
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = canvas.toDataURL('image/jpeg', 0.95);
+        link.click();
+
+        const message = `🧾 *فاتورة مبيعات - تطبيق ياسر للمبيعات*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
+        const formatWhatsAppPhone = (phone: string): string => {
+          if (!phone) return '';
+          let cleaned = phone.replace(/\D/g, '');
+          if (cleaned.startsWith('0')) {
+            cleaned = '964' + cleaned.substring(1);
+          } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+            cleaned = '964' + cleaned;
+          }
+          return cleaned;
+        };
+        const formattedPhone = formatWhatsAppPhone(customerPhone);
+        const url = formattedPhone
+          ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+          : `https://wa.me/?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      }
+    } catch (err) {
+      if (container.parentNode) document.body.removeChild(container);
+      console.error('Error generating image:', err);
+      alert('حدث خطأ أثناء توليد صورة الفاتورة');
+    }
+  };
+
   const handlePrintInvoice = (customerName: string, entries: typeof safeSavedEntries) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -566,7 +727,7 @@ export const EntryScreen: React.FC = () => {
       if (isGift) {
         quantityText = `<div style="font-weight: bold; color: #d97706;">${formatWithCommas(e.quantity)} قطعة (هدية)</div>`;
       } else if (isCartonOrMore) {
-        const cartons = (e.quantity / cartonQty).toFixed(2);
+        const cartons = (e.quantity / cartonQty).toFixed(0);
         const displayCartons = cartons.endsWith('.00') ? cartons.slice(0, -3) : cartons;
         quantityText = `${formatWithCommas(parseFloat(displayCartons))} كارتون<br><span style="font-size: 10px;">(${formatWithCommas(e.quantity)} قطعة)</span>`;
       } else {
@@ -588,7 +749,7 @@ export const EntryScreen: React.FC = () => {
       `;
     });
 
-    const displayTotalCartons = totalCartons.toFixed(2).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(2);
+    const displayTotalCartons = totalCartons.toFixed(0).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(0);
     
     rowsHtml += `
       <tr style="border-top: 2px solid #000; font-weight: bold; background-color: #f9f9f9;">
@@ -637,7 +798,49 @@ export const EntryScreen: React.FC = () => {
           </style>
         </head>
         <body class="invoice-print-view">
-          <button class="print-btn" onclick="window.print()">🖨️ طباعة الفاتورة الآن</button>
+          <div style="display: flex; gap: 6px; margin-bottom: 20px;">
+            <button class="print-btn" onclick="window.print()" style="flex: 1; margin-bottom: 0;">🖨️ طباعة الفاتورة الآن</button>
+            <button onclick="window.open('${(() => {
+              const customerPhone = entries[0]?.customerPhone || '';
+              let totalPriceCalc = 0;
+              let itemsTextCalc = '';
+              entries.forEach((e, idx) => {
+                const isGift = Boolean(e.isGift);
+                const prod = productsList.find(p => p.productName === e.productName);
+                const price = prod && !isGift ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
+                const rowPrice = price * e.quantity;
+                totalPriceCalc += rowPrice;
+                itemsTextCalc += `${idx + 1}. ${e.productName} - ${e.quantity} قطعة ${isGift ? '(هدية)' : `- ${formatWithCommas(rowPrice, true)} د.ع`}\n`;
+              });
+              const message = `🧾 *فاتورة مبيعات - تطبيق ياسر للمبيعات*
+----------------------------------------
+👤 *اسم الزبون:* ${actualCustomerName}
+📍 *العنوان:* ${customerAddress || 'غير محدد'}
+👨‍💼 *المندوب:* ${delegateName}
+📅 *التاريخ:* ${entries[0]?.timestamp ? new Date(entries[0].timestamp).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB')}
+----------------------------------------
+📦 *المواد المطلوبة:*
+${itemsTextCalc}
+----------------------------------------
+💰 *الإجمالي الكلي:* *${formatWithCommas(totalPriceCalc, true)} د.ع*
+----------------------------------------
+شكراً لتعاملك معنا! 🙏`;
+              const formatWhatsAppPhone = (phone: string): string => {
+                if (!phone) return '';
+                let cleaned = phone.replace(/\D/g, '');
+                if (cleaned.startsWith('0')) {
+                  cleaned = '964' + cleaned.substring(1);
+                } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+                  cleaned = '964' + cleaned;
+                }
+                return cleaned;
+              };
+              const formattedPhone = formatWhatsAppPhone(customerPhone);
+              return formattedPhone
+                ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+                : `https://wa.me/?text=${encodeURIComponent(message)}`;
+            })()}', '_blank')" style="flex: 1; margin-bottom: 0; padding: 10px; background: #25d366; color: white; border: none; border-radius: 5px; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">💬 واتساب الزبون</button>
+          </div>
           
           <div style="border: 2px solid #000; padding: 6px; margin-bottom: 10px;">
             <div class="header-container">
@@ -1401,7 +1604,7 @@ export const EntryScreen: React.FC = () => {
         </div>
         <div className="text-center px-1 flex-1 min-w-0 border-r border-emerald-800">
           <div className="text-[9px] opacity-90 truncate">إجمالي الوزن اليوم</div>
-          <div className="font-black text-xs truncate">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم</div>
+          <div className="font-black text-xs truncate">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(0)), true)} كجم</div>
         </div>
       </div>
 
@@ -1566,7 +1769,7 @@ export const EntryScreen: React.FC = () => {
           </div>
           <div className="bg-slate-800 text-white p-3 rounded-xl shadow-lg border border-slate-600">
             <div className="text-[10px] text-slate-400 font-bold">إجمالي المبيعات اليوم</div>
-            <div className="text-xl font-black">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(2)), true)} كجم</div>
+            <div className="text-xl font-black">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(0)), true)} كجم</div>
           </div>
         </div>
       )}
@@ -1709,7 +1912,7 @@ export const EntryScreen: React.FC = () => {
                 <Scale className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>
                   {isProductFilterActive ? `وزن (${selectedProductFilter}): ` : 'الوزن الكلي: '}
-                  <strong className="font-mono">{formatWithCommas(parseFloat(currentDisplayedWeight.toFixed(2)), true)}</strong> كجم
+                  <strong className="font-mono">{formatWithCommas(parseFloat(currentDisplayedWeight.toFixed(0)), true)}</strong> كجم
                 </span>
               </span>
             )}
@@ -1929,6 +2132,19 @@ export const EntryScreen: React.FC = () => {
                         >
                           <Printer className="w-3.5 h-3.5" />
                           <span className="hidden sm:inline">طباعة</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleWhatsAppInvoice(customerName, entries)}
+                          className={`px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1 active:scale-95 ${
+                            isDarkMode
+                              ? 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/60 border-emerald-700'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300'
+                          }`}
+                          title="إرسال الفاتورة عبر واتساب"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="hidden sm:inline">واتساب</span>
                         </button>
                         {!isInvoiceSalesCompleted && (
                           <button
@@ -2156,7 +2372,7 @@ export const EntryScreen: React.FC = () => {
                             if (isEditing) {
                               const currentQty = parseArabicNumber(editFormData.quantity) || 0;
                               const currentGrams = parseArabicNumber(editFormData.pieceWeightKg) || 0;
-                              const calcTotalWeight = ((currentQty * currentGrams) / 1000).toFixed(2);
+                              const calcTotalWeight = ((currentQty * currentGrams) / 1000).toFixed(0);
 
                               return (
                                 <tr key={`edit_${entry.id || 'item'}_${index}`} className="bg-amber-50 dark:bg-amber-950/40">
@@ -2434,7 +2650,7 @@ export const EntryScreen: React.FC = () => {
 
                                 {/* الوزن الكلي (كجم) */}
                                 <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-bold sm:font-black text-emerald-700 dark:text-emerald-400 border-l border-slate-200 dark:border-slate-800 whitespace-nowrap text-[9px] sm:text-xs">
-                                  {formatWithCommas(parseFloat((entry.totalWeightKg || 0).toFixed(2)), true)}
+                                  {formatWithCommas(parseFloat((entry.totalWeightKg || 0).toFixed(0)), true)}
                                 </td>
 
                                 {/* سعر القطعة (د.ع) */}
@@ -2480,7 +2696,7 @@ export const EntryScreen: React.FC = () => {
 
                             {/* إجمالي الوزن الكلي */}
                             <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700 whitespace-nowrap text-[9px] sm:text-xs">
-                              {formatWithCommas(parseFloat(totalInvoiceWeight.toFixed(2)), true)} كجم
+                              {formatWithCommas(parseFloat(totalInvoiceWeight.toFixed(0)), true)} كجم
                             </td>
 
                             {/* سعر القطعة */}

@@ -398,13 +398,13 @@ export const ReturnsScreen: React.FC = () => {
     );
     if (foundTargets.length > 0) {
       const sum = foundTargets.reduce((s, t) => s + (Number(t.dailyTargetWeightKg) || 0), 0);
-      if (sum > 0) return Math.round(sum * 10) / 10;
+      if (sum > 0) return Math.round(sum);
     }
 
     // 3. Fallback: From delegateAccounts (monthlyTargetKg / 26)
     const acc = (delegateAccounts || []).find((a) => normalizeArabic(a.delegateName) === norm);
     if (acc && acc.monthlyTargetKg > 0) {
-      return Math.round((acc.monthlyTargetKg / 26) * 10) / 10;
+      return Math.round((acc.monthlyTargetKg / 26) );
     }
     return 0;
   };
@@ -412,7 +412,7 @@ export const ReturnsScreen: React.FC = () => {
   // Helper to get total monthly target (Daily Target * Working Days)
   const getDelegateMonthlyTarget = (delName: string): number => {
     const daily = getDelegateDailyTarget(delName);
-    return Math.round(daily * workingDays * 10) / 10;
+    return Math.round(daily * workingDays);
   };
 
   // New manual entry state
@@ -558,7 +558,7 @@ export const ReturnsScreen: React.FC = () => {
     [sanitizedReturnsList]
   );
   const totalReturnedWeightKg = useMemo(
-    () => Number(sanitizedReturnsList.reduce((sum, r) => sum + (r.monthlyReturnedWeightKg || 0), 0).toFixed(3)),
+    () => Number(sanitizedReturnsList.reduce((sum, r) => sum + (r.monthlyReturnedWeightKg || 0), 0).toFixed(0)),
     [sanitizedReturnsList]
   );
 
@@ -574,11 +574,11 @@ export const ReturnsScreen: React.FC = () => {
       const monthlyTotalTargetKg = getDelegateMonthlyTarget(delName);
 
       // Rule: Allowed returns = allowedPercentage % of monthly total target
-      const allowedReturnKg = Number((monthlyTotalTargetKg * (allowedPercentage / 100)).toFixed(3));
+      const allowedReturnKg = Number((monthlyTotalTargetKg * (allowedPercentage / 100)).toFixed(0));
       // Returned weight so far (from table above)
-      const actualReturnKg = Number((item.monthlyReturnedWeightKg || 0).toFixed(3));
+      const actualReturnKg = Number((item.monthlyReturnedWeightKg || 0).toFixed(0));
       // Difference
-      const diffKg = Number((actualReturnKg - allowedReturnKg).toFixed(3));
+      const diffKg = Number((actualReturnKg - allowedReturnKg).toFixed(0));
 
       // Penalty Rule:
       // When excess >= penaltyWeightStep over allowed, add penaltyAmountStep thousands IQD.
@@ -607,17 +607,17 @@ export const ReturnsScreen: React.FC = () => {
 
   // Aggregated totals for Table 2 (Allowed Returns & Penalties)
   const totalMonthlyTargetSum = useMemo(
-    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.monthlyTotalTargetKg, 0).toFixed(1)),
+    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.monthlyTotalTargetKg, 0).toFixed(0)),
     [allowedReturnsData]
   );
 
   const totalAllowedReturnSum = useMemo(
-    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.allowedReturnKg, 0).toFixed(3)),
+    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.allowedReturnKg, 0).toFixed(0)),
     [allowedReturnsData]
   );
 
   const totalActualReturnSum = useMemo(
-    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.actualReturnKg, 0).toFixed(3)),
+    () => Number(allowedReturnsData.reduce((sum, r) => sum + r.actualReturnKg, 0).toFixed(0)),
     [allowedReturnsData]
   );
 
@@ -737,7 +737,7 @@ export const ReturnsScreen: React.FC = () => {
           continue;
         }
 
-        const cleanWeight = Number(monthlyReturnedWeightKg.toFixed(3));
+        const cleanWeight = Number(monthlyReturnedWeightKg.toFixed(0));
 
         const newItem: MonthlyDelegateReturn = {
           id: `mret_${timestampNow}_${i}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1071,7 +1071,7 @@ export const ReturnsScreen: React.FC = () => {
         id: `mret_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         delegateName: newEntry.delegateName.trim(),
         shopsCount: Math.max(0, parseInt(String(newEntry.shopsCount), 10) || 0),
-        monthlyReturnedWeightKg: Number((parseFloat(String(newEntry.monthlyReturnedWeightKg)) || 0).toFixed(3)),
+        monthlyReturnedWeightKg: Number((parseFloat(String(newEntry.monthlyReturnedWeightKg)) || 0).toFixed(0)),
         monthString: new Date().toISOString().slice(0, 7),
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -1957,10 +1957,10 @@ export const ReturnsScreen: React.FC = () => {
                 />
                 <div className="mt-2 p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
                   <p>
-                    • التاركت الكلي الشهري ({workingDays} يوم): <strong className="font-mono font-black">{formatWithCommas(Math.round(((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) * 10) / 10)} كغم</strong>
+                    • التاركت الكلي الشهري ({workingDays} يوم): <strong className="font-mono font-black">{formatWithCommas(Math.round(((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) ))} كغم</strong>
                   </p>
                   <p>
-                    • الراجع المسموح ({allowedPercentage}%): <strong className="font-mono font-black">{formatWithCommas(Number((((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) * (allowedPercentage / 100)).toFixed(2)))} كغم</strong>
+                    • الراجع المسموح ({allowedPercentage}%): <strong className="font-mono font-black">{formatWithCommas(Number((((editingDailyTargetDelegate.dailyTarget || 0) * workingDays) * (allowedPercentage / 100)).toFixed(0)))} كغم</strong>
                   </p>
                 </div>
               </div>

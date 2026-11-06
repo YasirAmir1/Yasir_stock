@@ -654,13 +654,13 @@ export const AdminScreen: React.FC = () => {
           <div className="p-3 rounded-2xl bg-black/20 border border-white/10">
             <div className="text-emerald-200/90 font-bold mb-1">إجمالي مبيعات المناديب اليوم:</div>
             <div className="text-xl sm:text-2xl font-black text-emerald-300 tracking-tight">
-              {formatWithCommas(parseFloat(totalCompanySalesWeight.toFixed(1)), true)} كجم
+              {formatWithCommas(parseFloat(totalCompanySalesWeight.toFixed(0)), true)} كجم
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-black/20 border border-white/10 text-left dir-ltr">
             <div className="text-slate-200/90 font-bold mb-1 dir-rtl">إجمالي التاركت المطلوب:</div>
             <div className="text-xl sm:text-2xl font-black text-white dir-rtl tracking-tight">
-              {formatWithCommas(parseFloat(totalCompanyTargetWeight.toFixed(1)), true)} كجم
+              {formatWithCommas(parseFloat(totalCompanyTargetWeight.toFixed(0)), true)} كجم
             </div>
           </div>
         </div>
@@ -984,7 +984,7 @@ export const AdminScreen: React.FC = () => {
                         />
                       </td>
                       <td className="py-2.5 px-3 text-left font-black text-emerald-700 dark:text-emerald-300">
-                        {formatWithCommas(parseFloat(delSalesToday.toFixed(1)), true)} كجم
+                        {formatWithCommas(parseFloat(delSalesToday.toFixed(0)), true)} كجم
                       </td>
                     </tr>
                   );

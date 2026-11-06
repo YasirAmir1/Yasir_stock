@@ -149,7 +149,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onClose, isDarkMode }) => 
           {toast.percentage !== undefined && toast.percentage > 0 && (
             <div className="pt-1 flex items-center gap-2 text-xs font-bold opacity-80">
               <span>نسبة الإنجاز الحالية:</span>
-              <strong className="text-sm font-black underline">{(toast.percentage || 0).toFixed(1)}%</strong>
+              <strong className="text-sm font-black underline">{(toast.percentage || 0).toFixed(0)}%</strong>
             </div>
           )}
         </div>
