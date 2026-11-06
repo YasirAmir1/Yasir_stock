@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { db } from '../lib/firebase';
 import { collection, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
@@ -11,6 +12,12 @@ import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas-pro';
+
+const TARGET_CATEGORIES = [
+  'قشطة', 'جبن بيتزا', 'جبن 1', 'جبن ويلي', 'لبن', 'حليب بطل', 'حليب باكيت',
+  'عصير', 'دوغ', 'دانيت', 'حلويات', 'خضراوات مجمدة و فنكر', 'صوصج', 'مربى',
+  'بيتزا جاهز وبركر ومقرمش', 'صلصات', 'منتج جديد', 'منتجات بروتين'
+];
 
 export const EntryScreen: React.FC = () => {
   const {
@@ -81,6 +88,7 @@ export const EntryScreen: React.FC = () => {
     }
   }, [prefilledEntryData, setPrefilledEntryData]);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const debouncedCustomerSearchTerm = useDebounce(customerSearchTerm, 400);
   const [selectedProductFilter, setSelectedProductFilter] = useState<string>('الكل');
   const [invoicePriceMode, setInvoicePriceMode] = useState<'retail' | 'wholesale'>(() => (localStorage.getItem('pref_priceMode') as 'retail' | 'wholesale') || 'retail');
   const [savedEntriesFilterDelegate, setSavedEntriesFilterDelegate] = useState<string>('الكل');
@@ -534,7 +542,16 @@ export const EntryScreen: React.FC = () => {
     const delegateName = entries[0]?.delegateName || 'غير محدد';
     const customerAddress = entries[0]?.customerAddress || '';
     const actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
-    const customerPhone = entries[0]?.customerPhone || '';
+    let customerPhone = entries[0]?.customerPhone || '';
+    
+    // Try to extract phone number from actualCustomerName if it's missing in entries[0]
+    if (!customerPhone) {
+      const phoneMatch = actualCustomerName.match(/(07\d{8,10}|7\d{8,10}|\+964\d{9,11})/);
+      if (phoneMatch) {
+        customerPhone = phoneMatch[0];
+      }
+    }
+    
     const customerCode = customerName.includes('كود:') ? customerName.split('كود: ')[1].split(' |')[0] : '';
 
     const container = document.createElement('div');
@@ -591,11 +608,13 @@ export const EntryScreen: React.FC = () => {
     container.innerHTML = `
       <div style="text-align: center; margin-bottom: 8px;">
         <div style="font-size: 16px; font-weight: 900; margin-bottom: 4px;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
-        <div style="border-top: 1px dashed #000; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 14px; font-weight: bold;">اسم الزبون: ${actualCustomerName}</span>
-          <span style="font-size: 11px; color: #333;">${new Date().toLocaleDateString('en-GB')}</span>
+        <div style="border-top: 1px dashed #000; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+          <div style="flex: 1; text-align: right;">
+            <div style="font-size: 14px; font-weight: bold;">اسم الزبون: ${actualCustomerName}</div>
+            ${customerPhone ? `<div style="font-size: 13px; font-weight: bold; color: #1f4e78;" dir="ltr">${customerPhone}</div>` : ''}
+          </div>
+          <div style="font-size: 11px; color: #333; text-align: left;">${new Date().toLocaleDateString('en-GB')}</div>
         </div>
-        ${customerPhone ? `<div style="font-size: 13px; font-weight: bold; margin-top: 2px;" dir="ltr">${customerPhone}</div>` : ''}
       </div>
       
       <div style="font-size: 12px; margin-bottom: 8px; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0;">
@@ -640,12 +659,12 @@ export const EntryScreen: React.FC = () => {
       });
       document.body.removeChild(container);
 
-      const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.jpg`;
-      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.95));
+      const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.png`;
+      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
 
       let shared = false;
       if (blob && navigator.share && navigator.canShare) {
-        const file = new File([blob], fileName, { type: 'image/jpeg' });
+        const file = new File([blob], fileName, { type: 'image/png' });
         if (navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
@@ -663,7 +682,7 @@ export const EntryScreen: React.FC = () => {
       if (!shared) {
         const link = document.createElement('a');
         link.download = fileName;
-        link.href = canvas.toDataURL('image/jpeg', 0.95);
+        link.href = canvas.toDataURL('image/png');
         link.click();
 
         const message = `🧾 *فاتورة مبيعات - تطبيق ياسر للمبيعات*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
@@ -1372,7 +1391,7 @@ ${itemsTextCalc}
 
   // Filter entries based on customer search, delegate, and price mode
   const baseFilteredSavedEntries = safeSavedEntries.filter((e) => {
-    const matchSearch = !customerSearchTerm || (e.customerName && e.customerName.includes(customerSearchTerm));
+    const matchSearch = !debouncedCustomerSearchTerm || (e.customerName && e.customerName.includes(debouncedCustomerSearchTerm));
     const matchDelegate = savedEntriesFilterDelegate === 'الكل' || e.delegateName === savedEntriesFilterDelegate;
     const matchPrice = savedEntriesFilterPriceMode === 'الكل' || e.priceMode === savedEntriesFilterPriceMode;
     return matchSearch && matchDelegate && matchPrice;
@@ -1488,6 +1507,28 @@ ${itemsTextCalc}
   });
 
   const isPrivilegedRole = currentUser?.isAdmin || currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata';
+
+  const categorySalesSummary = useMemo(() => {
+    const summary: Record<string, number> = {};
+    TARGET_CATEGORIES.forEach(cat => summary[cat] = 0);
+
+    savedEntries.forEach(entry => {
+      const cat = entry.categoryName || '';
+      const matchedCat = TARGET_CATEGORIES.find(tc => 
+        cat === tc || cat.includes(tc) || tc.includes(cat)
+      );
+
+      if (matchedCat) {
+        const prod = productsList.find(p => p.productName === entry.productName);
+        const cartonQty = Number(prod?.cartonQuantity) || 12;
+        const totalUnits = Number(entry.quantity) || 0;
+        const cartons = totalUnits / cartonQty;
+        summary[matchedCat] += cartons;
+      }
+    });
+
+    return summary;
+  }, [savedEntries, productsList]);
 
   // 12-hour formatted auto lock time in English (e.g. 15:00 -> 3:00 PM)
   const formattedLockTime12h = useMemo(() => {
@@ -1649,8 +1690,12 @@ ${itemsTextCalc}
             )}
           </div>
 
-          {/* Grid of Delegates (Sorted from earliest first invoice to furthest) */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          </div>
+        )}
+
+        {/* Grid of Delegates (Sorted from earliest first invoice to furthest) */}
+        {isPrivilegedRole && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-4">
             {sortedDelegatesByFirstInvoice.map((del, index) => {
               const info = delegateFirstInvoicesToday[del] || {
                 firstTimestamp: null,
@@ -1739,8 +1784,45 @@ ${itemsTextCalc}
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* 1.2 Sauces Sales Summary Grid (Admin & Data Entry Only) */}
+        {isPrivilegedRole && (
+          <div className={`p-4 rounded-2xl border-2 shadow-md space-y-4 ${
+            isDarkMode 
+              ? 'bg-slate-900 border-amber-500/40 text-white' 
+              : 'bg-white border-amber-300 text-slate-900'
+          }`}>
+            <div className="flex items-center gap-2 border-b pb-2 dark:border-slate-800">
+              <div className="p-1.5 rounded-lg bg-amber-600 text-white shadow-xs">
+                <Package className="w-4 h-4" />
+              </div>
+              <h3 className="text-xs sm:text-sm font-black flex items-center gap-2">
+                <span>مبيعات الأصناف اليوم (كارتون)</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600">
+                  {selectedDelegate === 'الكل' ? 'الإجمالي العام' : `للمندوب: ${selectedDelegate}`}
+                </span>
+              </h3>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
+              {TARGET_CATEGORIES.map((cat) => {
+                const totalCartons = categorySalesSummary[cat] || 0;
+                return (
+                  <div key={cat} className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all ${
+                    totalCartons > 0 
+                      ? isDarkMode ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-emerald-50 border-emerald-200 shadow-xs'
+                      : isDarkMode ? 'bg-slate-800/50 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60'
+                  }`}>
+                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mb-1 truncate w-full" title={cat}>{cat}</span>
+                    <span className={`text-xs font-black ${totalCartons > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                      {totalCartons > 0 ? parseFloat(totalCartons.toFixed(1)) : '0'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
 
 

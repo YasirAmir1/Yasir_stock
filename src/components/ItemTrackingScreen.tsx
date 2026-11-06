@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales } from '../context/SalesContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { SalesEntry } from '../types';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
@@ -145,6 +146,7 @@ export const ItemTrackingScreen: React.FC = () => {
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
 
   // Expanded row for product drilldown
   const [expandedDelegate, setExpandedDelegate] = useState<string | null>(null);
@@ -456,19 +458,26 @@ export const ItemTrackingScreen: React.FC = () => {
 
     // 2. Breakdown per delegate
     const list = validDelegates.map((del) => {
-      // Find daily target for this delegate in category 'صلصات'
-      const targetObj = delegateTargets.find(
+      // Compute daily target: (monthlyTarget - monthlySales) / remainingWorkingDays
+      const monthlyMatch = monthlyItemTargets.find(
         (t) => isDelMatch(t.delegateName, del) && isSauceCategory(t.categoryName)
       );
-      let dailyTargetKg = targetObj ? Number(targetObj.dailyTargetWeightKg) || 0 : 0;
+      let dailyTargetKg = 0;
+      if (monthlyMatch) {
+        const mTarget = Number(monthlyMatch.monthlyTarget) || 0;
+        const mSales = Number(monthlyMatch.monthlySales) || 0;
+        const remainingMonthly = Math.max(0, mTarget - mSales);
+        const days = Math.max(1, remainingWorkingDays);
+        dailyTargetKg = remainingMonthly / days;
+      }
 
-      // Fallback: if not set in delegateTargets, derive from monthlyItemTargets if available
+      // Fallback: if report11_targets is not uploaded, derive from delegateTargets
       if (dailyTargetKg === 0) {
-        const monthlyMatch = monthlyItemTargets.find(
+        const targetObj = delegateTargets.find(
           (t) => isDelMatch(t.delegateName, del) && isSauceCategory(t.categoryName)
         );
-        if (monthlyMatch && Number(monthlyMatch.monthlyTarget) > 0) {
-          dailyTargetKg = Math.round((Number(monthlyMatch.monthlyTarget) / 26) );
+        if (targetObj) {
+          dailyTargetKg = Number(targetObj.dailyTargetWeightKg) || 0;
         }
       }
 
@@ -511,12 +520,17 @@ export const ItemTrackingScreen: React.FC = () => {
 
     // Filter by search term if provided
     const filtered = list.filter((item) => {
-      if (!searchTerm) return true;
-      return normalizeArabic(item.delegateName).includes(normalizeArabic(searchTerm));
+      if (!debouncedSearchTerm) return true;
+      return normalizeArabic(item.delegateName).includes(normalizeArabic(debouncedSearchTerm));
     });
 
     // Totals across all delegates
-    const totalDailyTarget = list.reduce((sum, i) => sum + i.dailyTargetKg, 0);
+    const sauceMonthlyTargets = monthlyItemTargets.filter((t) => isSauceCategory(t.categoryName));
+    const totalMonthlyTarget = sauceMonthlyTargets.reduce((sum, t) => sum + Number(t.monthlyTarget), 0);
+    const totalMonthlySales = sauceMonthlyTargets.reduce((sum, t) => sum + Number(t.monthlySales), 0);
+    const days = Math.max(1, remainingWorkingDays);
+    const totalDailyTarget = Math.round(Math.max(0, totalMonthlyTarget - totalMonthlySales) / days);
+
     const totalDailySales = list.reduce((sum, i) => sum + i.dailySalesKg, 0);
     const totalDailyPieces = list.reduce((sum, i) => sum + i.totalPieces, 0);
     const totalDailyInvoices = dateSales.length > 0 ? new Set(dateSales.map((e) => e.customerCode || e.customerName || e.invoiceId || e.id)).size : 0;
@@ -537,7 +551,7 @@ export const ItemTrackingScreen: React.FC = () => {
         achievedCount
       }
     };
-  }, [allSales, selectedDate, validDelegates, delegateTargets, monthlyItemTargets, searchTerm]);
+  }, [allSales, selectedDate, validDelegates, delegateTargets, monthlyItemTargets, debouncedSearchTerm, remainingWorkingDays]);
 
   // ----------------------------------------------------
   // SECTION B: MONTHLY TRACKING FOR SAUCES (صلصات)
@@ -609,8 +623,8 @@ export const ItemTrackingScreen: React.FC = () => {
 
     // Filter by search term if provided
     const filtered = list.filter((item) => {
-      if (!searchTerm) return true;
-      return normalizeArabic(item.delegateName).includes(normalizeArabic(searchTerm));
+      if (!debouncedSearchTerm) return true;
+      return normalizeArabic(item.delegateName).includes(normalizeArabic(debouncedSearchTerm));
     });
 
     return {
@@ -627,7 +641,7 @@ export const ItemTrackingScreen: React.FC = () => {
         currentMonthPrefix
       }
     };
-  }, [monthlyItemTargets, allSales, selectedDate, validDelegates, remainingWorkingDays, delegateTargets, searchTerm]);
+  }, [monthlyItemTargets, allSales, selectedDate, validDelegates, remainingWorkingDays, delegateTargets, debouncedSearchTerm]);
 
   // Refresh data handler
   const handleRefresh = async () => {
@@ -743,7 +757,7 @@ export const ItemTrackingScreen: React.FC = () => {
 
       addToast({
         title: 'تم الحفظ كصورة',
-        message: 'تم حفظ تقرير متابعة الأصناف كصورة عالية الدقة بنجاح 🖼️',
+        message: 'تم حفظ تقرير الصلصات كصورة عالية الدقة بنجاح 🖼️',
         type: 'success'
       });
     } catch (err) {
@@ -763,7 +777,7 @@ export const ItemTrackingScreen: React.FC = () => {
         </div>
         <h2 className="text-xl font-black text-red-400">صلاحية الوصول غير متوفرة</h2>
         <p className="text-sm font-bold text-slate-300 leading-relaxed">
-          عذراً، صفحة <span className="text-amber-400 font-black">متابعة الأصناف (الصلصات)</span> مخصصة حصراً لمدير النظام (Admin) ومدخل البيانات (Data Entry).
+          عذراً، صفحة <span className="text-amber-400 font-black">الصلصات</span> مخصصة حصراً لمدير النظام (Admin) ومدخل البيانات (Data Entry).
         </p>
       </div>
     );
@@ -785,7 +799,7 @@ export const ItemTrackingScreen: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-                متابعة الأصناف — صنف الصلصات
+                متابعة الصلصات
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40">
                 إدارة ومدخل بيانات 🔒

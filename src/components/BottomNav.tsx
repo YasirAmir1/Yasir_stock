@@ -24,7 +24,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const tabs = isSauceUser
     ? [
         { id: 'products', label: 'المنتجات', icon: Package },
-        { id: 'item_tracking', label: 'الأصناف', icon: Layers },
+        { id: 'item_tracking', label: 'الصلصات', icon: Layers },
       ]
     : [
         { id: 'entry', label: 'الفواتير', icon: FileText },
@@ -33,7 +33,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
         { id: 'report_11', label: 'التقرير (11)', icon: FileSpreadsheet },
         ...(!isSauceUser ? [{ id: 'additional_target', label: 'الاضافي', icon: Target }] : []),
-        ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
+        ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الصلصات', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },
         { id: 'qc', label: 'QC', icon: AlertTriangle },

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSales } from '../context/SalesContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { db } from '../lib/firebase';
 import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { collection, getDocs, query, doc, writeBatch, where, setDoc } from 'firebase/firestore';
@@ -99,6 +100,7 @@ export const OldInvoicesScreen: React.FC = () => {
 
   // State for search and filters
   const [shopSearchTerm, setShopSearchTerm] = useState('');
+  const debouncedShopSearchTerm = useDebounce(shopSearchTerm, 400);
   const [selectedDelegate, setSelectedDelegate] = useState<string>('الكل');
   const [selectedPriceMode, setSelectedPriceMode] = useState<'الكل' | 'retail' | 'wholesale'>('الكل');
   const [selectedMonth, setSelectedMonth] = useState<string>('الكل');
@@ -427,7 +429,7 @@ export const OldInvoicesScreen: React.FC = () => {
   // Group historical entries into distinct invoices:
   // Key = dateString + customerCode/Name + delegateName + priceMode (+ invoiceId if present)
   const groupedOldInvoices = useMemo(() => {
-    const term = shopSearchTerm.trim().toLowerCase();
+    const term = debouncedShopSearchTerm.trim().toLowerCase();
 
     // Filter entries first
     const filtered = allEntriesCombined.filter(e => {
@@ -538,7 +540,7 @@ export const OldInvoicesScreen: React.FC = () => {
       }
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
-  }, [allEntriesCombined, shopSearchTerm, selectedDelegate, selectedPriceMode, selectedMonth, selectedDate, productsList]);
+  }, [allEntriesCombined, debouncedShopSearchTerm, selectedDelegate, selectedPriceMode, selectedMonth, selectedDate, productsList]);
 
   // Summary Metrics
   const summaryMetrics = useMemo(() => {

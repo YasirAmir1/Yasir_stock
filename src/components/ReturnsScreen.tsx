@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSales, isExcludedReportDelegate } from '../context/SalesContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { db } from '../lib/firebase';
 import { collection, writeBatch, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
@@ -147,6 +148,7 @@ export const ReturnsScreen: React.FC = () => {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDownloadingImage, setIsDownloadingImage] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
 
   // Number of working days in the month (Admin can change it, defaults to 26)
@@ -546,10 +548,10 @@ export const ReturnsScreen: React.FC = () => {
   // Filtered list based on search term (search only active for Admin / Data Entry)
   const filteredReturns = useMemo(() => {
     if (!isAdminOrDataEntry) return sanitizedReturnsList;
-    if (!searchTerm.trim()) return sanitizedReturnsList;
-    const term = normalizeArabic(searchTerm);
+    if (!debouncedSearchTerm.trim()) return sanitizedReturnsList;
+    const term = normalizeArabic(debouncedSearchTerm);
     return sanitizedReturnsList.filter((item) => normalizeArabic(item.delegateName).includes(term));
-  }, [sanitizedReturnsList, searchTerm, isAdminOrDataEntry]);
+  }, [sanitizedReturnsList, debouncedSearchTerm, isAdminOrDataEntry]);
 
   // Aggregated totals for main returns table
   const totalDelegatesCount = sanitizedReturnsList.length;

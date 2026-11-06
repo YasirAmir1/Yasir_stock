@@ -1414,7 +1414,7 @@ export const AdminScreen: React.FC = () => {
           <div className="p-3 bg-white dark:bg-slate-800/80 rounded-xl text-[11px] text-slate-600 dark:text-slate-300 space-y-1 border border-slate-200 dark:border-slate-700 shadow-xs">
               <p>اسم المستخدم: <span className="text-slate-900 dark:text-white font-black font-mono">{mohammedUsernameInput}</span></p>
               <p>كلمة المرور: <span className="text-slate-900 dark:text-white font-black font-mono">{mohammedPasswordInput}</span></p>
-              <p className="text-amber-600 dark:text-amber-400 font-bold">الصلاحيات: مخصص لصفحة المنتجات (الصلصات فقط) وصفحة متابعة الأصناف.</p>
+              <p className="text-amber-600 dark:text-amber-400 font-bold">الصلاحيات: مخصص لصفحة المنتجات (الصلصات فقط) وصفحة الصلصات.</p>
           </div>
         </div>
       </div>

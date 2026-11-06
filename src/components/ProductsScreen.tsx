@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useSales, getCategoryPriorityIndex } from '../context/SalesContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { ProductItem, GiftPromotion } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -163,6 +164,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     getProductLiveStock
   } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const [showSearch, setShowSearch] = useState(false);
   const [showStoreNotificationsModal, setShowStoreNotificationsModal] = useState(false);
   const [showOnlyPriceChanged, setShowOnlyPriceChanged] = useState<boolean>(false);
@@ -600,7 +602,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const liveStock = getProductLiveStock(p);
       if (!isAdmin && (p.isAvailable === false || liveStock.cartons < 3)) return false;
 
-      const term = (searchTerm || '').toLowerCase();
+      const term = (debouncedSearchTerm || '').toLowerCase();
       const matchSearch = 
         (p.productName || '').toLowerCase().includes(term) ||
         (p.productCode || '').toLowerCase().includes(term) ||
@@ -651,7 +653,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     });
 
     return filtered;
-  }, [productsList, searchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged]);
+  }, [productsList, debouncedSearchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -5491,7 +5491,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         ? isDarkMode ? 'bg-emerald-950/90 text-emerald-200' : 'bg-emerald-100/90 text-emerald-950'
                         : 'text-slate-700 dark:text-slate-300'
                     }`}>
-                      {row.dailyTarget > 0 ? Math.round(row.dailyTarget) : '0'}
+                      {row.dailyTarget > 0 ? formatWithCommas(Math.round(row.dailyTarget)) : '0'}
                     </td>
 
                     {/* Daily Sales */}
@@ -5500,7 +5500,7 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
                         ? isDarkMode ? 'bg-emerald-950/90 text-emerald-200' : 'bg-emerald-100/90 text-emerald-950'
                         : hasSalesToday ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                     }`}>
-                      {hasSalesToday ? Math.round(row.dailySales) : '0'}
+                      {hasSalesToday ? formatWithCommas(Math.round(row.dailySales)) : '0'}
                     </td>
 
                     {/* Daily % */}
@@ -5514,17 +5514,17 @@ const DelegateTableView: React.FC<DelegateTableViewProps> = ({
 
                     {/* Monthly Target */}
                     <td className="p-1 text-center font-black text-slate-800 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.monthlyTarget > 0 ? Math.round(row.monthlyTarget) : '0'}
+                      {row.monthlyTarget > 0 ? formatWithCommas(Math.round(row.monthlyTarget)) : '0'}
                     </td>
 
                     {/* Monthly Sales */}
                     <td className="p-1 text-center font-black text-slate-800 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.monthlySales > 0 ? Math.round(row.monthlySales) : '0'}
+                      {row.monthlySales > 0 ? formatWithCommas(Math.round(row.monthlySales)) : '0'}
                     </td>
 
                     {/* Remaining Target */}
                     <td className="p-1 text-center font-black text-amber-700 dark:text-amber-400 border-l border-slate-200 dark:border-slate-800 text-[9px]">
-                      {row.remainingMonthly > 0 ? Math.round(row.remainingMonthly) : '0'}
+                      {row.remainingMonthly > 0 ? formatWithCommas(Math.round(row.remainingMonthly)) : '0'}
                     </td>
 
                     {/* Monthly % */}
