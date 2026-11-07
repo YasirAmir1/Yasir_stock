@@ -35,6 +35,7 @@ interface RouteItem {
   customerCode: string;
   customerName: string;
   customerAddress: string;
+  customerPhone?: string;
   delegateName: string;
   path: string;
 }

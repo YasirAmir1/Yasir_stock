@@ -5,6 +5,7 @@ import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/fires
 import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus } from '../types';
+import { parseArabicDigits } from '../utils/numberUtils';
 import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
@@ -265,12 +266,17 @@ export const RoutesScreen: React.FC = () => {
 
   const formatWhatsAppPhone = (phone: string): string => {
     if (!phone) return '';
-    let cleaned = phone.replace(/\D/g, '');
+    const normalized = parseArabicDigits(String(phone));
+    let cleaned = normalized.replace(/\D/g, '');
     if (cleaned.startsWith('00964')) {
-      cleaned = '964' + cleaned.substring(5);
+      cleaned = cleaned.substring(2);
     } else if (cleaned.startsWith('07')) {
       cleaned = '964' + cleaned.substring(1);
+    } else if (cleaned.startsWith('0')) {
+      cleaned = '964' + cleaned.substring(1);
     } else if (cleaned.startsWith('7') && cleaned.length === 10) {
+      cleaned = '964' + cleaned;
+    } else if (!cleaned.startsWith('964') && cleaned.length >= 10) {
       cleaned = '964' + cleaned;
     }
     return cleaned;
@@ -326,8 +332,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
     const formattedPhone = formatWhatsAppPhone(cleanRawPhone);
     const whatsappUrl = formattedPhone 
-      ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`
-      : `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
 
     window.open(whatsappUrl, '_blank');
     setWhatsappModalDebt(null);
@@ -1275,6 +1281,32 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return byCode || byName || 0;
   }, [customerInvoicesCountMap]);
 
+  // Customer phone lookup across debts and sales entries for instant fallback
+  const customerPhoneLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    debts.forEach((d: any) => {
+      const code = String(d.customerCode ?? '').trim();
+      const phone = String(d.customerPhone || d.phone || '').trim();
+      if (code && phone) map.set(code, phone);
+    });
+    allSalesEntries.forEach((e: any) => {
+      const code = String(e.customerCode ?? '').trim();
+      const phone = String(e.customerPhone || e.phone || '').trim();
+      if (code && phone && !map.has(code)) map.set(code, phone);
+    });
+    return map;
+  }, [debts, allSalesEntries]);
+
+  const getCustomerPhone = React.useCallback((r: RouteItem): string => {
+    if (r.customerPhone && r.customerPhone.trim()) return r.customerPhone.trim();
+    const cCode = String(r.customerCode || '').trim();
+    const fromMap = customerPhoneLookup.get(cCode);
+    if (fromMap) return fromMap;
+    const match = r.customerName?.match(/(07\d{9}|9647\d{9}|\+9647\d{9})/);
+    if (match) return match[0];
+    return '';
+  }, [customerPhoneLookup]);
+
   const filteredRoutes = useMemo(() => {
     const rawQuery = searchQuery.trim();
     const normalizedQuery = normalizeArabic(rawQuery);
@@ -1457,6 +1489,133 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     }
   };
 
+  const handleDownloadFilteredRoutes = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      
+      const exportList = filteredRoutes;
+      if (exportList.length === 0) {
+        addToast({
+          message: 'لا توجد مسارات مطابقة للتنزيل بناءً على التصفية الحالية.',
+          type: 'info',
+          title: 'تنبيه',
+          delegateName: currentUser?.name || '',
+          percentage: 0
+        });
+        return;
+      }
+
+      const rows = exportList.map((r, idx) => {
+        const phone = getCustomerPhone(r);
+        return {
+          'ت': idx + 1,
+          'كود الزبون': r.customerCode || '',
+          'اسم الزبون': r.customerName || '',
+          'رقم الزبون': phone || '',
+          'العنوان': r.customerAddress || '',
+          'المسار': r.path || '',
+          'نوع الزبون': r.customerType || 'مفرد',
+          'اسم المندوب': r.delegateName || '',
+          'كود المندوب': r.delegateCode || '',
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      worksheet['!cols'] = [
+        { wch: 6 },  // ت
+        { wch: 14 }, // كود الزبون
+        { wch: 28 }, // اسم الزبون
+        { wch: 18 }, // رقم الزبون
+        { wch: 28 }, // العنوان
+        { wch: 16 }, // المسار
+        { wch: 12 }, // نوع الزبون
+        { wch: 20 }, // اسم المندوب
+        { wch: 14 }, // كود المندوب
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "مسارات");
+
+      const delegatePart = routeFilterDelegate ? routeFilterDelegate.replace(/\s+/g, '_') : 'كل_المندوبين';
+      const dayPart = routeFilterDay ? routeFilterDay.replace(/\s+/g, '_') : 'كل_الايام';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const filename = `مسارات_${delegatePart}_${dayPart}_${todayStr}.xlsx`;
+
+      XLSX.writeFile(workbook, filename);
+
+      addToast({
+        message: `تم تحميل ملف المسارات (${exportList.length} زبون) بنجاح 📥✅`,
+        type: 'success',
+        title: 'تحميل المسارات',
+        delegateName: currentUser?.name || '',
+        percentage: 0
+      });
+    } catch (err) {
+      console.error('Error downloading routes excel:', err);
+      addToast({
+        message: 'حدث خطأ أثناء تحميل ملف المسارات.',
+        type: 'info',
+        title: 'خطأ',
+        delegateName: currentUser?.name || '',
+        percentage: 0
+      });
+    }
+  };
+
+  const handleDownloadRoutesTemplate = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const sampleRows = [
+        {
+          'كود الزبون': '30071831',
+          'اسم الزبون': 'اسواق ابو بلال',
+          'رقم الزبون': '07719836783',
+          'العنوان': 'العلم مدخل الخزامية',
+          'المسار': 'السبت',
+          'نوع الزبون': 'مفرد',
+          'اسم المندوب': 'محمد جاسم',
+          'كود المندوب': '60037329',
+        },
+        {
+          'كود الزبون': '30071832',
+          'اسم الزبون': 'اسواق السلام',
+          'رقم الزبون': '07701234567',
+          'العنوان': 'تكريت حي الزهور',
+          'المسار': 'الاحد',
+          'نوع الزبون': 'جملة',
+          'اسم المندوب': 'فيصل فؤاد',
+          'كود المندوب': '60042245',
+        }
+      ];
+
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      worksheet['!cols'] = [
+        { wch: 14 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 14 },
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "نموذج_مسارات");
+      XLSX.writeFile(workbook, "نموذج_مسارات_مع_رقم_الزبون.xlsx");
+
+      addToast({
+        message: 'تم تحميل نموذج المسارات (مع عمود رقم الزبون مجاور اسم الزبون) بنجاح 📋✅',
+        type: 'success',
+        title: 'نموذج المسارات',
+        delegateName: currentUser?.name || '',
+        percentage: 0
+      });
+    } catch (err) {
+      console.error('Error downloading template:', err);
+    }
+  };
+
 
 
   return (
@@ -1595,7 +1754,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           <thead className={`font-bold text-[10px] sm:text-xs ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
             <tr>
               <th className="px-2 py-2 border-b dark:border-slate-700 whitespace-nowrap">كود الزبون</th>
-              <th className="px-2 py-2 border-b dark:border-slate-700 min-w-[95px]">اسم الزبون</th>
+              <th className="px-2 py-2 border-b dark:border-slate-700 min-w-[130px]">اسم ورقم الزبون</th>
               <th className="px-2 py-2 border-b dark:border-slate-700 min-w-[90px] max-w-[130px]">العنوان</th>
               <th className="px-1.5 py-2 border-b dark:border-slate-700 whitespace-nowrap">المسار</th>
               <th className="px-1.5 py-2 border-b dark:border-slate-700 whitespace-nowrap">نوع الزبون</th>
@@ -1672,16 +1831,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       >
                         <td className={`px-2 py-1.5 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1">
-                              {r.customerPhone && (
-                                <a 
-                                  href={`tel:${r.customerPhone}`}
-                                  className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
-                                  title="اتصل بالزبون"
-                                >
-                                  <Phone className="w-3 h-3" />
-                                </a>
-                              )}
+                            <div className="flex items-center gap-1 font-mono text-xs">
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
@@ -1719,7 +1869,27 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-1.5">{r.customerName}</td>
+                        <td className="px-2 py-1.5 font-bold">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-900 dark:text-white font-black">{r.customerName}</span>
+                            {(() => {
+                              const phone = getCustomerPhone(r);
+                              if (!phone) return null;
+                              return (
+                                <a 
+                                  href={`tel:${phone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] sm:text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 px-1.5 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-700/60 shrink-0 transition-all shadow-2xs"
+                                  title="رقم الزبون - اضغط للاتصال المباشر"
+                                  dir="ltr"
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  <span className="font-mono">{phone}</span>
+                                </a>
+                              );
+                            })()}
+                          </div>
+                        </td>
                         <td className="px-2 py-1.5 max-w-[130px] sm:max-w-[180px] truncate" title={r.customerAddress}>{r.customerAddress}</td>
                         <td className="px-1.5 py-1.5 whitespace-nowrap">{r.path}</td>
                         <td className="px-1.5 py-1.5 whitespace-nowrap">{r.customerType}</td>
@@ -1740,6 +1910,30 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         >
           عرض المزيد
         </button>
+      )}
+
+      {/* Admin Only: Download Routes directly below table */}
+      {currentUser?.isAdmin && (
+        <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs ${
+          isDarkMode ? 'bg-slate-800/90 border-slate-700' : 'bg-emerald-50/70 border-emerald-200'
+        }`}>
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>
+              تحميل المسارات المفلترة ({routeFilterDelegate || 'كل المندوبين'} - {routeFilterDay || 'كل الأيام'}):
+              <span className="mr-1.5 font-black text-emerald-700 dark:text-emerald-300 font-mono">({filteredRoutes.length} زبون)</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleDownloadFilteredRoutes}
+            className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            title="تحميل المسارات المفلترة حسب المندوب واليوم في ملف إكسل"
+          >
+            <Download className="w-4 h-4" />
+            <span>تحميل المسارات (Excel)</span>
+          </button>
+        </div>
       )}
 
       {/* Summary Card removed */}
@@ -2257,8 +2451,80 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       )}
 
       
-      <div className="mt-8">
-      </div>
+      {/* Admin Only: Bottom of the Page Download Routes Section */}
+      {currentUser?.isAdmin && (
+        <div className={`mt-8 p-4 sm:p-5 rounded-2xl border shadow-md space-y-4 ${
+          isDarkMode 
+            ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60' 
+            : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200'
+        }`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-100 dark:border-slate-700/80">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
+                <FileSpreadsheet className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>تحميل المسارات (Excel)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs">
+                    للأدمن فقط
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                  تحميل ملف المسارات حسب المندوب واليوم المحددين مع عمود رقم الزبون مجاور اسم الزبون
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Badges */}
+            <div className="flex items-center gap-2 flex-wrap text-xs font-bold">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                المندوب: <span className="font-black">{routeFilterDelegate || 'كل المندوبين'}</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                اليوم: <span className="font-black">{routeFilterDay || 'كل الأيام'}</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                العدد: <span className="font-mono font-black">{filteredRoutes.length}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={handleDownloadFilteredRoutes}
+              className="flex-1 py-3 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-98 text-white rounded-xl font-black text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+              title="تحميل المسارات المفلترة حسب المندوب واليوم في ملف إكسل"
+            >
+              <Download className="w-5 h-5 shrink-0" />
+              <span>تحميل المسارات ({filteredRoutes.length} زبون)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadRoutesTemplate}
+              className="py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              title="تحميل نموذج إكسل فارغ للمسارات يتضمن عمود رقم الزبون مجاور اسم الزبون"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>تحميل نموذج إكسل فارغ (Template)</span>
+            </button>
+
+            <label className="py-3 px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer">
+              <Upload className="w-4 h-4" />
+              <span>رفع مسارات (Excel)</span>
+              <input
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleUploadRoutes}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </div>
+      )}
 
 
 

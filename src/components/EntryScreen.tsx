@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, UserCheck, Shield, Calendar, ChevronDown, Scale, Phone } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
@@ -45,8 +45,35 @@ export const EntryScreen: React.FC = () => {
     todaySalesByProductName = {},
     getProductLiveStock,
     report11Targets = [],
-    report11Config = { workingDays: 26, remainingDays: 20 }
+    report11Config = { workingDays: 26, remainingDays: 20 },
+    routes = []
   } = useSales();
+
+  // Helper to extract customer phone from entry, routes, or name
+  const getCustomerPhoneForInvoice = (entries: SalesEntry[], customerNameRaw?: string): string => {
+    if (entries[0]?.customerPhone && String(entries[0].customerPhone).trim()) {
+      return String(entries[0].customerPhone).trim();
+    }
+    const cCode = entries[0]?.customerCode ? String(entries[0].customerCode).trim() : '';
+    if (cCode) {
+      const matched = routes.find(r => String(r.customerCode || '').trim() === cCode);
+      if (matched?.customerPhone && String(matched.customerPhone).trim()) {
+        return String(matched.customerPhone).trim();
+      }
+    }
+    const rawName = customerNameRaw || entries[0]?.customerName || '';
+    const cleanName = rawName.split(' | الزبون: ').pop()?.trim() || rawName.trim();
+    if (cleanName) {
+      const matchedByName = routes.find(r => r.customerName && r.customerName.trim() === cleanName);
+      if (matchedByName?.customerPhone && String(matchedByName.customerPhone).trim()) {
+        return String(matchedByName.customerPhone).trim();
+      }
+    }
+    const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
+    const phoneMatch = rawName.match(phoneRegex);
+    if (phoneMatch) return phoneMatch[0].trim();
+    return '';
+  };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -540,13 +567,13 @@ export const EntryScreen: React.FC = () => {
     setSuccessMessage(null);
   };
 
-  const handleWhatsAppInvoice = async (customerName: string, entries: typeof safeSavedEntries) => {
+  const handleWhatsAppInvoice = async (customerName: string, entries: typeof safeSavedEntries, targetPhoneOverride?: string) => {
     const delegateName = entries[0]?.delegateName || 'غير محدد';
     const customerAddress = entries[0]?.customerAddress || '';
     
     // 1. Initial name extraction
     let actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
-    let customerPhone = entries[0]?.customerPhone || '';
+    let customerPhone = targetPhoneOverride || getCustomerPhoneForInvoice(entries, customerName);
     
     // 2. Robust extraction from name string if missing
     // Handles 07..., 7..., +9647... with spaces or hyphens
@@ -556,93 +583,124 @@ export const EntryScreen: React.FC = () => {
     if (phoneMatch) {
       if (!customerPhone) customerPhone = phoneMatch[0];
       // Clean name: remove the phone number and trailing/leading separators
-      actualCustomerName = actualCustomerName.replace(phoneMatch[0], '').replace(/^[\s-–—]+|[\s-–—]+$/g, '').trim();
+      actualCustomerName = actualCustomerName.replace(phoneMatch[0], '').replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();
     }
     
-    const customerCodeMetadata = entries[0]?.customerCode || '---';
     const invoicePriceModeStr = entries[0]?.priceMode === 'wholesale' ? 'جملة' : 'مفرد';
-    const invoiceDateStr = entries[0]?.timestamp 
-      ? new Date(entries[0].timestamp).toISOString().split('T')[0] 
-      : (entries[0]?.dateString || new Date().toISOString().split('T')[0]);
+    const entryDate = entries[0]?.timestamp ? new Date(entries[0].timestamp) : new Date();
+    const day = String(entryDate.getDate()).padStart(2, '0');
+    const month = String(entryDate.getMonth() + 1).padStart(2, '0');
+    const year = entryDate.getFullYear();
+    const hours = String(entryDate.getHours()).padStart(2, '0');
+    const minutes = String(entryDate.getMinutes()).padStart(2, '0');
+    const seconds = String(entryDate.getSeconds()).padStart(2, '0');
+    const formattedDate = `${day}/${month}/${year}`;
+    const formattedTime = `${hours}:${minutes}:${seconds}`;
 
     const container = document.createElement('div');
     container.style.position = 'fixed';
     container.style.top = '-9999px';
     container.style.left = '-9999px';
-    container.style.width = '350px';
+    container.style.width = '340px';
     container.style.background = '#ffffff';
     container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-    container.style.padding = '15px';
+    container.style.padding = '12px 14px';
     container.style.color = '#000000';
     container.style.direction = 'rtl';
     container.style.boxSizing = 'border-box';
+    container.style.border = '2px solid #000000';
 
     let rowsHtml = '';
     let totalPrice = 0;
-    let totalCartonsCount = 0;
-    let totalWeightKg = 0;
     
-    entries.forEach((e) => {
+    entries.forEach((e, idx) => {
       const isGift = Boolean(e.isGift);
       const prod = productsList.find(p => p.productName === e.productName);
-      const pCode = prod?.productCode || '---';
       const price = prod && !isGift ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
       const rowPrice = price * e.quantity;
       totalPrice += rowPrice;
-      totalWeightKg += (Number(e.totalWeightKg) || 0);
       
       const cartonQty = Number(prod?.cartonQuantity) || 1;
-      const cartons = e.quantity / cartonQty;
-      totalCartonsCount += cartons;
+      let qtyMain = `${e.quantity} قطعة`;
+      let qtySub = '';
+
+      if (cartonQty > 1) {
+        if (e.quantity % cartonQty === 0) {
+          const cartons = e.quantity / cartonQty;
+          qtyMain = `${cartons} كارتون`;
+          qtySub = `(${e.quantity} قطعة)`;
+        } else if (e.quantity >= cartonQty) {
+          const fullCartons = Math.floor(e.quantity / cartonQty);
+          qtyMain = `${fullCartons} كارتون`;
+          qtySub = `(${e.quantity} قطعة)`;
+        } else {
+          qtyMain = `${e.quantity} قطعة`;
+          qtySub = '';
+        }
+      }
 
       rowsHtml += `
         <tr style="border-bottom: 1px dashed #bbb;">
-          <td style="padding: 10px 2px; text-align: left; font-size: 11px;">
-            <div style="font-weight: 900; font-size: 13px;">${formatWithCommas(rowPrice, true)}</div>
-            <div style="font-size: 9px; font-weight: bold; color: #444;">د.ع</div>
+          <td style="padding: 7px 2px; text-align: left; font-size: 12px; font-weight: bold; white-space: nowrap;">
+            ${formatWithCommas(rowPrice, true)} د.ع
           </td>
-          <td style="padding: 10px 2px; text-align: center; font-size: 11px;">
-            <div style="font-weight: 900; font-size: 12px;">${formatWithCommas(e.quantity)} قطعة</div>
-            <div style="font-size: 10px; color: #666;">(${parseFloat(cartons.toFixed(1))} كارتون)</div>
+          <td style="padding: 7px 2px; text-align: center; font-size: 11px; line-height: 1.2;">
+            <div style="font-weight: 900; color: #000;">${qtyMain}</div>
+            ${qtySub ? `<div style="font-size: 10px; color: #444; font-weight: bold;">${qtySub}</div>` : ''}
           </td>
-          <td style="padding: 10px 4px; text-align: right; font-size: 11px; line-height: 1.3;">
-            ${isGift ? '<span style="color: #b45309; font-weight: bold;">[هدية] </span>' : ''}
-            <span style="font-weight: bold;">${e.productName}</span>
+          <td style="padding: 7px 4px; text-align: right; font-size: 11px; font-weight: bold; line-height: 1.25; color: #000;">
+            ${isGift ? '<span style="color: #b45309;">[هدية] </span>' : ''}${e.productName}
           </td>
-          <td style="padding: 10px 2px; text-align: right; font-size: 10px; font-family: monospace; color: #444;">${pCode}</td>
+          <td style="padding: 7px 2px; text-align: center; font-size: 12px; font-weight: bold; color: #000;">
+            ${idx + 1}
+          </td>
         </tr>
       `;
     });
 
+    const displayPhone = customerPhone ? customerPhone.replace(/\s+/g, '') : '';
+
     container.innerHTML = `
-      <div style="text-align: center; margin-bottom: 12px;">
-        <img src="${logoImg}" style="width: 80px; height: auto; margin-bottom: 8px;" />
-        <div style="font-size: 20px; font-weight: 900; color: #000; margin-bottom: 2px;">شركة كالة للألبان والعصائر</div>
-        <div style="font-size: 13px; color: #333; font-weight: bold;">فرع صلاح الدين - تكريت</div>
+      <div style="text-align: center; margin-bottom: 6px;">
+        <img src="${logoImg}" style="height: 44px; max-width: 90px; object-fit: contain; margin: 0 auto 4px auto; display: block;" />
+        <div style="font-size: 15px; font-weight: 900; color: #000; text-align: center; margin-top: 4px;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
       </div>
 
-      <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 10px 0; display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 11px; color: #000; font-weight: bold;">${invoiceDateStr}</span>
-        <div style="font-size: 16px; font-weight: 900; text-align: right; flex: 1;">
-          ${customerPhone ? `${customerPhone.replace(/\s+/g, '')} - ` : ''}${actualCustomerName}
+      <div style="border-top: 1.5px dashed #000; margin: 6px 0 8px 0;"></div>
+
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+        <div style="text-align: left; font-family: monospace; font-size: 11px; font-weight: bold; color: #000; line-height: 1.25; direction: ltr; min-width: 80px;">
+          ,${formattedDate}<br/>${formattedTime}
+        </div>
+        <div style="text-align: right; flex: 1; padding-right: 6px;">
+          <div style="font-size: 16px; font-weight: 900; color: #000;">
+            اسم الزبون: ${actualCustomerName}
+          </div>
+          ${displayPhone ? `
+            <div style="font-size: 18px; font-weight: 900; font-family: monospace; direction: ltr; text-align: right; margin-top: 2px; color: #000;">
+              ${displayPhone}-
+            </div>
+          ` : ''}
         </div>
       </div>
 
-      <div style="font-size: 12px; line-height: 1.8; margin-bottom: 15px; text-align: right;">
-        <div><b>كود المحل/الزبون:</b> <span style="font-family: monospace;">${customerCodeMetadata}</span></div>
-        <div><b>العنوان:</b> ${customerAddress || '---'}</div>
-        <div><b>المندوب:</b> ${delegateName}</div>
-        <div><b>نوع الفاتورة:</b> ${invoicePriceModeStr}</div>
-        <div><b>تاريخ وتوقيت الفاتورة:</b> <span style="font-family: monospace;">${invoiceDateStr}</span></div>
+      <div style="font-size: 12px; font-weight: bold; color: #000; line-height: 1.5; margin-bottom: 4px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span><b>اسم المندوب:</b> ${delegateName}</span>
+          <span style="font-size: 11px; color: #444; font-weight: normal;">(غير محدد)</span>
+        </div>
+        <div><b>عنوان الزبون:</b> ${customerAddress || 'غير محدد'}</div>
       </div>
 
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+      <div style="border-top: 1.5px dashed #000; margin: 6px 0 8px 0;"></div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px;">
         <thead>
-          <tr style="border-top: 2px solid #000; border-bottom: 2px solid #000; background: #f9f9f9;">
-            <th style="padding: 8px 2px; text-align: left; font-size: 12px; width: 22%;">السعر</th>
-            <th style="padding: 8px 2px; text-align: center; font-size: 12px; width: 22%;">الكمية</th>
-            <th style="padding: 8px 4px; text-align: right; font-size: 12px; width: 40%;">المنتج</th>
-            <th style="padding: 8px 2px; text-align: right; font-size: 12px; width: 16%;">الكود</th>
+          <tr style="border-top: 2px solid #000; border-bottom: 2px solid #000;">
+            <th style="padding: 5px 2px; text-align: left; font-size: 12px; font-weight: 900; width: 25%;">السعر (${invoicePriceModeStr})</th>
+            <th style="padding: 5px 2px; text-align: center; font-size: 12px; font-weight: 900; width: 27%;">الكمية</th>
+            <th style="padding: 5px 4px; text-align: right; font-size: 12px; font-weight: 900; width: 41%;">المنتج</th>
+            <th style="padding: 5px 2px; text-align: center; font-size: 12px; font-weight: 900; width: 7%;">#</th>
           </tr>
         </thead>
         <tbody>
@@ -650,23 +708,21 @@ export const EntryScreen: React.FC = () => {
         </tbody>
       </table>
 
-      <div style="border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 8px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; padding: 5px 0;">
-          <div style="text-align: left;">
-            <div style="font-size: 20px; font-weight: 900;">${formatWithCommas(totalPrice, true)}</div>
-            <div style="font-size: 11px; font-weight: bold; margin-top: -2px;">د.ع</div>
-          </div>
-          <span style="font-size: 15px; font-weight: 900;">الإجمالي</span>
+      <div style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 4px; display: flex; justify-content: space-between; align-items: center; margin: 4px 0 8px 0;">
+        <div style="font-size: 17px; font-weight: 900; text-align: left;">
+          ${formatWithCommas(totalPrice, true)} د.ع
+        </div>
+        <div style="font-size: 16px; font-weight: 900; text-align: right;">
+          الإجمالي
         </div>
       </div>
 
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #000; padding-bottom: 8px; font-size: 13px; font-weight: bold;">
-        <span>الوزن الكلي: ${formatWithCommas(parseFloat(totalWeightKg.toFixed(1)), true)} كجم</span>
-        <span>مجموع الكراتين: ${formatWithCommas(parseFloat(totalCartonsCount.toFixed(1)))}</span>
+      <div style="border: 1.5px solid #000; padding: 5px 8px; text-align: center; font-size: 11px; font-weight: 900; color: #000; margin-bottom: 6px;">
+        ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزون.
       </div>
 
-      <div style="margin-top: 15px; font-size: 12px; text-align: center; font-weight: 900; color: #000; border-top: 1px dashed #000; padding-top: 10px;">
-        شكراً لتعاملكم معنا
+      <div style="border: 1.5px solid #0b3b8c; padding: 5px 8px; text-align: center; font-size: 12px; font-weight: 900; color: #000;">
+        رقم المبيعات : 07718458337
       </div>
     `;
 
@@ -684,14 +740,21 @@ export const EntryScreen: React.FC = () => {
       const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
       const dataUrl = canvas.toDataURL('image/png');
 
-      const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
+      const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(صورة الفاتورة مرفقة ومحفوظة على جهازك)*`;
       
       const formatWhatsAppPhone = (phone: string): string => {
         if (!phone) return '';
-        let cleaned = phone.replace(/\D/g, '');
-        if (cleaned.startsWith('0')) {
+        const normalized = parseArabicDigits(String(phone));
+        let cleaned = normalized.replace(/\D/g, '');
+        if (cleaned.startsWith('00964')) {
+          cleaned = cleaned.substring(2);
+        } else if (cleaned.startsWith('07')) {
           cleaned = '964' + cleaned.substring(1);
-        } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+        } else if (cleaned.startsWith('0')) {
+          cleaned = '964' + cleaned.substring(1);
+        } else if (cleaned.startsWith('7') && cleaned.length === 10) {
+          cleaned = '964' + cleaned;
+        } else if (!cleaned.startsWith('964') && cleaned.length >= 10) {
           cleaned = '964' + cleaned;
         }
         return cleaned;
@@ -702,33 +765,33 @@ export const EntryScreen: React.FC = () => {
         ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
         : `https://wa.me/?text=${encodeURIComponent(message)}`;
 
-      // 1. Always download the file so it's ready in the gallery/downloads
-      const link = document.createElement('a');
-      link.download = fileName;
-      link.href = dataUrl;
-      link.click();
-
-      // 2. Open WhatsApp direct link
-      // We wrap it in a small timeout to ensure the download starts first
-      setTimeout(() => {
-        window.open(waUrl, '_blank');
-      }, 500);
-
-      // 3. Optional: Use navigator.share as a secondary fallback or for browsers that block window.open
+      // 1. Mobile Native Share (Prioritize this for image sharing)
+      let sharedSuccessfully = false;
       if (blob && navigator.share && navigator.canShare) {
         const file = new File([blob], fileName, { type: 'image/png' });
         if (navigator.canShare({ files: [file] })) {
           try {
-            // We don't 'await' this to not block the UI if the user takes time
-            navigator.share({
+            await navigator.share({
               files: [file],
               title: `فاتورة ${actualCustomerName}`,
               text: message,
-            }).catch(e => console.log('Share closed:', e));
+            });
+            sharedSuccessfully = true;
           } catch (err) {
-            console.log('Share API error:', err);
+            console.log('Share API error or cancelled:', err);
           }
         }
+      }
+
+      // 2. Fallback: If not shared via native API (e.g., Desktop or share cancelled)
+      if (!sharedSuccessfully) {
+        // Open WhatsApp link directly without downloading the file
+        const waLink = document.createElement('a');
+        waLink.href = waUrl;
+        waLink.target = '_blank';
+        document.body.appendChild(waLink);
+        waLink.click();
+        document.body.removeChild(waLink);
       }
     } catch (err) {
       if (container.parentNode) document.body.removeChild(container);
@@ -748,6 +811,7 @@ export const EntryScreen: React.FC = () => {
     const customerAddress = entries[0]?.customerAddress || '';
     const invoiceType = entries[0]?.priceMode === 'wholesale' ? 'جملة' : 'مفرد';
     const actualCustomerName = customerName.split(' | الزبون: ').pop() || '';
+    const customerPhone = getCustomerPhoneForInvoice(entries, customerName);
     const customerCode = customerName.includes('كود:') ? customerName.split('كود: ')[1].split(' |')[0] : 'غير محدد';
     
     let rowsHtml = '';
@@ -874,8 +938,11 @@ ${itemsTextCalc}
 شكراً لتعاملك معنا! 🙏`;
               const formatWhatsAppPhone = (phone: string): string => {
                 if (!phone) return '';
-                let cleaned = phone.replace(/\D/g, '');
-                if (cleaned.startsWith('0')) {
+                const normalized = parseArabicDigits(String(phone));
+                let cleaned = normalized.replace(/\D/g, '');
+                if (cleaned.startsWith('00964')) {
+                  cleaned = cleaned.substring(2);
+                } else if (cleaned.startsWith('0')) {
                   cleaned = '964' + cleaned.substring(1);
                 } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
                   cleaned = '964' + cleaned;
@@ -894,7 +961,14 @@ ${itemsTextCalc}
               <img src="${logoImg}" alt="Logo" class="logo-img" onerror="this.style.display='none'" />
             <h1>تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</h1>
             <div class="header-customer-row">
-              <span class="header-customer-name">اسم الزبون: ${actualCustomerName}</span>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span class="header-customer-name">اسم الزبون: ${actualCustomerName}</span>
+                ${customerPhone ? `
+                  <span style="border: 2px solid #000; border-radius: 5px; padding: 2px 7px; font-size: 13px; font-weight: 900; font-family: monospace; direction: ltr; background: #fff; color: #000; display: inline-block;">
+                    ${customerPhone.replace(/\s+/g, '')}
+                  </span>
+                ` : ''}
+              </div>
               <span class="header-invoice-date">${entries[0]?.timestamp ? new Date(entries[0].timestamp).toLocaleString('en-GB') : new Date().toLocaleString('en-GB')}</span>
             </div>
           </div>
@@ -2275,7 +2349,10 @@ ${itemsTextCalc}
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleWhatsAppInvoice(customerName, entries)}
+                          onClick={() => {
+                            const phone = getCustomerPhoneForInvoice(entries, customerName);
+                            handleWhatsAppInvoice(customerName, entries, phone);
+                          }}
                           className={`px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1 active:scale-95 ${
                             isDarkMode
                               ? 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/60 border-emerald-700'
@@ -2315,10 +2392,45 @@ ${itemsTextCalc}
                         )}
                       </div>
 
-                      {/* Customer Name Header */}
-                      <h3 className="flex-1 text-center font-black text-xs sm:text-base md:text-lg text-[#1f4e78] dark:text-blue-300 tracking-wide">
-                        {customerDisplayName}
-                      </h3>
+                      {/* Customer Name Header with Phone Box & WhatsApp Button */}
+                      <div className="flex-1 flex items-center justify-center gap-2 flex-wrap min-w-0 px-1">
+                        <h3 className="font-black text-xs sm:text-base md:text-lg text-[#1f4e78] dark:text-blue-300 tracking-wide">
+                          {customerDisplayName}
+                        </h3>
+                        {(() => {
+                          const phone = getCustomerPhoneForInvoice(entries, customerName);
+                          return (
+                            <div className="inline-flex items-center gap-1.5 flex-wrap">
+                              {/* زر واتساب أمام رقم الزبون لمشاركة صورة الفاتورة للزبون */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleWhatsAppInvoice(customerName, entries, phone);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#25d366] hover:bg-[#20ba59] active:scale-95 text-white font-black text-xs sm:text-sm shadow-xs transition-all cursor-pointer shrink-0"
+                                title={phone ? `مشاركة صورة الفاتورة إلى واتساب الزبون (${phone})` : 'مشاركة صورة الفاتورة عبر واتساب'}
+                              >
+                                <MessageCircle className="w-3.5 h-3.5 fill-white shrink-0" />
+                                <span>واتساب الزبون</span>
+                              </button>
+
+                              {phone && (
+                                <a
+                                  href={`tel:${phone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:py-1 rounded-lg border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-mono font-black text-xs sm:text-sm shadow-xs transition-all cursor-pointer shrink-0"
+                                  title="رقم الزبون - اضغط للاتصال المباشر"
+                                  dir="ltr"
+                                >
+                                  <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  <span>{phone}</span>
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
 
                       <div className="hidden sm:flex items-center gap-1.5 shrink-0">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>

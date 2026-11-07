@@ -1350,51 +1350,87 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const parsedRoutes: RouteItem[] = jsonData.map((row: any, idx: number) => {
         const keys = Object.keys(row);
-        const customerName = String(
-          row['اسم الزبون'] ?? row['الزبون'] ?? row['اسم العميل'] ?? row['العميل'] ?? row['Customer Name'] ?? row['Customer'] ??
-          (keys.length > 0 ? row[keys[0]] : '') ??
-          `زبون ${idx + 1}`
-        ).trim();
 
-        const customerCode = String(
-          row['كود الزبون'] ?? row['رمز الزبون'] ?? row['كود العميل'] ?? row['Customer Code'] ?? row['Code'] ??
-          (keys.length > 1 ? row[keys[1]] : '') ??
-          `CUST-${100 + idx}`
-        ).trim();
+        const findVal = (matchers: string[]): string => {
+          for (const m of matchers) {
+            if (row[m] !== undefined && row[m] !== null && String(row[m]).trim() !== '') {
+              return String(row[m]).trim();
+            }
+          }
+          for (const k of keys) {
+            const cleanK = k.trim().toLowerCase();
+            for (const m of matchers) {
+              if (cleanK === m.toLowerCase() || cleanK.includes(m.toLowerCase())) {
+                if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+                  return String(row[k]).trim();
+                }
+              }
+            }
+          }
+          return '';
+        };
 
-        const path = String(
-          row['المسار'] ?? row['خط السير'] ?? row['اليوم'] ?? row['يوم المسار'] ?? row['Path'] ?? row['Route'] ??
-          (keys.length > 2 ? row[keys[2]] : '') ??
-          'مسار 1'
-        ).trim();
+        let customerName = findVal([
+          'اسم الزبون', 'الزبون', 'اسم العميل', 'العميل', 'Customer Name', 'Customer'
+        ]);
 
-        const delegateName = String(
-          row['اسم المندوب'] ?? row['المندوب'] ?? row['مندوب'] ?? row['Delegate'] ?? row['Delegate Name'] ??
-          (keys.length > 3 ? row[keys[3]] : '') ??
-          ''
-        ).trim();
+        let customerPhone = findVal([
+          'رقم الزبون', 'هاتف الزبون', 'موبايل الزبون', 'رقم هاتف الزبون', 'رقم الهاتف',
+          'الهاتف', 'الموبايل', 'موبايل', 'هاتف', 'Customer Phone', 'Phone', 'Mobile'
+        ]);
 
-        const customerType = String(
-          row['نوع الزبون'] ?? row['النوع'] ?? row['فئة الزبون'] ?? row['Customer Type'] ?? row['Type'] ??
-          (keys.length > 4 ? row[keys[4]] : '') ??
-          'مفرد'
-        ).trim() === 'جملة' ? 'جملة' : 'مفرد';
+        let customerCode = findVal([
+          'كود الزبون', 'رمز الزبون', 'كود العميل', 'رقم الزبون التعريفي', 'الكود', 'Customer Code', 'Code'
+        ]);
 
-        const customerAddress = String(
-          row['العنوان'] ?? row['عنوان الزبون'] ?? row['المنطقة'] ?? row['Address'] ??
-          (keys.length > 5 ? row[keys[5]] : '') ??
-          ''
-        ).trim();
+        let customerAddress = findVal([
+          'العنوان', 'عنوان الزبون', 'المنطقة', 'الموقع', 'Address'
+        ]);
 
-        const delegateCode = String(
-          row['كود المندوب'] ?? row['رمز المندوب'] ?? row['Delegate Code'] ??
-          (keys.length > 6 ? row[keys[6]] : '') ??
-          ''
-        ).trim();
+        let path = findVal([
+          'المسار', 'خط السير', 'اليوم', 'يوم المسار', 'Path', 'Route', 'Day'
+        ]);
 
-        const customerPhone = String(
-          row['الهاتف'] ?? row['رقم الهاتف'] ?? row['الموبايل'] ?? row['Phone'] ?? ''
-        ).trim();
+        let delegateName = findVal([
+          'اسم المندوب', 'المندوب', 'مندوب', 'Delegate', 'Delegate Name'
+        ]);
+
+        let delegateCode = findVal([
+          'كود المندوب', 'رمز المندوب', 'Delegate Code'
+        ]);
+
+        let customerType = findVal([
+          'نوع الزبون', 'النوع', 'فئة الزبون', 'Customer Type', 'Type'
+        ]);
+
+        // Positional fallbacks if headers were missing or custom
+        if (!customerName && keys.length > 0) {
+          customerName = String(row[keys[0]] ?? '').trim();
+        }
+        if (!customerCode && keys.length > 1) {
+          customerCode = String(row[keys[1]] ?? '').trim();
+        }
+        // If customerPhone was not matched by name, check if key[2] or any column looks like a phone number
+        if (!customerPhone && keys.length > 2) {
+          const col2Val = String(row[keys[2]] ?? '').trim();
+          if (/^(07\d{9}|9647\d{9}|\+9647\d{9}|7\d{9})$/.test(col2Val.replace(/[\s-]/g, ''))) {
+            customerPhone = col2Val;
+          }
+        }
+
+        // Check if customerName has phone number embedded (e.g. "أسواق السلام - 07701234567")
+        if (!customerPhone && customerName) {
+          const phoneMatch = customerName.match(/(07\d{9}|9647\d{9}|\+9647\d{9})/);
+          if (phoneMatch) {
+            customerPhone = phoneMatch[0];
+            customerName = customerName.replace(phoneMatch[0], '').replace(/[-–—:]/g, '').trim();
+          }
+        }
+
+        if (!customerName) customerName = `زبون ${idx + 1}`;
+        if (!customerCode) customerCode = `CUST-${100 + idx}`;
+        if (!path) path = 'مسار 1';
+        customerType = customerType === 'جملة' ? 'جملة' : 'مفرد';
 
         return {
           id: `route_${Date.now()}_${idx}`,

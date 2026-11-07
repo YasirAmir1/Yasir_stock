@@ -85,8 +85,6 @@ export const AdminScreen: React.FC = () => {
     selectedDate,
     isPowerSavingMode,
     togglePowerSavingMode,
-    importRoutesFromExcel,
-    routes: contextRoutes = [],
   } = useSales();
 
   const [debts, setDebts] = useState<DebtItem[]>([]);
@@ -128,9 +126,6 @@ export const AdminScreen: React.FC = () => {
     return unsub;
   }, []);
 
-
-  // --- Route Management State ---
-  const [routeUploadMessage, setRouteUploadMessage] = useState<string | null>(null);
   const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
   const [dailyTaskText, setDailyTaskText] = useState<string>('');
   const [dailyTaskMessage, setDailyTaskMessage] = useState<string | null>(null);
@@ -161,83 +156,8 @@ export const AdminScreen: React.FC = () => {
   const [newDelegateData, setNewDelegateData] = useState({ oldName: '', oldUsername: '', newName: '', newUsername: '', newPassword: '' });
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
 
-  const [routes, setRoutes] = useState<RouteItem[]>(() => contextRoutes);
-  useEffect(() => {
-    if (contextRoutes && contextRoutes.length > 0) {
-      setRoutes(contextRoutes);
-    }
-  }, [contextRoutes]);
-  const [allAlerts, setAllAlerts] = useState<AlertItem[]>([]);
-  const [allNotes, setAllNotes] = useState<NoteItem[]>([]);
-  const [routeFilterDelegate, setRouteFilterDelegate] = useState('');
-  const [routeFilterDay, setRouteFilterDay] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
-  
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 50;
-  
-  const filteredRoutes = routes.filter(r => 
-    (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
-    (routeFilterDay ? r.path?.includes(routeFilterDay) : true) &&
-    (searchQuery ? r.customerName.includes(searchQuery) : true)
-  );
-
-  const sortedRoutes = filteredRoutes.sort((a, b) => {
-    if (!sortConfig) return 0;
-    const aVal = a[sortConfig.key] || '';
-    const bVal = b[sortConfig.key] || '';
-    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const paginatedRoutes = sortedRoutes.slice(0, currentPage * rowsPerPage);
-
-  const handleSort = (key: keyof RouteItem) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-    setCurrentPage(1);
-  };
-
-  const exportRoutesToExcel = () => {
-    const data = filteredRoutes.map(r => ({
-      'كود الزبون': r.customerCode,
-      'اسم الزبون': r.customerName,
-      'العنوان': r.customerAddress,
-      'المسار': r.path,
-      'حالة الزيارة': allSalesEntries.some(e => e.customerName === r.customerName && e.dateString === selectedDate) ? 'تمت الزيارة' : 'لم تتم'
-    }));
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Routes");
-    XLSX.writeFile(workbook, `routes_export_${selectedDate}.xlsx`);
-  };
-
   const [globalNotifText, setGlobalNotifText] = useState<string>('');
   const [globalNotifMessage, setGlobalNotifMessage] = useState<string | null>(null);
-
-
-  const handleRouteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setRouteUploadMessage('جاري معالجة وتحديث مسارات المندوبين بالترتيب...');
-    try {
-      if (importRoutesFromExcel) {
-        await importRoutesFromExcel(file);
-      }
-      setRouteUploadMessage('تم رفع وتحديث المسارات بنجاح!');
-    } catch (err) {
-      console.error(err);
-      setRouteUploadMessage('حدث خطأ أثناء الرفع. يرجى التأكد من الملف.');
-    } finally {
-      e.target.value = '';
-    }
-  };
 
   const handleSaveDebt = async (debt: DebtItem) => {
     try {
@@ -279,40 +199,6 @@ export const AdminScreen: React.FC = () => {
     }
   };
 
-  // Fetch Delegate Alerts and Notes (Routes are efficiently provided from SalesContext)
-  useEffect(() => {
-    if (isGlobalQuotaExceeded()) return;
-
-    const alertsQ = query(collection(db, 'delegate_alerts'));
-    const unsubAlerts = safeOnSnapshot(
-      alertsQ, 
-      (snap: any) => {
-        const arr: AlertItem[] = [];
-        snap.forEach((d: any) => arr.push(d.data() as AlertItem));
-        setAllAlerts(arr);
-      },
-      (err: any) => logFirestoreErrorGracefully(err, 'admin_delegate_alerts'),
-      'admin_delegate_alerts'
-    );
-
-    const notesQ = query(collection(db, 'delegate_notes'));
-    const unsubNotes = safeOnSnapshot(
-      notesQ, 
-      (snap: any) => {
-        const arr: NoteItem[] = [];
-        snap.forEach((d: any) => arr.push(d.data() as NoteItem));
-        setAllNotes(arr);
-      },
-      (err: any) => logFirestoreErrorGracefully(err, 'admin_delegate_notes'),
-      'admin_delegate_notes'
-    );
-
-    return () => {
-      unsubAlerts();
-      unsubNotes();
-    };
-  }, []);
-
   const handleJsonBackupImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -343,7 +229,7 @@ export const AdminScreen: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
-  const [selectedAdminDelegate, setSelectedAdminDelegate] = useState<string>('الكل');
+
 
   const getDelegateTotalTarget = (delName: string) => {
     return DEFAULT_CATEGORIES_LIST.reduce((sum, cat) => {
@@ -367,7 +253,7 @@ export const AdminScreen: React.FC = () => {
     }, 0);
   };
 
-  // Input states for targets map (key: `${delegateName}_${categoryName}`)
+  // Input states for targets map
   const [targetInputs, setTargetInputs] = useState<Record<string, string>>({});
   const [saveFeedbackMessage, setSaveFeedbackMessage] = useState<string | null>(null);
   const [allowForceOverride, setAllowForceOverride] = useState(false);
@@ -420,21 +306,9 @@ export const AdminScreen: React.FC = () => {
     }
   }, [mohammedCurrentAcc?.username, mohammedCurrentAcc?.password]);
 
-  // Lock status for currently selected delegate
-  const lockStatus = selectedAdminDelegate === 'الكل'
-    ? { isLocked: false, daysRemaining: 0, setDateStr: '', unlockDateStr: '' }
-    : getDelegateLockStatus(selectedAdminDelegate);
-
   // Overall metrics
   const totalCompanySalesWeight = rawSavedEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
-  const totalCompanyTargetWeight = selectedAdminDelegate === 'الكل'
-    ? totalAllTarget
-    : getDelegateTotalTarget(selectedAdminDelegate);
-
-  // Active targets for selected delegate
-  const activeTargets = selectedAdminDelegate === 'الكل'
-    ? []
-    : delegateTargets.filter((t) => t.delegateName === selectedAdminDelegate);
+  const totalCompanyTargetWeight = totalAllTarget;
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -536,37 +410,7 @@ export const AdminScreen: React.FC = () => {
     );
   }
 
-  const handleSaveTargets = () => {
-    const targetsList: { categoryName: string; targetKg: number }[] = [];
 
-    DEFAULT_CATEGORIES_LIST.forEach((catName) => {
-      const key = `${selectedAdminDelegate}_${catName}`;
-      const inputVal = targetInputs[key];
-      const activeObj = activeTargets.find(
-        (t) => t.categoryName.toLowerCase() === catName.toLowerCase()
-      );
-      const defaultKg = activeObj?.dailyTargetWeightKg ?? 50.0;
-      const targetKg = inputVal !== undefined ? parseArabicNumber(inputVal) : defaultKg;
-
-      if (!isNaN(targetKg) && targetKg >= 0) {
-        targetsList.push({ categoryName: catName, targetKg });
-      }
-    });
-
-    const success = batchUpdateDelegateTargets(
-      selectedAdminDelegate,
-      targetsList,
-      undefined,
-      allowForceOverride
-    );
-
-    if (success) {
-      setAllowForceOverride(false);
-      setSaveFeedbackMessage(
-        `✔️ تم تثبيت وحفظ التاركت لـ (${selectedAdminDelegate}) لمدة 31 يوماً بنجاح! التاركت محفوظ بصفة دائمية في جهاز الأدمن بالنظام ولن يضيع عند إطفاء الموقع.`
-      );
-    }
-  };
 
   const handleStartEditAccount = (acc: { username: string; password: string; delegateName: string; isAdmin: boolean; delegateCode?: string }) => {
     setAccountDelNameInput(acc.delegateName);
@@ -667,334 +511,7 @@ export const AdminScreen: React.FC = () => {
       </div>
 
 
-      {/* 1. Delegate Picker Bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 text-slate-800 dark:text-white space-y-3 shadow-sm dark:shadow-md transition-colors">
-        <h3 className="text-xs sm:text-sm font-black text-emerald-800 dark:text-emerald-300">
-          1. اختر المندوب أو (الكل - الإدارة) لعرض وتحديد الأهداف وتاركت الأصناف:
-        </h3>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => {
-              setSelectedAdminDelegate('الكل');
-              setSaveFeedbackMessage(null);
-            }}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
-              selectedAdminDelegate === 'الكل'
-                ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span>الكل (نظرة عامة للإدارة)</span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/10 dark:bg-emerald-950/80 text-slate-900 dark:text-amber-300 font-mono font-bold">
-              {totalAllTarget} كجم
-            </span>
-          </button>
-
-          {delegatesList.map((delName) => {
-            const isSelected = selectedAdminDelegate === delName;
-            const delTot = getDelegateTotalTarget(delName);
-            return (
-              <button
-                key={delName}
-                onClick={() => {
-                  setSelectedAdminDelegate(delName);
-                  setSaveFeedbackMessage(null);
-                }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-600 text-white shadow-md scale-105 font-black'
-                    : 'bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700'
-                }`}
-              >
-                <User className="w-3.5 h-3.5" />
-                <span>{delName}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-900/80 text-emerald-700 dark:text-emerald-300 font-mono font-bold">
-                  {delTot} كجم
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Feedback Banner */}
-      {saveFeedbackMessage && (
-        <div className="p-3 bg-emerald-900 border border-emerald-400 text-white font-bold text-xs rounded-xl text-center shadow-md">
-          {saveFeedbackMessage}
-        </div>
-      )}
-
-      {/* 2. Target Dashboard (Admin / All vs Individual Delegate) */}
-      {selectedAdminDelegate === 'الكل' ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
-          <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-black text-slate-900 dark:text-amber-200">
-                لوحة الأهداف الكلية - الإدارة (الكل):
-              </h3>
-            </div>
-            <div className="text-xs text-emerald-800 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/80 px-3.5 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-700">
-              إجمالي التاركت لكل المناديب: <span className="text-emerald-700 dark:text-white font-black text-sm">{totalAllTarget} كجم</span>
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-            يتم حساب إجمالي تاركت الإدارة ("الكل") وتاركت كل صنف ديناميكياً وبدقة تامة من مجموع أهداف المناديب الفردية. أي تعديل يتم على تاركت أي مندوب ينعكس فوراً على الإجمالي العام وتاركت الصنف المرتبط.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Delegates Breakdown Summary */}
-            <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-emerald-800/60 rounded-xl p-3.5 space-y-3">
-              <h4 className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-                <User className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>إجمالي تاركت كل مندوب (مجموع الأصناف):</span>
-              </h4>
-              <div className="space-y-2">
-                {delegatesList.map((del) => {
-                  const delT = getDelegateTotalTarget(del);
-                  return (
-                    <div key={del} className="flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
-                      <div className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <button
-                          onClick={() => setSelectedAdminDelegate(del)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shadow-xs transition-all cursor-pointer"
-                        >
-                          تعديل أهداف المندوب ✏️
-                        </button>
-                        <span>{del}</span>
-                      </div>
-                      <div className="font-black text-emerald-700 dark:text-emerald-300 font-mono text-sm">
-                        {delT} كجم
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Categories Admin / All Summary Table */}
-            <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-emerald-800/60 rounded-xl p-3.5 space-y-3">
-              <h4 className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                <span>تاركت الأصناف لإدارة (الكل - مجموع المناديب):</span>
-              </h4>
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {DEFAULT_CATEGORIES_LIST.map((catName) => {
-                  const catAllT = getCategoryAllTarget(catName);
-                  return (
-                    <div key={catName} className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{catName}</span>
-                      <span className="font-black text-amber-600 dark:text-amber-300 font-mono">{catAllT} كجم</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
-          {/* 31-Day Fixation Info Card */}
-          <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-emerald-500/30 rounded-2xl p-4 text-xs space-y-3 shadow-inner">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-slate-600 dark:text-slate-300">حالة تثبيت التاركت للمندوب: </span>
-                  <span className="text-emerald-700 dark:text-emerald-300 font-black text-sm">{selectedAdminDelegate}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <HardDrive className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-500/30 shadow-xs">
-                  إجمالي تاركت المندوب الحالي: {getDelegateTotalTarget(selectedAdminDelegate)} كجم
-                </span>
-              </div>
-            </div>
-
-            {lockStatus.isLocked ? (
-              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-500/40 rounded-xl space-y-2.5 text-amber-950 dark:text-amber-100">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-1.5 font-black text-amber-800 dark:text-amber-300">
-                    <Lock className="w-4 h-4" />
-                    <span>التاركت مثبت لمدة 31 يوماً من الأدمن</span>
-                  </div>
-                  <div className="bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-200 px-3 py-1 rounded-full font-black text-xs border border-amber-400/40 shadow-xs">
-                    متبقي {lockStatus.daysRemaining} يوماً لإمكانية إعادة التعديل
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-700 dark:text-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>تاريخ بدء التثبيت: </span>
-                    <strong className="text-slate-900 dark:text-white font-black">{lockStatus.setDateStr}</strong>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>تاريخ انتهاء القفل والتعديل القادم: </span>
-                    <strong className="text-slate-900 dark:text-white font-black">{lockStatus.unlockDateStr}</strong>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex items-center justify-between flex-wrap gap-2 border-t border-amber-200 dark:border-amber-800/60">
-                  <span className="text-[11px] text-amber-900 dark:text-amber-200/80 font-medium">
-                    التاركت مثبت لمنع التغيير العشوائي، وسيكون متاحاً للتعديل التلقائي بعد 31 يوماً.
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        unlockDelegateTargetManually(selectedAdminDelegate);
-                        setSaveFeedbackMessage(`تم إلغاء القفل لـ (${selectedAdminDelegate}) بنجاح.`);
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
-                    >
-                      <Unlock className="w-3.5 h-3.5" />
-                      <span>فصل القفل يدوياً</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAllowForceOverride(!allowForceOverride)}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
-                        allowForceOverride
-                          ? 'bg-rose-600 border-rose-400 text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {allowForceOverride ? 'وضع التجاوز نشط' : 'تعديل استثنائي'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-500/40 rounded-xl space-y-1 text-emerald-950 dark:text-emerald-100">
-                <div className="flex items-center gap-1.5 font-black text-emerald-800 dark:text-emerald-300">
-                  <Unlock className="w-4 h-4" />
-                  <span>التاركت متاح للتعديل الآن!</span>
-                </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
-                  عند الضغط على "تثبيت وحفظ التاركت"، سيتم قفل التاركت تلقائياً لمدة 31 يوماً، وحفظه بصفة دائمية في الجهاز ولن ينمسح عند إغلاق أو إطفاء الموقع.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
-            <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-emerald-200">
-              تحديد التاركت اليومي لأصناف المندوب ({selectedAdminDelegate}) - إجمالي المندوب: {getDelegateTotalTarget(selectedAdminDelegate)} كجم:
-            </h3>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSelectedAdminDelegate('الكل')}
-                className="px-3 py-2 bg-slate-100 dark:bg-emerald-900/80 hover:bg-slate-200 dark:hover:bg-emerald-800 text-slate-800 dark:text-emerald-200 rounded-xl text-xs font-bold border border-slate-300 dark:border-emerald-700 transition-colors cursor-pointer"
-              >
-                العودة لنظرة الإدارة الكلية (الكل)
-              </button>
-              <button
-                onClick={handleSaveTargets}
-                disabled={lockStatus.isLocked && !allowForceOverride}
-                className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
-                  lockStatus.isLocked && !allowForceOverride
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-300 dark:border-slate-700'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                }`}
-              >
-                <Save className="w-4 h-4" />
-                <span>
-                  {lockStatus.isLocked && !allowForceOverride
-                    ? 'التاركت مثبت لمدة 31 يوماً'
-                    : 'تثبيت وحفظ التاركت (31 يوماً)'}
-                </span>
-              </button>
-            </div>
-          </div>
-
-        <div className="border border-slate-200 dark:border-emerald-800/60 rounded-xl overflow-hidden bg-white dark:bg-slate-900/80 shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse text-xs">
-            <thead className={`font-bold ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-800'}`}>
-              <tr>
-                <th className="py-2.5 px-3 w-[10%]">#</th>
-                <th className="py-2.5 px-3 w-[35%]">اسم الصنف</th>
-                <th className="py-2.5 px-3 text-center w-[30%]">التاركت اليومي (كجم)</th>
-                <th className="py-2.5 px-3 text-left w-[25%]">مبيعات اليوم</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-900 text-slate-300' : 'divide-slate-200 bg-white text-slate-700'}`}>
-                {DEFAULT_CATEGORIES_LIST.map((catName, idx) => {
-                  const currentObj = activeTargets.find(
-                    (t) => t.categoryName.toLowerCase() === catName.toLowerCase()
-                  );
-                  const dbTargetKg = currentObj?.dailyTargetWeightKg ?? 50.0;
-
-                  const key = `${selectedAdminDelegate}_${catName}`;
-                  const currentInputValue =
-                    targetInputs[key] !== undefined ? targetInputs[key] : String(dbTargetKg);
-
-                  const delSalesToday = rawSavedEntries
-                    .filter(
-                      (e) =>
-                        e.delegateName === selectedAdminDelegate &&
-                        e.categoryName.toLowerCase() === catName.toLowerCase()
-                    )
-                    .reduce((sum, e) => sum + e.totalWeightKg, 0);
-
-                  const isAchieved = delSalesToday >= dbTargetKg && dbTargetKg > 0;
-                  const isInputDisabled = lockStatus.isLocked && !allowForceOverride;
-
-                  return (
-                    <tr key={catName} className={`transition-colors ${idx % 2 === 0 ? (isDarkMode ? 'bg-slate-800/40' : 'bg-slate-50') : (isDarkMode ? 'bg-slate-900/90' : 'bg-white')} hover:${isDarkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                      <td className="py-2.5 px-3 font-bold text-slate-400">{idx + 1}</td>
-                      <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                        <div>{catName}</div>
-                        {isAchieved && (
-                          <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> مُحقق 100%
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          disabled={isInputDisabled}
-                          value={currentInputValue}
-                          onKeyDown={handleKeyDown}
-                          onChange={(e) => {
-                            setTargetInputs({
-                              ...targetInputs,
-                              [key]: parseArabicDigits(e.target.value),
-                            });
-                          }}
-                          className={`w-24 px-2 py-1.5 border rounded-lg font-bold text-center text-xs focus:outline-none transition-colors ${
-                            isInputDisabled
-                              ? 'bg-slate-100 dark:bg-slate-950/80 border-slate-300 dark:border-slate-700 text-slate-400 cursor-not-allowed'
-                              : 'bg-white dark:bg-slate-950 border-emerald-600 dark:border-emerald-700/80 text-slate-900 dark:text-white focus:border-emerald-500'
-                          }`}
-                        />
-                      </td>
-                      <td className="py-2.5 px-3 text-left font-black text-emerald-700 dark:text-emerald-300">
-                        {formatWithCommas(parseFloat(delSalesToday.toFixed(0)), true)} كجم
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      )}
 
       {/* 4. Delegate & Admin Credentials Management */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
@@ -1120,9 +637,9 @@ export const AdminScreen: React.FC = () => {
         <div className="pt-3 space-y-2.5 border-t border-slate-200 dark:border-slate-800">
           <div className="text-xs font-black text-emerald-800 dark:text-emerald-300">قائمة الحسابات المسجلة:</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {delegateAccounts.map((acc) => (
+            {delegateAccounts.map((acc, idx) => (
               <div
-                key={acc.username}
+                key={acc.username || `acc-${idx}`}
                 className={`p-3.5 border rounded-2xl flex items-center justify-between text-xs transition-all shadow-xs ${
                   editingAccountUsername === acc.username
                     ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400'
@@ -1419,188 +936,7 @@ export const AdminScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* 10. Route Management */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
-        <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <MapIcon className="w-4 h-4" />
-            </div>
-            <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-emerald-200">
-              10. إدارة المسارات والمهام اليومية:
-            </h3>
-          </div>
-          <a href="/templates/routes_template.xlsx" className="text-xs text-amber-600 dark:text-amber-400 hover:underline font-bold">تحميل نموذج مسارات</a>
-        </div>
 
-        {/* Upload Route Excel */}
-        <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-emerald-800/60 rounded-xl p-4 space-y-3">
-          <label className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            رفع ملف مسارات المندوبين (Excel)
-          </label>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-0.5 font-medium">
-            <p>يجب أن يحتوي الملف على الأعمدة التالية بالترتيب:</p>
-            <p className="font-bold text-slate-700 dark:text-slate-300">كود الزبون | اسم الزبون | العنوان | المندوب | المسار (مثال: السبت)</p>
-          </div>
-          {routeUploadMessage && (
-            <div className={`p-2.5 rounded-xl border text-xs font-bold text-center ${routeUploadMessage.includes('بنجاح') ? 'bg-emerald-50 dark:bg-emerald-900/50 border-emerald-300 dark:border-emerald-500 text-emerald-800 dark:text-emerald-200' : 'bg-amber-50 dark:bg-amber-900/50 border-amber-300 dark:border-amber-500 text-amber-800 dark:text-amber-200'}`}>
-              {routeUploadMessage}
-            </div>
-          )}
-          <input
-            type="file"
-            accept=".xlsx, .xls"
-            onChange={handleRouteFileUpload}
-            className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
-          />
-        </div>
-
-
-        {/* View Routes */}
-        <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-emerald-800/60 rounded-xl p-4 space-y-3.5">
-          <div className="grid grid-cols-3 gap-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
-            {(() => {
-              const currentMonth = new Date().toISOString().slice(0, 7);
-              const entriesInMonth = allSalesEntries.filter(e => e.dateString?.startsWith(currentMonth));
-              
-              const visitedCustomers = new Set();
-              entriesInMonth.forEach(e => visitedCustomers.add(e.customerName));
-              
-              const totalCustomers = routes.length || 1;
-              const visitedCount = visitedCustomers.size;
-              const notVisitedCount = Math.max(0, totalCustomers - visitedCount);
-              const percentage = Math.round((visitedCount / totalCustomers) * 100);
-
-              return (
-                <>
-                  <div className="text-center">
-                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-0.5">إجمالي الزبائن</div>
-                    <div className="text-lg font-black text-slate-900 dark:text-white">{totalCustomers}</div>
-                  </div>
-                  <div className="text-center border-l border-slate-200 dark:border-slate-800">
-                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-0.5">الزيارات (تمت/لم تتم)</div>
-                    <div className="text-sm font-black text-emerald-600 dark:text-emerald-400">{visitedCount} / {notVisitedCount}</div>
-                  </div>
-                  <div className="text-center border-l border-slate-200 dark:border-slate-800">
-                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-0.5">نسبة الإنجاز</div>
-                    <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">{percentage}%</div>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-          <label className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-            <MapIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            استعراض وفلترة المسارات
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <select value={routeFilterDelegate} onChange={e => setRouteFilterDelegate(e.target.value)} className="flex-1 p-2 rounded-xl border text-xs font-bold bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white">
-              <option value="">كل المندوبين</option>
-              {delegatesList.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-            <select value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className="flex-1 p-2 rounded-xl border text-xs font-bold bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white">
-              <option value="">كل الأيام</option>
-              <option value="السبت">السبت</option>
-              <option value="الاحد">الاحد</option>
-              <option value="الاثنين">الاثنين</option>
-              <option value="الثلاثاء">الثلاثاء</option>
-              <option value="الاربعاء">الاربعاء</option>
-              <option value="الخميس">الخميس</option>
-            </select>
-            <div className="flex w-full sm:w-auto gap-2">
-              <input 
-                type="text" 
-                value={searchQuery} 
-                onChange={e => setSearchQuery(e.target.value)} 
-                placeholder="بحث عن اسم محل..." 
-                className="flex-1 sm:w-48 p-2 rounded-xl border text-xs font-bold bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white"
-              />
-              <button onClick={exportRoutesToExcel} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0">تصدير المسار</button>
-            </div>
-          </div>
-          
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
-            <table className="w-full text-[9px] sm:text-[10px] text-right whitespace-nowrap">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
-                <tr>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerCode')}>الكود</th>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerName')}>الاسم ({filteredRoutes.length})</th>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerAddress')}>العنوان</th>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('path')}>المسار</th>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('customerType')}>نوع الزبون</th>
-                  <th className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('delegateName')}>اسم المندوب</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300">
-                {Object.entries(paginatedRoutes.reduce((acc, r) => {
-                  const day = r.path || 'غير مصنف';
-                  if (!acc[day]) acc[day] = [];
-                  acc[day].push(r);
-                  return acc;
-                }, {} as Record<string, RouteItem[]>)).map(([day, dayRoutes]) => (
-                  <React.Fragment key={day}>
-                    <tr>
-                      <td colSpan={6} className="px-2 py-1.5 bg-emerald-50 dark:bg-slate-800/90 text-emerald-800 dark:text-emerald-400 font-black border-y border-emerald-200 dark:border-slate-700">
-                        {day}
-                      </td>
-                    </tr>
-                    {dayRoutes.map(r => (
-                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
-                        <td className="px-2 py-1.5 font-mono font-medium">{r.customerCode}</td>
-                        <td className="px-2 py-1.5 font-bold text-slate-900 dark:text-white">{r.customerName}</td>
-                        <td className="px-2 py-1.5">{r.customerAddress}</td>
-                        <td className="px-2 py-1.5">{r.path}</td>
-                        <td className="px-2 py-1.5">{r.customerType}</td>
-                        <td className="px-2 py-1.5 font-semibold text-emerald-700 dark:text-emerald-300">{r.delegateName}</td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {currentPage * rowsPerPage < sortedRoutes.length && (
-            <button 
-              onClick={() => setCurrentPage(prev => prev + 1)}
-              className="w-full p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
-            >
-              عرض المزيد
-            </button>
-          )}
-        </div>
-
-        {/* View Delegate Notifications */}
-        <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-emerald-800 rounded-xl p-3.5 space-y-3">
-          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-            <Bell className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            تنبيهات وملاحظات المندوبين
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-emerald-700 dark:text-emerald-300">التنبيهات:</h4>
-              {allAlerts.map(a => (
-                <div key={a.id} className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs shadow-xs">
-                  <span className="font-bold text-slate-900 dark:text-white">{a.delegateName}: </span>
-                  <span className="text-slate-700 dark:text-slate-300">{a.note}</span>
-                  <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1">{new Date(a.targetTime).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</div>
-                </div>
-              ))}
-            </div>
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-emerald-700 dark:text-emerald-300">الملاحظات:</h4>
-              {allNotes.map(n => (
-                <div key={n.id} className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs shadow-xs">
-                  <span className="font-bold text-slate-900 dark:text-white">{n.delegateName}: </span>
-                  <span className="text-slate-700 dark:text-slate-300">{n.content}</span>
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{new Date(n.createdAt).toLocaleDateString('en-GB')}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
         {/* Assign Daily Task */}
         <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-emerald-800 rounded-xl p-3.5 space-y-3">
@@ -1696,8 +1032,8 @@ export const AdminScreen: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-950">
-                {debts.map(d => (
-                  <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                {debts.map((d, idx) => (
+                  <tr key={d.id || `debt-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="p-2"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 text-slate-900 dark:text-white text-xs font-medium" defaultValue={d.customerName} id={`name-${d.id}`} /></td>
                     <td className="p-2"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 text-slate-900 dark:text-white text-xs font-mono" defaultValue={d.customerCode} id={`code-${d.id}`} /></td>
                     <td className="p-2"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 text-slate-900 dark:text-white text-xs font-bold" defaultValue={d.amountDue} type="number" id={`amount-${d.id}`} /></td>
@@ -1730,7 +1066,7 @@ export const AdminScreen: React.FC = () => {
                     <td className="p-2"><input className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-xs p-1.5 rounded-lg" type="date" id="new-debt-pay-date" /></td>
                     <td className="p-2">
                         <select className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-xs p-1.5 rounded-lg mb-1 font-semibold" id="new-debt-delegate">
-                            {delegatesList.map(d => <option key={d} value={d}>{d}</option>)}
+                            {delegatesList.map((d, idx) => <option key={`${d}-${idx}`} value={d}>{d}</option>)}
                         </select>
                         <button onClick={async () => {
                              const name = (document.getElementById('new-debt-name') as HTMLInputElement).value;
@@ -1755,8 +1091,6 @@ export const AdminScreen: React.FC = () => {
             </table>
           </div>
         </div>
-      </div>
-
       </div>
     </PullToRefresh>
   );
