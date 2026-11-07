@@ -754,35 +754,11 @@ export const EntryScreen: React.FC = () => {
       };
       
       const formattedPhone = formatWhatsAppPhone(customerPhone);
-      const waUrl = formattedPhone
-        ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
-        : `https://wa.me/?text=${encodeURIComponent(message)}`;
 
-      // 1. Mobile Native Share (Prioritize this for image sharing)
-      let sharedSuccessfully = false;
-      if (blob && navigator.share) {
-        const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
+      if (formattedPhone) {
+        // Direct WhatsApp chat with the target customer phone number - bypasses contact picker completely!
         
-        // Some browsers support share but not canShare for files specifically
-        const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
-        
-        if (canShareFiles) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: `فاتورة ${actualCustomerName}`,
-              text: message,
-            });
-            sharedSuccessfully = true;
-          } catch (err) {
-            console.log('Share API error or cancelled:', err);
-          }
-        }
-      }
-
-      // 2. Fallback: If not shared via native API (e.g., Desktop or unsupported browser)
-      if (!sharedSuccessfully) {
-        // Copy JPEG image to clipboard if supported for easy Ctrl+V in WhatsApp Web
+        // 1. Copy image to clipboard for easy pasting
         if (blob && navigator.clipboard && window.ClipboardItem) {
           try {
             const item = new ClipboardItem({ 'image/jpeg': blob });
@@ -792,7 +768,7 @@ export const EntryScreen: React.FC = () => {
           }
         }
 
-        // Trigger automatic download of JPEG invoice image
+        // 2. Download the JPEG invoice image to the user's device
         if (blob) {
           const downloadUrl = URL.createObjectURL(blob);
           const dlLink = document.createElement('a');
@@ -804,13 +780,43 @@ export const EntryScreen: React.FC = () => {
           setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
         }
 
-        // Open WhatsApp Web/App
+        // 3. Open direct chat window with this customer's phone number
+        const directWaUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`;
         const waLink = document.createElement('a');
-        waLink.href = waUrl;
+        waLink.href = directWaUrl;
         waLink.target = '_blank';
         document.body.appendChild(waLink);
         waLink.click();
         document.body.removeChild(waLink);
+      } else {
+        // Fallback when customer phone is missing: use Mobile Native Share API
+        let sharedSuccessfully = false;
+        if (blob && navigator.share) {
+          const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
+          const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
+          
+          if (canShareFiles) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: `فاتورة ${actualCustomerName}`,
+                text: message,
+              });
+              sharedSuccessfully = true;
+            } catch (err) {
+              console.log('Share API error or cancelled:', err);
+            }
+          }
+        }
+
+        if (!sharedSuccessfully) {
+          const waLink = document.createElement('a');
+          waLink.href = `https://wa.me/?text=${encodeURIComponent(message)}`;
+          waLink.target = '_blank';
+          document.body.appendChild(waLink);
+          waLink.click();
+          document.body.removeChild(waLink);
+        }
       }
     } catch (err) {
       if (container.parentNode) document.body.removeChild(container);
