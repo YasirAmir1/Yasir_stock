@@ -23,6 +23,7 @@ import {
   ChevronDown, 
   ChevronUp, 
   RotateCcw,
+  RefreshCw,
   Sparkles,
   Trash2,
   Clock,
@@ -112,6 +113,7 @@ export const OldInvoicesScreen: React.FC = () => {
   const [archivedEntries, setArchivedEntries] = useState<SalesEntry[]>([]);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [deletingInvoiceKey, setDeletingInvoiceKey] = useState<string | null>(null);
+  const [isSharingWhatsApp, setIsSharingWhatsApp] = useState<string | null>(null);
 
   // Auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
   const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
@@ -579,6 +581,7 @@ export const OldInvoicesScreen: React.FC = () => {
 
   // Exact Match Receipt Thermal Printing & WhatsApp image sharing (matches image_3f678d98.png)
   const handleWhatsAppInvoice = async (inv: typeof groupedOldInvoices[0], targetPhoneOverride?: string) => {
+    const invoiceKey = inv.invoiceKey;
     const delegateName = inv.entries[0]?.delegateName || 'غير محدد';
     const customerAddress = inv.customerAddress || inv.entries[0]?.customerAddress || '';
     const actualCustomerName = inv.customerName;
@@ -594,6 +597,11 @@ export const OldInvoicesScreen: React.FC = () => {
     const seconds = String(entryDate.getSeconds()).padStart(2, '0');
     const formattedDate = `${day}/${month}/${year}`;
     const formattedTime = `${hours}:${minutes}:${seconds}`;
+
+    setIsSharingWhatsApp(invoiceKey);
+
+    // Defer the heavy work to the next frame to allow the loading state to render first
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     const container = document.createElement('div');
     container.style.position = 'fixed';
@@ -728,15 +736,16 @@ export const OldInvoicesScreen: React.FC = () => {
 
     try {
       const canvas = await html2canvas(container, {
-        scale: 2.5,
+        scale: 2.0,
         useCORS: true,
         backgroundColor: '#ffffff',
+        logging: false,
       });
       document.body.removeChild(container);
 
-      const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.png`;
-      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
-      const dataUrl = canvas.toDataURL('image/png');
+      const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.jpg`;
+      // Use image/jpeg with compression (0.75 quality) for much smaller file sizes and better performance
+      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.75));
 
       const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(صورة الفاتورة مرفقة ومحفوظة على جهازك)*`;
       
@@ -766,7 +775,7 @@ export const OldInvoicesScreen: React.FC = () => {
       // 1. Mobile Native Share (Prioritize this for image sharing)
       let sharedSuccessfully = false;
       if (blob && navigator.share && navigator.canShare) {
-        const file = new File([blob], fileName, { type: 'image/png' });
+        const file = new File([blob], fileName, { type: 'image/jpeg' });
         if (navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
@@ -795,6 +804,8 @@ export const OldInvoicesScreen: React.FC = () => {
       if (container.parentNode) document.body.removeChild(container);
       console.error('Error generating image:', err);
       alert('حدث خطأ أثناء توليد صورة الفاتورة');
+    } finally {
+      setIsSharingWhatsApp(null);
     }
   };
 
@@ -2275,47 +2286,31 @@ ${itemsTextCalc}
                 <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex flex-col gap-2 rounded-t-xl ${
                   isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'
                 }`}>
-                  {/* Row 1: Green Indicator + Code + Shop Name AND Print Action Button */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    {/* Customer Name Group (Right side in RTL) */}
+                    <div className="flex-1 flex items-center justify-start gap-2 flex-wrap min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
                       <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-black px-2 py-0.5 rounded border border-slate-300 dark:border-slate-500 shrink-0">
                         {inv.customerCode || '---'}
                       </span>
-                      <span className="font-black text-sm truncate">
-                        اسم المحل: {customerName}
+                      <span className="font-black text-sm truncate text-[#1f4e78] dark:text-blue-300">
+                        {(() => {
+                          const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
+                          return String(customerName).replace(phoneRegex, '').replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();
+                        })()}
                       </span>
                       {(() => {
                         const phone = getCustomerPhoneForOldInvoice(inv);
-                        return (
-                          <div className="inline-flex items-center gap-1.5 shrink-0 flex-wrap">
-                            {/* زر واتساب أمام رقم الزبون لمشاركة صورة الفاتورة للزبون */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleWhatsAppInvoice(inv, phone);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-0.5 sm:py-1 rounded-lg bg-[#25d366] hover:bg-[#20ba59] active:scale-95 text-white font-black text-xs shadow-xs transition-all cursor-pointer shrink-0"
-                              title={phone ? `مشاركة صورة الفاتورة إلى واتساب الزبون (${phone})` : 'مشاركة صورة الفاتورة عبر واتساب'}
-                            >
-                              <MessageCircle className="w-3.5 h-3.5 fill-white shrink-0" />
-                              <span>واتساب الزبون</span>
-                            </button>
-
-                            {phone && (
-                              <a
-                                href={`tel:${phone}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-mono font-black text-xs shadow-2xs transition-all cursor-pointer shrink-0"
-                                title="رقم الزبون - اضغط للاتصال المباشر"
-                                dir="ltr"
-                              >
-                                <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span>{phone}</span>
-                              </a>
-                            )}
-                          </div>
+                        return phone && (
+                          <a
+                            href={`tel:${phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-full border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 shadow-2xs transition-all cursor-pointer shrink-0"
+                            title={`اتصال بالزبون: ${phone}`}
+                            dir="ltr"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          </a>
                         );
                       })()}
                       {inv.customerAddress && (
@@ -2325,12 +2320,12 @@ ${itemsTextCalc}
                       )}
                     </div>
 
-                    {/* زر الطباعة والحذف اليدوي أمام اسم الزبون */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Action Buttons Group (Left side in RTL) */}
+                    <div className="flex items-center gap-1.5 shrink-0 z-10">
                       <button
                         type="button"
                         onClick={() => handlePrintInvoice(inv)}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
                           isDarkMode 
                             ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' 
                             : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'
@@ -2339,28 +2334,41 @@ ${itemsTextCalc}
                       >
                         <Printer className="w-4 h-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const phone = getCustomerPhoneForOldInvoice(inv);
-                          handleWhatsAppInvoice(inv, phone);
-                        }}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
-                          isDarkMode 
-                            ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' 
-                            : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'
-                        }`}
-                        title="إرسال الفاتورة عبر واتساب"
-                      >
-                        <MessageCircle className="w-4 h-4 text-emerald-500" />
-                      </button>
+                      {(() => {
+                        const phone = getCustomerPhoneForOldInvoice(inv);
+                        const isProcessing = isSharingWhatsApp === inv.invoiceKey;
 
+                        return (
+                          <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleWhatsAppInvoice(inv, phone);
+                            }}
+                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
+                              isProcessing
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                : isDarkMode 
+                                  ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' 
+                                  : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'
+                            }`}
+                            title={isProcessing ? 'جاري تجهيز الفاتورة...' : phone ? `مشاركة صورة الفاتورة إلى واتساب الزبون (${phone})` : 'مشاركة صورة الفاتورة عبر واتساب'}
+                          >
+                            {isProcessing ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <MessageCircle className="w-4 h-4 text-emerald-500" />
+                            )}
+                          </button>
+                        );
+                      })()}
                       {currentUser?.isAdmin && (
                         <button
                           type="button"
                           disabled={deletingInvoiceKey === inv.invoiceKey}
                           onClick={() => handleDeleteOldInvoice(inv)}
-                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center ${
+                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
                             isDarkMode 
                               ? 'bg-rose-950/40 text-rose-400 hover:bg-rose-900 border-rose-800' 
                               : 'bg-rose-100 text-rose-600 hover:bg-rose-200 hover:text-rose-800 border-rose-200'
