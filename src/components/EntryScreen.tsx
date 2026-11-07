@@ -578,17 +578,15 @@ export const EntryScreen: React.FC = () => {
     const delegateName = entries[0]?.delegateName || 'غير محدد';
     const customerAddress = entries[0]?.customerAddress || '';
     
-    // 1. Initial name extraction
-    let actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
-    let customerPhone = targetPhoneOverride || getCustomerPhoneForInvoice(entries, customerName);
-    
-    // 2. Robust extraction from name string if missing
+    // 1. Clean the customer name for the filename and message
     const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
-    const phoneMatch = actualCustomerName.match(phoneRegex);
+    let actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
+    actualCustomerName = actualCustomerName.replace(phoneRegex, '').replace(/[|\\/?:*"><]/g, '').replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim() || 'زبون';
     
-    if (phoneMatch) {
-      if (!customerPhone) customerPhone = phoneMatch[0];
-      actualCustomerName = actualCustomerName.replace(phoneMatch[0], '').replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();
+    let customerPhone = targetPhoneOverride || getCustomerPhoneForInvoice(entries, customerName);
+    const phoneMatch = customerName.match(phoneRegex);
+    if (phoneMatch && !customerPhone) {
+      customerPhone = phoneMatch[0];
     }
     
     const invoicePriceModeStr = entries[0]?.priceMode === 'wholesale' ? 'جملة' : 'مفرد';
@@ -600,14 +598,14 @@ export const EntryScreen: React.FC = () => {
     container.style.position = 'fixed';
     container.style.top = '-9999px';
     container.style.left = '-9999px';
-    container.style.width = '340px';
+    container.style.width = '350px';
     container.style.background = '#ffffff';
     container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-    container.style.padding = '12px 14px';
+    container.style.padding = '14px 16px';
     container.style.color = '#000000';
     container.style.direction = 'rtl';
     container.style.boxSizing = 'border-box';
-    container.style.border = '2px solid #000000';
+    container.style.border = '1px solid #000';
 
     let rowsHtml = '';
     let totalPrice = 0;
@@ -630,7 +628,11 @@ export const EntryScreen: React.FC = () => {
           qtySub = `(${e.quantity} قطعة)`;
         } else if (e.quantity >= cartonQty) {
           const fullCartons = Math.floor(e.quantity / cartonQty);
+          const remainder = e.quantity % cartonQty;
           qtyMain = `${fullCartons} كارتون`;
+          if (remainder > 0) {
+            qtyMain += ` و ${remainder} ق`;
+          }
           qtySub = `(${e.quantity} قطعة)`;
         } else {
           qtyMain = `${e.quantity} قطعة`;
@@ -638,67 +640,83 @@ export const EntryScreen: React.FC = () => {
         }
       }
 
+      // Column order in visual (RTL): # (right), Product, Quantity, Price (left)
       rowsHtml += `
         <tr style="border-bottom: 1px dashed #bbb;">
-          <td style="padding: 7px 2px; text-align: left; font-size: 12px; font-weight: bold; white-space: nowrap;">
-            ${formatWithCommas(rowPrice, true)} د.ع
+          <td style="padding: 7px 2px; text-align: center; font-size: 13px; font-weight: bold; color: #000; width: 8%;">
+            ${idx + 1}
           </td>
-          <td style="padding: 7px 2px; text-align: center; font-size: 11px; line-height: 1.2;">
+          <td style="padding: 7px 4px; text-align: right; font-size: 12px; font-weight: bold; line-height: 1.25; color: #000; width: 42%;">
+            ${isGift ? '<span style="color: #b45309;">[هدية] </span>' : ''}${e.productName}
+          </td>
+          <td style="padding: 7px 2px; text-align: center; font-size: 12px; line-height: 1.2; width: 25%;">
             <div style="font-weight: 900; color: #000;">${qtyMain}</div>
             ${qtySub ? `<div style="font-size: 10px; color: #444; font-weight: bold;">${qtySub}</div>` : ''}
           </td>
-          <td style="padding: 7px 4px; text-align: right; font-size: 11px; font-weight: bold; line-height: 1.25; color: #000;">
-            ${isGift ? '<span style="color: #b45309;">[هدية] </span>' : ''}${e.productName}
-          </td>
-          <td style="padding: 7px 2px; text-align: center; font-size: 12px; font-weight: bold; color: #000;">
-            ${idx + 1}
+          <td style="padding: 7px 2px; text-align: left; font-size: 13px; font-weight: bold; white-space: nowrap; width: 25%;">
+            ${formatWithCommas(rowPrice, true)} د.ع
           </td>
         </tr>
       `;
     });
 
-    const displayPhone = customerPhone ? customerPhone.replace(/\s+/g, '') : '';
+    const displayPhone = customerPhone ? parseArabicDigits(customerPhone).replace(/\D/g, '') : '';
 
     container.innerHTML = `
-      <div style="text-align: center; margin-bottom: 6px;">
-        <img src="${logoImg}" style="height: 44px; max-width: 90px; object-fit: contain; margin: 0 auto 4px auto; display: block;" />
-        <div style="font-size: 15px; font-weight: 900; color: #000; text-align: center; margin-top: 4px;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
+      <div style="text-align: center; margin-bottom: 4px;">
+        <img src="${logoImg}" style="height: 48px; max-width: 100px; object-fit: contain; margin: 0 auto 4px auto; display: block;" />
+        <div style="font-size: 16px; font-weight: 900; color: #000; text-align: center;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
       </div>
-      <div style="border-top: 1.5px dashed #000; margin: 6px 0 8px 0;"></div>
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-        <div style="text-align: left; font-family: monospace; font-size: 11px; font-weight: bold; color: #000; line-height: 1.25; direction: ltr; min-width: 80px;">
+      <div style="border-top: 1.5px dashed #000; margin: 8px 0;"></div>
+      
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div style="text-align: left; font-family: monospace; font-size: 11px; font-weight: bold; color: #000; line-height: 1.3; direction: ltr;">
           ,${formattedDate}<br/>${formattedTime}
         </div>
-        <div style="text-align: right; flex: 1; padding-right: 6px;">
-          <div style="font-size: 16px; font-weight: 900; color: #000;">اسم الزبون: ${actualCustomerName}</div>
-          ${displayPhone ? `<div style="font-size: 18px; font-weight: 900; font-family: monospace; direction: ltr; text-align: right; margin-top: 2px; color: #000;">${displayPhone}-</div>` : ''}
+        <div style="text-align: right; flex: 1;">
+          <div style="font-size: 20px; font-weight: 900; color: #000;">اسم الزبون: ${actualCustomerName}</div>
+          ${displayPhone ? `
+            <div style="font-size: 22px; font-weight: 900; font-family: monospace; direction: ltr; text-align: right; margin-top: 2px; color: #000;">${displayPhone}-</div>
+            <div style="text-align: right; margin-top: 4px;">
+              <span style="border: 2px solid #000; border-radius: 6px; padding: 2px 10px; font-size: 14px; font-weight: 900; font-family: monospace; background: #fff; display: inline-block; direction: ltr;">${displayPhone}</span>
+            </div>
+          ` : ''}
         </div>
       </div>
-      <div style="font-size: 12px; font-weight: bold; color: #000; line-height: 1.5; margin-bottom: 4px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span><b>اسم المندوب:</b> ${delegateName}</span>
-          <span style="font-size: 11px; color: #444; font-weight: normal;">(غير محدد)</span>
+
+      <div style="font-size: 13px; font-weight: bold; color: #000; line-height: 1.5; margin-bottom: 6px;">
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 4px;">
+          <span>${delegateName || 'غير محدد'}</span>
+          <span style="font-weight: 900;">:اسم المندوب</span>
+          <span style="font-size: 11px; color: #444; font-weight: normal; margin-right: 4px;">(غير محدد)</span>
         </div>
-        <div><b>عنوان الزبون:</b> ${customerAddress || 'غير محدد'}</div>
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 4px;">
+          <span>${customerAddress || 'غير محدد'}</span>
+          <span style="font-weight: 900;">:عنوان الزبون</span>
+        </div>
       </div>
-      <div style="border-top: 1.5px dashed #000; margin: 6px 0 8px 0;"></div>
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px;">
+
+      <div style="border-top: 1.5px dashed #000; margin: 8px 0;"></div>
+      
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
         <thead>
           <tr style="border-top: 2px solid #000; border-bottom: 2px solid #000;">
-            <th style="padding: 5px 2px; text-align: left; font-size: 12px; font-weight: 900; width: 25%;">السعر (${invoicePriceModeStr})</th>
-            <th style="padding: 5px 2px; text-align: center; font-size: 12px; font-weight: 900; width: 27%;">الكمية</th>
-            <th style="padding: 5px 4px; text-align: right; font-size: 12px; font-weight: 900; width: 41%;">المنتج</th>
-            <th style="padding: 5px 2px; text-align: center; font-size: 12px; font-weight: 900; width: 7%;">#</th>
+            <th style="padding: 6px 2px; text-align: center; font-size: 13px; font-weight: 900; width: 8%;">#</th>
+            <th style="padding: 6px 4px; text-align: right; font-size: 13px; font-weight: 900; width: 42%;">المنتج</th>
+            <th style="padding: 6px 2px; text-align: center; font-size: 13px; font-weight: 900; width: 25%;">الكمية</th>
+            <th style="padding: 6px 2px; text-align: left; font-size: 13px; font-weight: 900; width: 25%;">السعر (${invoicePriceModeStr})</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <div style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 4px; display: flex; justify-content: space-between; align-items: center; margin: 4px 0 8px 0;">
-        <div style="font-size: 17px; font-weight: 900; text-align: left;">${formatWithCommas(totalPrice, true)} د.ع</div>
-        <div style="font-size: 16px; font-weight: 900; text-align: right;">الإجمالي</div>
+
+      <div style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 8px 4px; display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px 0;">
+        <div style="font-size: 19px; font-weight: 900; text-align: left;">${formatWithCommas(totalPrice, true)} د.ع</div>
+        <div style="font-size: 18px; font-weight: 900; text-align: right;">الإجمالي</div>
       </div>
-      <div style="border: 1.5px solid #000; padding: 5px 8px; text-align: center; font-size: 11px; font-weight: 900; color: #000; margin-bottom: 6px;">ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزون.</div>
-      <div style="border: 1.5px solid #0b3b8c; padding: 5px 8px; text-align: center; font-size: 12px; font-weight: 900; color: #000;">رقم المبيعات : 07718458337</div>
+
+      <div style="border: 1.5px solid #000; padding: 6px 8px; text-align: center; font-size: 12px; font-weight: 900; color: #000; margin-bottom: 8px;">ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزون.</div>
+      <div style="border: 1.5px solid #0b3b8c; padding: 6px 8px; text-align: center; font-size: 13px; font-weight: 900; color: #000;">رقم المبيعات : 07718458337</div>
     `;
 
     document.body.appendChild(container);
@@ -713,8 +731,7 @@ export const EntryScreen: React.FC = () => {
       document.body.removeChild(container);
 
       const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.jpg`;
-      // Use image/jpeg with compression (0.75 quality) for much smaller file sizes and better performance
-      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.75));
+      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.90));
       
       const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(صورة الفاتورة مرفقة)*`;
       
@@ -743,9 +760,13 @@ export const EntryScreen: React.FC = () => {
 
       // 1. Mobile Native Share (Prioritize this for image sharing)
       let sharedSuccessfully = false;
-      if (blob && navigator.share && navigator.canShare) {
-        const file = new File([blob], fileName, { type: 'image/jpeg' });
-        if (navigator.canShare({ files: [file] })) {
+      if (blob && navigator.share) {
+        const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
+        
+        // Some browsers support share but not canShare for files specifically
+        const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
+        
+        if (canShareFiles) {
           try {
             await navigator.share({
               files: [file],
@@ -759,8 +780,31 @@ export const EntryScreen: React.FC = () => {
         }
       }
 
-      // 2. Fallback: If not shared via native API
+      // 2. Fallback: If not shared via native API (e.g., Desktop or unsupported browser)
       if (!sharedSuccessfully) {
+        // Copy JPEG image to clipboard if supported for easy Ctrl+V in WhatsApp Web
+        if (blob && navigator.clipboard && window.ClipboardItem) {
+          try {
+            const item = new ClipboardItem({ 'image/jpeg': blob });
+            await navigator.clipboard.write([item]);
+          } catch (clipErr) {
+            console.log('Clipboard write issue:', clipErr);
+          }
+        }
+
+        // Trigger automatic download of JPEG invoice image
+        if (blob) {
+          const downloadUrl = URL.createObjectURL(blob);
+          const dlLink = document.createElement('a');
+          dlLink.href = downloadUrl;
+          dlLink.download = fileName;
+          document.body.appendChild(dlLink);
+          dlLink.click();
+          document.body.removeChild(dlLink);
+          setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+        }
+
+        // Open WhatsApp Web/App
         const waLink = document.createElement('a');
         waLink.href = waUrl;
         waLink.target = '_blank';
