@@ -231,6 +231,22 @@ export interface DelegateLockStatus {
   setTimestamp: number;
 }
 
+export interface Report11CategoryTarget {
+  id?: string;
+  categoryName: string;
+  delegateName: string;
+  monthlyTarget: number;
+  monthlySales: number;
+  updatedAt?: string;
+}
+
+export interface Report11Config {
+  workingDays: number;
+  remainingDays: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 interface SalesContextType {
   currentUser: UserAccount;
   selectedDate: string;
@@ -323,6 +339,8 @@ interface SalesContextType {
   processOrder: (orderEntries: Omit<SalesEntry, 'id' | 'timestamp'>[]) => Promise<void>;
   todaySalesByProductName: Record<string, number>;
   getProductLiveStock: (prod: ProductItem) => { totalUnits: number, cartons: number, pieces: number, unitsPerCarton: number, soldToday: number };
+  report11Targets: Report11CategoryTarget[];
+  report11Config: Report11Config;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -536,6 +554,25 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (saved) return JSON.parse(saved);
     } catch {}
     return {};
+  });
+
+  const [report11Targets, setReport11Targets] = useState<Report11CategoryTarget[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_targets');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [report11Config, setReport11Config] = useState<Report11Config>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_config');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return {
+      workingDays: 26,
+      remainingDays: 20
+    };
   });
 
   // Sequential & Staged loading mechanism to prevent startup freezing and sluggishness
@@ -768,6 +805,51 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubList.push(unsubStock);
     }, 1150);
     timers.push(tStock);
+
+    // Phase 6: Report 11 Targets and Config (T+1350ms)
+    const tReport11 = setTimeout(() => {
+      if (isCancelled) return;
+      
+      const unsubTargets = safeOnSnapshot(
+        collection(db, 'report11_targets'),
+        (snapshot: any) => {
+          const list: Report11CategoryTarget[] = [];
+          snapshot.forEach((docSnap: any) => {
+            const data = docSnap.data() as Report11CategoryTarget;
+            if (data && data.delegateName && data.categoryName) {
+              list.push({ ...data, id: docSnap.id });
+            }
+          });
+          setReport11Targets(list);
+          try { localStorage.setItem('cache_report11_targets', JSON.stringify(list)); } catch {}
+        },
+        (err: any) => logFirestoreErrorGracefully(err, 'report11_targets'),
+        'report11_targets_context'
+      );
+      unsubList.push(unsubTargets);
+
+      const unsubConfig = safeOnSnapshot(
+        doc(db, 'app_settings', 'report11_config'),
+        (snap: any) => {
+          if (snap.exists()) {
+            const data = snap.data() as Report11Config;
+            if (data) {
+              setReport11Config(prev => ({
+                workingDays: typeof data.workingDays === 'number' ? data.workingDays : prev.workingDays,
+                remainingDays: typeof data.remainingDays === 'number' ? data.remainingDays : prev.remainingDays,
+                updatedAt: data.updatedAt,
+                updatedBy: data.updatedBy
+              }));
+              try { localStorage.setItem('cache_report11_config', JSON.stringify(data)); } catch {}
+            }
+          }
+        },
+        (err: any) => logFirestoreErrorGracefully(err, 'report11_config'),
+        'report11_config_context'
+      );
+      unsubList.push(unsubConfig);
+    }, 1350);
+    timers.push(tReport11);
 
     return () => {
       isCancelled = true;
@@ -3525,6 +3607,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         processOrder,
         todaySalesByProductName,
         getProductLiveStock,
+        report11Targets,
+        report11Config,
       }}
     >
       {children}

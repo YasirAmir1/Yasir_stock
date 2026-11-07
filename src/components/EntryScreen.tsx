@@ -43,7 +43,9 @@ export const EntryScreen: React.FC = () => {
     addToast,
     processOrder,
     todaySalesByProductName = {},
-    getProductLiveStock
+    getProductLiveStock,
+    report11Targets = [],
+    report11Config = { workingDays: 26, remainingDays: 20 }
   } = useSales();
 
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -552,83 +554,90 @@ export const EntryScreen: React.FC = () => {
       }
     }
     
-    const customerCode = customerName.includes('كود:') ? customerName.split('كود: ')[1].split(' |')[0] : '';
+    const customerCodeMetadata = entries[0]?.customerCode || '---';
+    const invoicePriceModeStr = entries[0]?.priceMode === 'wholesale' ? 'جملة' : 'مفرد';
+    const invoiceDateStr = entries[0]?.timestamp 
+      ? new Date(entries[0].timestamp).toISOString().split('T')[0] 
+      : (entries[0]?.dateString || new Date().toISOString().split('T')[0]);
 
     const container = document.createElement('div');
     container.style.position = 'fixed';
     container.style.top = '-9999px';
     container.style.left = '-9999px';
-    container.style.width = '380px';
+    container.style.width = '350px';
     container.style.background = '#ffffff';
     container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
     container.style.padding = '15px';
     container.style.color = '#000000';
     container.style.direction = 'rtl';
-    container.style.border = '2px solid #000';
     container.style.boxSizing = 'border-box';
 
     let rowsHtml = '';
     let totalPrice = 0;
+    let totalCartonsCount = 0;
+    let totalWeightKg = 0;
     
-    entries.forEach((e, idx) => {
+    entries.forEach((e) => {
       const isGift = Boolean(e.isGift);
       const prod = productsList.find(p => p.productName === e.productName);
+      const pCode = prod?.productCode || '---';
       const price = prod && !isGift ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
       const rowPrice = price * e.quantity;
       totalPrice += rowPrice;
+      totalWeightKg += (Number(e.totalWeightKg) || 0);
       
       const cartonQty = Number(prod?.cartonQuantity) || 1;
-      const isCartonOrMore = e.quantity >= cartonQty;
-      let quantityText = '';
-      if (isGift) {
-        quantityText = `<div style="font-weight: bold; color: #d97706;">${formatWithCommas(e.quantity)} قطعة (هدية)</div>`;
-      } else if (isCartonOrMore) {
-        const cartons = (e.quantity / cartonQty).toFixed(0);
-        const displayCartons = cartons.endsWith('.00') ? cartons.slice(0, -3) : cartons;
-        quantityText = `${formatWithCommas(parseFloat(displayCartons))} كارتون<br><span style="font-size: 10px;">(${formatWithCommas(e.quantity)} قطعة)</span>`;
-      } else {
-        quantityText = `${formatWithCommas(e.quantity)} قطعة`;
-      }
+      const cartons = e.quantity / cartonQty;
+      totalCartonsCount += cartons;
 
       rowsHtml += `
-        <tr style="border-bottom: 1px dashed #ccc; ${isGift ? 'background-color: #fffbeb;' : ''}">
-          <td style="padding: 6px 2px; text-align: center; border-bottom: 1px dashed #ccc;">${isGift ? '🎁' : (idx + 1)}</td>
-          <td style="padding: 6px 2px; text-align: right; border-bottom: 1px dashed #ccc;">
-            ${isGift ? '<span style="color: #b45309; font-weight: bold; margin-left: 4px;">[هدية]</span>' : ''}
-            ${e.productName}
+        <tr style="border-bottom: 1px dashed #bbb;">
+          <td style="padding: 10px 2px; text-align: left; font-size: 11px;">
+            <div style="font-weight: 900; font-size: 13px;">${formatWithCommas(rowPrice, true)}</div>
+            <div style="font-size: 9px; font-weight: bold; color: #444;">د.ع</div>
           </td>
-          <td style="padding: 6px 2px; text-align: center; border-bottom: 1px dashed #ccc;">${quantityText}</td>
-          <td style="padding: 6px 2px; text-align: left; border-bottom: 1px dashed #ccc; ${isGift ? 'font-weight: bold; color: #b45309;' : ''}">
-            ${isGift ? 'هدية' : `${formatWithCommas(rowPrice, true)} د.ع`}
+          <td style="padding: 10px 2px; text-align: center; font-size: 11px;">
+            <div style="font-weight: 900; font-size: 12px;">${formatWithCommas(e.quantity)} قطعة</div>
+            <div style="font-size: 10px; color: #666;">(${parseFloat(cartons.toFixed(1))} كارتون)</div>
           </td>
+          <td style="padding: 10px 4px; text-align: right; font-size: 11px; line-height: 1.3;">
+            ${isGift ? '<span style="color: #b45309; font-weight: bold;">[هدية] </span>' : ''}
+            <span style="font-weight: bold;">${e.productName}</span>
+          </td>
+          <td style="padding: 10px 2px; text-align: right; font-size: 10px; font-family: monospace; color: #444;">${pCode}</td>
         </tr>
       `;
     });
 
     container.innerHTML = `
-      <div style="text-align: center; margin-bottom: 8px;">
-        <div style="font-size: 16px; font-weight: 900; margin-bottom: 4px;">تطبيق ياسر للمبيعات | كالة فرع صلاح الدين</div>
-        <div style="border-top: 1px dashed #000; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; align-items: center; gap: 4px;">
-          <div style="flex: 1; text-align: right;">
-            <div style="font-size: 14px; font-weight: bold;">اسم الزبون: ${actualCustomerName}</div>
-            ${customerPhone ? `<div style="font-size: 13px; font-weight: bold; color: #1f4e78;" dir="ltr">${customerPhone}</div>` : ''}
-          </div>
-          <div style="font-size: 11px; color: #333; text-align: left;">${new Date().toLocaleDateString('en-GB')}</div>
-        </div>
-      </div>
-      
-      <div style="font-size: 12px; margin-bottom: 8px; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0;">
-        <div><b>اسم المندوب:</b> ${delegateName} ${customerCode ? `(${customerCode})` : ''}</div>
-        ${customerAddress ? `<div><b>عنوان الزبون:</b> ${customerAddress}</div>` : ''}
+      <div style="text-align: center; margin-bottom: 12px;">
+        <img src="${logoImg}" style="width: 80px; height: auto; margin-bottom: 8px;" />
+        <div style="font-size: 20px; font-weight: 900; color: #000; margin-bottom: 2px;">شركة كالة للألبان والعصائر</div>
+        <div style="font-size: 13px; color: #333; font-weight: bold;">فرع صلاح الدين - تكريت</div>
       </div>
 
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
+      <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 10px 0; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11px; color: #000; font-weight: bold;">${invoiceDateStr}</span>
+        <div style="font-size: 16px; font-weight: 900; text-align: right; flex: 1;">
+          ${customerPhone ? `${customerPhone} - ` : ''}${actualCustomerName}
+        </div>
+      </div>
+
+      <div style="font-size: 12px; line-height: 1.8; margin-bottom: 15px; text-align: right;">
+        <div><b>كود المحل/الزبون:</b> <span style="font-family: monospace;">${customerCodeMetadata}</span></div>
+        <div><b>العنوان:</b> ${customerAddress || '---'}</div>
+        <div><b>المندوب:</b> ${delegateName}</div>
+        <div><b>نوع الفاتورة:</b> ${invoicePriceModeStr}</div>
+        <div><b>تاريخ وتوقيت الفاتورة:</b> <span style="font-family: monospace;">${invoiceDateStr}</span></div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
         <thead>
-          <tr style="border-bottom: 1px solid #000;">
-            <th style="padding: 4px; text-align: center;">#</th>
-            <th style="padding: 4px; text-align: right;">المنتج</th>
-            <th style="padding: 4px; text-align: center;">الكمية</th>
-            <th style="padding: 4px; text-align: left;">السعر (جملة)</th>
+          <tr style="border-top: 2px solid #000; border-bottom: 2px solid #000; background: #f9f9f9;">
+            <th style="padding: 8px 2px; text-align: left; font-size: 12px; width: 22%;">السعر</th>
+            <th style="padding: 8px 2px; text-align: center; font-size: 12px; width: 22%;">الكمية</th>
+            <th style="padding: 8px 4px; text-align: right; font-size: 12px; width: 40%;">المنتج</th>
+            <th style="padding: 8px 2px; text-align: right; font-size: 12px; width: 16%;">الكود</th>
           </tr>
         </thead>
         <tbody>
@@ -636,16 +645,23 @@ export const EntryScreen: React.FC = () => {
         </tbody>
       </table>
 
-      <div style="display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px; font-size: 14px; font-weight: bold;">
-        <span>الإجمالي</span>
-        <span>${formatWithCommas(totalPrice, true)} د.ع</span>
+      <div style="border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; padding: 5px 0;">
+          <div style="text-align: left;">
+            <div style="font-size: 20px; font-weight: 900;">${formatWithCommas(totalPrice, true)}</div>
+            <div style="font-size: 11px; font-weight: bold; margin-top: -2px;">د.ع</div>
+          </div>
+          <span style="font-size: 15px; font-weight: 900;">الإجمالي</span>
+        </div>
       </div>
 
-      <div style="margin-top: 10px; font-size: 10px; text-align: center; border: 1px solid #000; padding: 4px;">
-        ملاحظة: قد تختلف الكميات اعلاه لنفاد المخزن.
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #000; padding-bottom: 8px; font-size: 13px; font-weight: bold;">
+        <span>الوزن الكلي: ${formatWithCommas(parseFloat(totalWeightKg.toFixed(1)), true)} كجم</span>
+        <span>مجموع الكراتين: ${formatWithCommas(parseFloat(totalCartonsCount.toFixed(1)))}</span>
       </div>
-      <div style="margin-top: 4px; font-size: 10px; text-align: center; border: 1px solid #000; padding: 4px; font-weight: bold;">
-        رقم المبيعات : 07718458337
+
+      <div style="margin-top: 15px; font-size: 12px; text-align: center; font-weight: 900; color: #000; border-top: 1px dashed #000; padding-top: 10px;">
+        شكراً لتعاملكم معنا
       </div>
     `;
 
@@ -653,7 +669,7 @@ export const EntryScreen: React.FC = () => {
 
     try {
       const canvas = await html2canvas(container, {
-        scale: 2,
+        scale: 2.5,
         useCORS: true,
         backgroundColor: '#ffffff',
       });
@@ -685,7 +701,7 @@ export const EntryScreen: React.FC = () => {
         link.href = canvas.toDataURL('image/png');
         link.click();
 
-        const message = `🧾 *فاتورة مبيعات - تطبيق ياسر للمبيعات*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
+        const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
         const formatWhatsAppPhone = (phone: string): string => {
           if (!phone) return '';
           let cleaned = phone.replace(/\D/g, '');
@@ -1509,8 +1525,24 @@ ${itemsTextCalc}
   const isPrivilegedRole = currentUser?.isAdmin || currentUser?.role === 'dataEntry' || currentUser?.username?.toLowerCase() === 'rafatdata';
 
   const categorySalesSummary = useMemo(() => {
-    const summary: Record<string, number> = {};
-    TARGET_CATEGORIES.forEach(cat => summary[cat] = 0);
+    const summary: Record<string, { actual: number; target: number }> = {};
+    const remainingDays = Math.max(1, report11Config.remainingDays || 1);
+    
+    TARGET_CATEGORIES.forEach(cat => {
+      summary[cat] = { actual: 0, target: 0 };
+      
+      // Calculate target for this category for the selected delegate
+      const matchedTargets = report11Targets.filter(t => {
+        const catMatch = t.categoryName === cat || t.categoryName.includes(cat) || cat.includes(t.categoryName);
+        const delMatch = selectedDelegate === 'الكل' || t.delegateName === selectedDelegate;
+        return catMatch && delMatch;
+      });
+
+      const mTarget = matchedTargets.reduce((sum, t) => sum + (Number(t.monthlyTarget) || 0), 0);
+      const mSales = matchedTargets.reduce((sum, t) => sum + (Number(t.monthlySales) || 0), 0);
+      const remainingMonthly = Math.max(0, mTarget - mSales);
+      summary[cat].target = remainingMonthly / remainingDays;
+    });
 
     savedEntries.forEach(entry => {
       const cat = entry.categoryName || '';
@@ -1523,12 +1555,12 @@ ${itemsTextCalc}
         const cartonQty = Number(prod?.cartonQuantity) || 12;
         const totalUnits = Number(entry.quantity) || 0;
         const cartons = totalUnits / cartonQty;
-        summary[matchedCat] += cartons;
+        summary[matchedCat].actual += cartons;
       }
     });
 
     return summary;
-  }, [savedEntries, productsList]);
+  }, [savedEntries, productsList, report11Targets, report11Config, selectedDelegate]);
 
   // 12-hour formatted auto lock time in English (e.g. 15:00 -> 3:00 PM)
   const formattedLockTime12h = useMemo(() => {
@@ -1786,7 +1818,7 @@ ${itemsTextCalc}
           </div>
         )}
 
-        {/* 1.2 Sauces Sales Summary Grid (Admin & Data Entry Only) */}
+        {/* 1.2 Category Sales & Targets Summary Grid */}
         {isPrivilegedRole && (
           <div className={`p-4 rounded-2xl border-2 shadow-md space-y-4 ${
             isDarkMode 
@@ -1798,7 +1830,7 @@ ${itemsTextCalc}
                 <Package className="w-4 h-4" />
               </div>
               <h3 className="text-xs sm:text-sm font-black flex items-center gap-2">
-                <span>مبيعات الأصناف اليوم (كارتون)</span>
+                <span>متابعة مبيعات وأهداف الأصناف اليوم</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600">
                   {selectedDelegate === 'الكل' ? 'الإجمالي العام' : `للمندوب: ${selectedDelegate}`}
                 </span>
@@ -1806,17 +1838,30 @@ ${itemsTextCalc}
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
               {TARGET_CATEGORIES.map((cat) => {
-                const totalCartons = categorySalesSummary[cat] || 0;
+                const { actual, target } = categorySalesSummary[cat] || { actual: 0, target: 0 };
                 return (
                   <div key={cat} className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all ${
-                    totalCartons > 0 
+                    actual > 0 
                       ? isDarkMode ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-emerald-50 border-emerald-200 shadow-xs'
                       : isDarkMode ? 'bg-slate-800/50 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60'
                   }`}>
                     <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mb-1 truncate w-full" title={cat}>{cat}</span>
-                    <span className={`text-xs font-black ${totalCartons > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                      {totalCartons > 0 ? parseFloat(totalCartons.toFixed(1)) : '0'}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span className="text-[10px] font-bold text-slate-400">محقق:</span>
+                        <span className={`text-xs font-black ${actual > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {actual > 0 ? parseFloat(actual.toFixed(1)) : '0'} <span className="text-[8px]">كارتون</span>
+                        </span>
+                      </div>
+                      {target > 0 && (
+                        <div className="flex items-center gap-1 justify-center border-t border-slate-200 dark:border-slate-800 pt-0.5 mt-0.5">
+                          <span className="text-[9px] font-bold text-slate-400">هدف:</span>
+                          <span className="text-[10px] font-black text-amber-600 dark:text-amber-400">
+                            {parseFloat(target.toFixed(0))} <span className="text-[8px]">كجم</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
