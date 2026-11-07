@@ -73,7 +73,8 @@ export const OldInvoicesScreen: React.FC = () => {
     delegateAccounts = [],
     routes: contextRoutes = [],
     isDarkMode, 
-    setActiveTab 
+    setActiveTab,
+    addToast
   } = useSales();
 
   // Strict Admin Access Check
@@ -773,10 +774,35 @@ export const OldInvoicesScreen: React.FC = () => {
       
       const formattedPhone = formatWhatsAppPhone(customerPhone);
 
-      if (formattedPhone) {
-        // Direct WhatsApp chat with the target customer phone number - bypasses contact picker completely!
+      // 1. Mobile Native Share (Prioritize this for image sharing/attachment)
+      let sharedSuccessfully = false;
+      if (blob && navigator.share) {
+        const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
         
-        // 1. Copy image to clipboard for easy pasting
+        // Some browsers support share but not canShare for files specifically
+        const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
+        
+        if (canShareFiles) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `فاتورة ${actualCustomerName}`,
+              text: message,
+            });
+            sharedSuccessfully = true;
+          } catch (err) {
+            console.log('Share API error or cancelled:', err);
+          }
+        }
+      }
+
+      // 2. Fallback: If not shared or unsupported, use URL API + Clipboard + Download
+      if (!sharedSuccessfully) {
+        if (typeof addToast === 'function') {
+          addToast({ title: 'مشاركة واتساب', message: `📋 تم حفظ صورة الفاتورة! سيتم فتح المحادثة، قم بلصق الصورة (Ctrl+V) أو استخدام الصورة التي تم تنزيلها.`, type: 'info' });
+        }
+        
+        // Copy JPEG image to clipboard if supported for easy Ctrl+V in WhatsApp Web
         if (blob && navigator.clipboard && window.ClipboardItem) {
           try {
             const item = new ClipboardItem({ 'image/jpeg': blob });
@@ -786,7 +812,7 @@ export const OldInvoicesScreen: React.FC = () => {
           }
         }
 
-        // 2. Download the JPEG invoice image to the user's device
+        // Trigger automatic download of JPEG invoice image
         if (blob) {
           const downloadUrl = URL.createObjectURL(blob);
           const dlLink = document.createElement('a');
@@ -798,43 +824,18 @@ export const OldInvoicesScreen: React.FC = () => {
           setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
         }
 
-        // 3. Open direct chat window with this customer's phone number
-        const directWaUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`;
+        // Open direct chat window
+        const formattedPhone = formatWhatsAppPhone(customerPhone);
+        const directWaUrl = formattedPhone 
+          ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`
+          : `https://wa.me/?text=${encodeURIComponent(message)}`;
+        
         const waLink = document.createElement('a');
         waLink.href = directWaUrl;
         waLink.target = '_blank';
         document.body.appendChild(waLink);
         waLink.click();
         document.body.removeChild(waLink);
-      } else {
-        // Fallback when customer phone is missing: use Mobile Native Share API
-        let sharedSuccessfully = false;
-        if (blob && navigator.share) {
-          const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
-          const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
-          
-          if (canShareFiles) {
-            try {
-              await navigator.share({
-                files: [file],
-                title: `فاتورة ${actualCustomerName}`,
-                text: message,
-              });
-              sharedSuccessfully = true;
-            } catch (err) {
-              console.log('Share API error or cancelled:', err);
-            }
-          }
-        }
-
-        if (!sharedSuccessfully) {
-          const waLink = document.createElement('a');
-          waLink.href = `https://wa.me/?text=${encodeURIComponent(message)}`;
-          waLink.target = '_blank';
-          document.body.appendChild(waLink);
-          waLink.click();
-          document.body.removeChild(waLink);
-        }
       }
     } catch (err) {
       if (container.parentNode) document.body.removeChild(container);
