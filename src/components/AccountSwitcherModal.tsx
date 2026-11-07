@@ -18,7 +18,7 @@ export const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 dir-rtl">
+    <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-md flex items-center justify-center p-4 dir-rtl animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="bg-slate-800/80 p-4 border-b border-slate-700/60 flex items-center justify-between">
           <div className="flex items-center gap-2">

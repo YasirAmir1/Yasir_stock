@@ -121,6 +121,33 @@ export interface SalesEntry {
   status?: 'active' | 'cancelled'; // حالة الطلب
 }
 
+export interface CustomerInfoNote {
+  id?: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress?: string;
+  delegateName: string;
+  delegateCode?: string;
+  selectedOption: string;
+  notes?: string;
+  timestamp: number;
+  dateString?: string;
+  createdAt?: string;
+}
+
+export const CUSTOMER_INFO_OPTIONS = [
+  'NT|3-4 يوم',
+  'يحتاج لوحة خارجية',
+  'يحتاج لوحات بوسترات داخلية',
+  'عنده مشكلة مع التوزيع',
+  'لا يتعامل معي',
+  'عنده مشكلة مع الشركة',
+  'يقبل ايجارات منتجات كالة',
+  'تعديل اسم',
+  'تعديل رقم',
+  'تعديل عنوان',
+];
+
 export interface GiftPromotion {
   id: string;
   productCode: string;           // كود المنتج

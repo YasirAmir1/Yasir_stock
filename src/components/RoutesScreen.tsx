@@ -4,9 +4,9 @@ import { db } from '../lib/firebase';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
 import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
-import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus } from '../types';
+import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus, CustomerInfoNote, CUSTOMER_INFO_OPTIONS } from '../types';
 import { parseArabicDigits } from '../utils/numberUtils';
-import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
 
@@ -29,7 +29,24 @@ const normalizeArabic = (text: any): string => {
     // Remove tatweel (kashida)
     .replace(/ـ/g, '')
     // Collapse multiple whitespace
-    .replace(/\s+/g, ' ');
+};
+
+const isHiddenDelegateForFilter = (name: any): boolean => {
+  if (!name) return false;
+  const norm = normalizeArabic(name);
+  if (!norm) return false;
+  return (
+    norm.includes('مندوب عام 1') ||
+    norm.includes('مندوب عام 2') ||
+    norm.includes('مندوب عام 1 و2') ||
+    norm.includes('مندوب عام 1 و 2') ||
+    norm.includes('مندوب عام 1و2') ||
+    norm.includes('محمد الصلصات') ||
+    norm.includes('محمد صلصات') ||
+    (norm.includes('صلصات') && norm.includes('محمد')) ||
+    norm.includes('رافت جمال') ||
+    norm.includes('رأفت جمال')
+  );
 };
 
 export const RoutesScreen: React.FC = () => {
@@ -87,6 +104,55 @@ export const RoutesScreen: React.FC = () => {
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [manualVisits, setManualVisits] = useState<Record<string, boolean>>({});
   const [unlockedCustomerCodes, setUnlockedCustomerCodes] = useState<Record<string, boolean>>({});
+
+  // Customer info notes state & listeners
+  const [customerNotes, setCustomerNotes] = useState<CustomerInfoNote[]>([]);
+  const [availableOptions, setAvailableOptions] = useState<string[]>(CUSTOMER_INFO_OPTIONS);
+  const [newOptionInput, setNewOptionInput] = useState<string>('');
+  const [actionModalRoute, setActionModalRoute] = useState<RouteItem | null>(null);
+  const [actionModalStep, setActionModalStep] = useState<'choice' | 'other_info' | null>(null);
+  const [selectedOption, setSelectedOption] = useState<string>(CUSTOMER_INFO_OPTIONS[0]);
+  const [otherInfoNotesInput, setOtherInfoNotesInput] = useState<string>('');
+  const [isSubmittingNote, setIsSubmittingNote] = useState<boolean>(false);
+  const [notesSearchQuery, setNotesSearchQuery] = useState<string>('');
+
+  // Firestore real-time listener for preset customer info options
+  useEffect(() => {
+    const unsubOptions = safeOnSnapshot(
+      doc(db, 'settings', 'customer_info_options'),
+      (docSnap: any) => {
+        if (docSnap.exists() && Array.isArray(docSnap.data()?.options) && docSnap.data().options.length > 0) {
+          setAvailableOptions(docSnap.data().options);
+        } else {
+          setAvailableOptions(CUSTOMER_INFO_OPTIONS);
+        }
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'customer_info_options setting in RoutesScreen');
+      },
+      'RoutesScreen-info-options'
+    );
+    return () => unsubOptions();
+  }, []);
+
+  useEffect(() => {
+    const unsubNotes = safeOnSnapshot(
+      collection(db, 'customer_info_notes'),
+      (snap: any) => {
+        const loaded: CustomerInfoNote[] = [];
+        snap.forEach((d: any) => {
+          loaded.push({ ...d.data(), id: d.id } as CustomerInfoNote);
+        });
+        loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setCustomerNotes(loaded);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'customer_info_notes in RoutesScreen');
+      },
+      'RoutesScreen-customer-notes'
+    );
+    return () => unsubNotes();
+  }, []);
 
   useEffect(() => {
     const unsubUnlocked = safeOnSnapshot(
@@ -677,7 +743,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
                     {/* Delegate Buttons */}
                     {delegateAccounts
-                      .filter(d => getDelegateTotalDebt(d) > 0)
+                      .filter(d => getDelegateTotalDebt(d) > 0 && !isHiddenDelegateForFilter(d.delegateName) && !isHiddenDelegateForFilter(d.username))
                       .map((d, idx) => {
                         const filterKey = d.delegateCode || d.username;
                         const isSelected = selectedDelegateFilter === filterKey || (selectedDelegateFilter && (d.delegateName === selectedDelegateFilter || d.username === selectedDelegateFilter));
@@ -1070,6 +1136,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
   const [routeFilterDelegate, setRouteFilterDelegate] = useState((currentUser?.isAdmin || isDataEntry) ? '' : currentUser?.delegateCode || '');
   const [routeFilterDay, setRouteFilterDay] = useState('');
+  const [routeFilterType, setRouteFilterType] = useState<'' | 'مفرد' | 'جملة'>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [displayLimit, setDisplayLimit] = useState(20);
@@ -1118,7 +1185,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       }
     });
 
-    return list.sort((a, b) => a.label.localeCompare(b.label, 'ar'));
+    return list
+      .filter((d) => !isHiddenDelegateForFilter(d.value) && !isHiddenDelegateForFilter(d.label))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ar'));
   }, [delegateAccounts, delegatesList, routes]);
 
   useEffect(() => {
@@ -1307,7 +1376,160 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return '';
   }, [customerPhoneLookup]);
 
-  const filteredRoutes = useMemo(() => {
+  // Base routes filtered by Customer Type and Search Query (for counting Days & Delegates)
+  const routesFilteredByTypeAndSearch = useMemo(() => {
+    const rawQuery = searchQuery.trim();
+    const normalizedQuery = normalizeArabic(rawQuery);
+    const searchTerms = normalizedQuery.split(' ').filter(Boolean);
+    const isSearching = searchTerms.length > 0;
+
+    return routes.filter(r => {
+      // 1. Customer Type filter
+      if (routeFilterType === 'جملة' && r.customerType !== 'جملة') return false;
+      if (routeFilterType === 'مفرد' && r.customerType === 'جملة') return false;
+
+      // 2. Search query filter
+      if (isSearching) {
+        const searchableText = [
+          normalizeArabic(r.customerName),
+          normalizeArabic(r.customerCode),
+          normalizeArabic(r.customerAddress),
+          normalizeArabic(r.customerPhone),
+          normalizeArabic(r.path),
+          normalizeArabic(r.delegateName),
+          normalizeArabic(r.delegateCode),
+          normalizeArabic(r.customerType)
+        ].join(' ');
+
+        const matchesAll = searchTerms.every(term => searchableText.includes(term));
+        if (!matchesAll) return false;
+      }
+
+      return true;
+    });
+  }, [routes, routeFilterType, searchQuery]);
+
+  // Dynamic Day shop counts
+  const dayCounts = useMemo(() => {
+    const delegateFiltered = routesFilteredByTypeAndSearch.filter(r => {
+      if (!currentUser?.isAdmin && !isDataEntry) {
+        const currentName = normalizeArabic(currentUser?.name);
+        const currentCode = normalizeArabic(currentUser?.delegateCode);
+        const currentUsername = normalizeArabic(currentUser?.username);
+        const rDelName = normalizeArabic(r.delegateName);
+        const rDelCode = normalizeArabic(r.delegateCode);
+
+        return (currentName !== '' && (rDelName.includes(currentName) || currentName.includes(rDelName))) ||
+               (currentCode !== '' && (rDelCode === currentCode || rDelName.includes(currentCode))) ||
+               (currentUsername !== '' && (rDelName.includes(currentUsername) || rDelCode === currentUsername));
+      }
+
+      if (!routeFilterDelegate) return true;
+
+      const filterNorm = normalizeArabic(routeFilterDelegate);
+      const rDelName = normalizeArabic(r.delegateName);
+      const rDelCode = normalizeArabic(r.delegateCode);
+
+      const matchedAccount = delegateAccounts.find(
+        a => (a.delegateCode && normalizeArabic(a.delegateCode) === filterNorm) ||
+             (a.username && normalizeArabic(a.username) === filterNorm) ||
+             (a.delegateName && normalizeArabic(a.delegateName) === filterNorm)
+      );
+
+      const matchCode = matchedAccount?.delegateCode ? normalizeArabic(matchedAccount.delegateCode) : '';
+      const matchName = matchedAccount?.delegateName ? normalizeArabic(matchedAccount.delegateName) : '';
+      const matchUser = matchedAccount?.username ? normalizeArabic(matchedAccount.username) : '';
+
+      return (
+        (rDelName !== '' && (
+          rDelName === filterNorm ||
+          rDelName.includes(filterNorm) ||
+          filterNorm.includes(rDelName) ||
+          (matchName !== '' && (rDelName === matchName || rDelName.includes(matchName))) ||
+          (matchUser !== '' && (rDelName === matchUser || rDelName.includes(matchUser)))
+        )) ||
+        (rDelCode !== '' && (
+          rDelCode === filterNorm ||
+          rDelCode.includes(filterNorm) ||
+          (matchCode !== '' && (rDelCode === matchCode || rDelCode.includes(matchCode))) ||
+          (matchUser !== '' && (rDelCode === matchUser || rDelCode.includes(matchUser)))
+        ))
+      );
+    });
+
+    const counts: Record<string, number> = {
+      '': delegateFiltered.length
+    };
+
+    const daysList = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الخميس'];
+    daysList.forEach(day => {
+      const normDay = normalizeArabic(day);
+      counts[day] = delegateFiltered.filter(r => normalizeArabic(r.path).includes(normDay)).length;
+    });
+
+    return counts;
+  }, [routesFilteredByTypeAndSearch, currentUser, isDataEntry, routeFilterDelegate, delegateAccounts]);
+
+  // Dynamic Delegate shop counts
+  const delegateCounts = useMemo(() => {
+    const dayFiltered = routesFilteredByTypeAndSearch.filter(r => {
+      if (currentUser?.isAdmin || isDataEntry) {
+        if (routeFilterDay) {
+          return normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
+        }
+        return true;
+      } else {
+        const normCurrentDay = normalizeArabic(currentDay);
+        const normPath = normalizeArabic(r.path);
+        return normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
+      }
+    });
+
+    const counts: Record<string, number> = {
+      '': dayFiltered.length
+    };
+
+    allAvailableDelegates.forEach(d => {
+      const filterNorm = normalizeArabic(d.value);
+      const matchedAccount = delegateAccounts.find(
+        a => (a.delegateCode && normalizeArabic(a.delegateCode) === filterNorm) ||
+             (a.username && normalizeArabic(a.username) === filterNorm) ||
+             (a.delegateName && normalizeArabic(a.delegateName) === filterNorm)
+      );
+
+      const matchCode = matchedAccount?.delegateCode ? normalizeArabic(matchedAccount.delegateCode) : '';
+      const matchName = matchedAccount?.delegateName ? normalizeArabic(matchedAccount.delegateName) : '';
+      const matchUser = matchedAccount?.username ? normalizeArabic(matchedAccount.username) : '';
+
+      const count = dayFiltered.filter(r => {
+        const rDelName = normalizeArabic(r.delegateName);
+        const rDelCode = normalizeArabic(r.delegateCode);
+
+        return (
+          (rDelName !== '' && (
+            rDelName === filterNorm ||
+            rDelName.includes(filterNorm) ||
+            filterNorm.includes(rDelName) ||
+            (matchName !== '' && (rDelName === matchName || rDelName.includes(matchName))) ||
+            (matchUser !== '' && (rDelName === matchUser || rDelName.includes(matchUser)))
+          )) ||
+          (rDelCode !== '' && (
+            rDelCode === filterNorm ||
+            rDelCode.includes(filterNorm) ||
+            (matchCode !== '' && (rDelCode === matchCode || rDelCode.includes(matchCode))) ||
+            (matchUser !== '' && (rDelCode === matchUser || rDelCode.includes(matchUser)))
+          ))
+        );
+      }).length;
+
+      counts[d.value] = count;
+      counts[d.key] = count;
+    });
+
+    return counts;
+  }, [routesFilteredByTypeAndSearch, currentUser, isDataEntry, routeFilterDay, currentDay, allAvailableDelegates, delegateAccounts]);
+
+  const routesBeforeTypeFilter = useMemo(() => {
     const rawQuery = searchQuery.trim();
     const normalizedQuery = normalizeArabic(rawQuery);
     const searchTerms = normalizedQuery.split(' ').filter(Boolean);
@@ -1395,6 +1617,32 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       }
 
       return true;
+    });
+  }, [routes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isDataEntry]);
+
+  const customerTypeCounts = useMemo(() => {
+    let mifrad = 0;
+    let jumla = 0;
+    routesBeforeTypeFilter.forEach(r => {
+      if (r.customerType === 'جملة') {
+        jumla++;
+      } else {
+        mifrad++;
+      }
+    });
+    return {
+      all: routesBeforeTypeFilter.length,
+      mifrad,
+      jumla
+    };
+  }, [routesBeforeTypeFilter]);
+
+  const filteredRoutes = useMemo(() => {
+    return routesBeforeTypeFilter.filter(r => {
+      if (!routeFilterType) return true;
+      if (routeFilterType === 'جملة') return r.customerType === 'جملة';
+      if (routeFilterType === 'مفرد') return r.customerType !== 'جملة';
+      return true;
     }).sort((a, b) => {
       // 1. Total invoices count (descending: highest to lowest)
       const aInvoices = getRouteItemInvoicesCount(a);
@@ -1413,7 +1661,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       // Unvisited (false) should come before Visited (true)
       return aVisited ? 1 : -1;
     });
-  }, [routes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isVisited, getRouteItemInvoicesCount]);
+  }, [routesBeforeTypeFilter, routeFilterType, getRouteItemInvoicesCount, isVisited]);
 
   const finalRoutes = filteredRoutes;
 
@@ -1452,8 +1700,149 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     }
   };
 
+  // User role filtering for customer notes (delegates see their own notes, admins see all)
+  const visibleCustomerNotes = useMemo(() => {
+    const isPrivileged = Boolean(currentUser?.isAdmin || isDataEntry);
+    const currentDelName = normalizeArabic(currentUser?.name || currentUser?.delegateName || '');
+    const currentDelCode = String(currentUser?.delegateCode || effectiveDelegateCode || '').trim().toLowerCase();
+
+    let list = customerNotes;
+    if (!isPrivileged) {
+      list = list.filter(note => {
+        const nDelName = normalizeArabic(note.delegateName);
+        const nDelCode = String(note.delegateCode || '').trim().toLowerCase();
+        return (currentDelName && (nDelName === currentDelName || nDelName.includes(currentDelName))) ||
+               (currentDelCode && nDelCode === currentDelCode);
+      });
+    }
+
+    const q = normalizeArabic(notesSearchQuery);
+    if (q) {
+      list = list.filter(note => {
+        const searchStr = [
+          normalizeArabic(note.customerName),
+          normalizeArabic(note.customerCode),
+          normalizeArabic(note.customerAddress),
+          normalizeArabic(note.delegateName),
+          normalizeArabic(note.selectedOption),
+          normalizeArabic(note.notes)
+        ].join(' ');
+        return searchStr.includes(q);
+      });
+    }
+
+    return list;
+  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesSearchQuery]);
+
+  // Customer code -> Notes count map for route table badges
+  const customerNotesCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    visibleCustomerNotes.forEach(note => {
+      const code = String(note.customerCode || '').trim();
+      if (code) {
+        map.set(code, (map.get(code) || 0) + 1);
+      }
+    });
+    return map;
+  }, [visibleCustomerNotes]);
+
+  const handleExportNotesCSV = () => {
+    if (visibleCustomerNotes.length === 0) {
+      addToast({ title: 'تنبيه', message: 'لا توجد ملاحظات لتحميلها', type: 'info' });
+      return;
+    }
+
+    const headers = ['التاريخ', 'المندوب', 'اسم الزبون', 'كود الزبون', 'الملاحظة', 'العنوان'];
+    const rows = visibleCustomerNotes.map(note => [
+      new Date(note.timestamp).toLocaleString('ar-EG'),
+      note.delegateName || '',
+      note.customerName || '',
+      note.customerCode || '',
+      note.selectedOption || '',
+      note.customerAddress || ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `ملاحظات_المندوبين_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addToast({ title: 'نجاح', message: 'تم تحميل ملف الملاحظات بنجاح', type: 'success' });
+  };
+
   const handleOrderClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
+    setActionModalRoute(r);
+    setActionModalStep('choice');
+    setSelectedOption(availableOptions[0] || CUSTOMER_INFO_OPTIONS[0]);
+    setOtherInfoNotesInput('');
+  };
+
+  const handleAddCustomOption = async () => {
+    const trimmed = newOptionInput.trim();
+    if (!trimmed) return;
+
+    if (availableOptions.includes(trimmed)) {
+      alert('هذا الخيار موجود بالفعل في القائمة');
+      return;
+    }
+
+    const updated = [...availableOptions, trimmed];
+    try {
+      await setDoc(doc(db, 'settings', 'customer_info_options'), { options: updated }, { merge: true });
+      setSelectedOption(trimmed);
+      setNewOptionInput('');
+      if (addToast) {
+        addToast({
+          title: 'تمت الإضافة',
+          message: `تم إضافة الخيار الجديد "${trimmed}" إلى القائمة`,
+          type: 'success'
+        });
+      }
+    } catch (err) {
+      console.error('Error adding custom option:', err);
+      alert('حدث خطأ أثناء إضافة الخيار.');
+    }
+  };
+
+  const handleDeleteCustomOption = async (optionToDelete: string) => {
+    if (availableOptions.length <= 1) {
+      alert('يجب أن تحتوي القائمة على خيار واحد على الأقل');
+      return;
+    }
+
+    if (!confirm(`هل أنت تأكد من حذف الخيار "${optionToDelete}" من القائمة؟`)) return;
+
+    const updated = availableOptions.filter(opt => opt !== optionToDelete);
+    try {
+      await setDoc(doc(db, 'settings', 'customer_info_options'), { options: updated }, { merge: true });
+      if (selectedOption === optionToDelete) {
+        setSelectedOption(updated[0] || '');
+      }
+      if (addToast) {
+        addToast({
+          title: 'تم الحذف',
+          message: `تم حذف الخيار "${optionToDelete}" من القائمة`,
+          type: 'success'
+        });
+      }
+    } catch (err) {
+      console.error('Error deleting custom option:', err);
+      alert('حدث خطأ أثناء حذف الخيار.');
+    }
+  };
+
+  const handleProceedToNewOrder = (r: RouteItem) => {
+    setActionModalRoute(null);
+    setActionModalStep(null);
     
     const todayStr = new Date().toISOString().split('T')[0];
     const customerEntries = allSalesEntries.filter(e => e.customerCode === r.customerCode);
@@ -1470,6 +1859,86 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     });
     setShowQuickAdd(true);
     setActiveTab('products');
+  };
+
+  const handleProceedToOtherInfo = () => {
+    setActionModalStep('other_info');
+  };
+
+  const handleSubmitOtherInfo = async () => {
+    if (!actionModalRoute) return;
+    if (!selectedOption) {
+      alert('يرجى اختيار أحد الخيارات من القائمة');
+      return;
+    }
+
+    setIsSubmittingNote(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const delName = currentUser?.name || currentUser?.delegateName || actionModalRoute.delegateName || '';
+      const delCode = currentUser?.delegateCode || effectiveDelegateCode || actionModalRoute.delegateCode || '';
+
+      const newNote: Omit<CustomerInfoNote, 'id'> = {
+        customerCode: actionModalRoute.customerCode,
+        customerName: actionModalRoute.customerName,
+        customerAddress: actionModalRoute.customerAddress || '',
+        delegateName: delName,
+        delegateCode: delCode,
+        selectedOption: selectedOption,
+        notes: otherInfoNotesInput.trim(),
+        timestamp: Date.now(),
+        dateString: todayStr,
+        createdAt: new Date().toISOString()
+      };
+
+      const docRef = doc(collection(db, 'customer_info_notes'));
+      await setDoc(docRef, newNote);
+
+      if (addToast) {
+        addToast({
+          title: 'تم تسجيل المعلومات بنجاح',
+          message: `تمت إضافة ملاحظة للزبون (${actionModalRoute.customerName})`,
+          type: 'success',
+          delegateName: delName
+        });
+      }
+
+      setActionModalRoute(null);
+      setActionModalStep(null);
+      setOtherInfoNotesInput('');
+    } catch (err) {
+      console.error('Error adding customer note:', err);
+      alert('حدث خطأ أثناء إرسال المعلومات. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsSubmittingNote(false);
+    }
+  };
+
+  const handleDeleteCustomerNote = async (noteId: string, custName: string) => {
+    if (!noteId) {
+      addToast({ title: 'خطأ', message: 'لم يتم العثور على معرف الملاحظة', type: 'info' });
+      return;
+    }
+
+    if (!confirm(`هل أنت تأكد من حذف الملاحظة المسجلة للزبون (${custName})؟`)) return;
+
+    try {
+      const noteRef = doc(db, 'customer_info_notes', noteId);
+      await deleteDoc(noteRef);
+      
+      addToast({
+        title: 'تم الحذف',
+        message: `تم حذف الملاحظة بنجاح`,
+        type: 'success'
+      });
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      addToast({
+        title: 'فشل الحذف',
+        message: 'حدث خطأ أثناء محاولة حذف الملاحظة',
+        type: 'info'
+      });
+    }
   };
 
   const handleUploadRoutes = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1684,64 +2153,200 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         );
       })()}
       
-      {/* Search and Filters */}
-      <div className={`p-3 rounded-xl border flex flex-col gap-2 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-            <input 
-              type="text" 
-              value={searchQuery} 
-              onChange={e => setSearchQuery(e.target.value)} 
-              placeholder="بحث عن زبون (الاسم، الكود، العنوان، الهاتف، المسار)..." 
-              className={`w-full pr-9 pl-8 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
-            />
-            {searchQuery && (
-              <button 
-                type="button" 
-                onClick={() => setSearchQuery('')} 
-                className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold p-0.5"
-                title="مسح البحث"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          {(currentUser?.isAdmin || isDataEntry) && (
-            <>
-              <select 
-                value={routeFilterDelegate} 
-                onChange={e => setRouteFilterDelegate(e.target.value)} 
-                className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
-              >
-                <option key="all-delegates" value="">كل المندوبين</option>
-                {allAvailableDelegates && allAvailableDelegates.length > 0 ? (
-                  allAvailableDelegates.map((d) => (
-                    <option key={d.key} value={d.value}>{d.label}</option>
-                  ))
-                ) : (
-                  <option key="no-delegates" disabled>لا يوجد مندوبون</option>
-                )}
-              </select>
-              <select key="route-filter-day-select" value={routeFilterDay} onChange={e => setRouteFilterDay(e.target.value)} className={`flex-1 p-2 rounded-lg border text-xs font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
-                <option key="all-days" value="">كل الأيام</option>
-                <option key="day-sat" value="السبت">السبت</option>
-                <option key="day-sun" value="الأحد">الأحد</option>
-                <option key="day-mon" value="الاثنين">الاثنين</option>
-                <option key="day-tue" value="الثلاثاء">الثلاثاء</option>
-                <option key="day-wed" value="الاربعاء">الاربعاء</option>
-                <option key="day-thu" value="الخميس">الخميس</option>
-              </select>
-            </>
+      {/* Search and Option Pill Filters */}
+      <div className={`p-3 sm:p-4 rounded-2xl border space-y-3 shadow-xs ${isDarkMode ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-slate-200'}`}>
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
+          <input 
+            type="text" 
+            value={searchQuery} 
+            onChange={e => setSearchQuery(e.target.value)} 
+            placeholder="بحث عن زبون (الاسم، الكود، العنوان، الهاتف، المسار)..." 
+            className={`w-full pr-9 pl-8 p-2 rounded-xl border text-xs font-bold transition-all ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+          />
+          {searchQuery && (
+            <button 
+              type="button" 
+              onClick={() => setSearchQuery('')} 
+              className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold p-0.5 cursor-pointer"
+              title="مسح البحث"
+            >
+              ✕
+            </button>
           )}
         </div>
+
+        {/* Customer Type Filter Options (نوع الزبون) */}
+        <div className="space-y-1">
+          <div className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>نوع الزبون:</span>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {/* All Option */}
+            <button
+              type="button"
+              onClick={() => setRouteFilterType('')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                !routeFilterType
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  : isDarkMode
+                  ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              <span>الكل</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                !routeFilterType ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              }`}>
+                {customerTypeCounts.all}
+              </span>
+            </button>
+
+            {/* Mifrad (مفرد) Option */}
+            <button
+              type="button"
+              onClick={() => setRouteFilterType('مفرد')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                routeFilterType === 'مفرد'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  : isDarkMode
+                  ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              <span>مفرد</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                routeFilterType === 'مفرد' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              }`}>
+                {customerTypeCounts.mifrad}
+              </span>
+            </button>
+
+            {/* Jumla (جملة) Option */}
+            <button
+              type="button"
+              onClick={() => setRouteFilterType('جملة')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                routeFilterType === 'جملة'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  : isDarkMode
+                  ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              <span>جملة</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                routeFilterType === 'جملة' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              }`}>
+                {customerTypeCounts.jumla}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Days Option Pills (الأيام) for Admin/DataEntry */}
+        {(currentUser?.isAdmin || isDataEntry) && (
+          <div className="space-y-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+            <div className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <span>اليوم / المسار:</span>
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {['', 'السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الخميس'].map((day) => {
+                const isSelected = routeFilterDay === day;
+                const label = day || 'كل الأيام';
+                const count = dayCounts[day] || 0;
+                return (
+                  <button
+                    key={day || 'all-days-pill'}
+                    type="button"
+                    onClick={() => setRouteFilterDay(day)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-teal-600 text-white font-black shadow-md shadow-teal-600/20'
+                        : isDarkMode
+                        ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                      isSelected ? 'bg-teal-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Delegate Option Pills (المندوبين) for Admin/DataEntry */}
+        {(currentUser?.isAdmin || isDataEntry) && (
+          <div className="space-y-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+            <div className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>المندوب:</span>
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setRouteFilterDelegate('')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  !routeFilterDelegate
+                    ? 'bg-blue-600 text-white font-black shadow-md shadow-blue-600/20'
+                    : isDarkMode
+                    ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                <span>كل المندوبين</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                  !routeFilterDelegate ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                }`}>
+                  {delegateCounts[''] || 0}
+                </span>
+              </button>
+
+              {allAvailableDelegates.map((d) => {
+                const isSelected = routeFilterDelegate === d.value || routeFilterDelegate === d.key;
+                const count = delegateCounts[d.value] ?? delegateCounts[d.key] ?? 0;
+                return (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setRouteFilterDelegate(d.value)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white font-black shadow-md shadow-blue-600/20'
+                        : isDarkMode
+                        ? 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    <span>{d.value}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                      isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {searchQuery.trim() && (
-          <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-1">
+          <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-1 pt-1">
             <span>نتائج البحث: تم العثور على {finalRoutes.length} زبون</span>
             <button 
               type="button" 
               onClick={() => setSearchQuery('')}
-              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline cursor-pointer"
             >
               إلغاء البحث
             </button>
@@ -1835,27 +2440,25 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                               {r.customerCode}
                             </div>
                             <div className="flex items-center gap-1">
-                              {canOrder && (
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
-                                  className={`p-1 px-1.5 rounded-lg flex items-center gap-1 font-extrabold transition-all active:scale-95 cursor-pointer ${
-                                    hasDebt && isUnlockedForOrder
-                                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs'
-                                      : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600'
-                                  }`}
-                                  title={hasDebt && isUnlockedForOrder ? "طلب جديد (تم فتح الطلب استثناءً رغم وجود الدين)" : "طلب جديد"}
-                                >
-                                  <ShoppingBag className="w-4 h-4" />
-                                  {hasDebt && isUnlockedForOrder && (
-                                    <span className="text-[9px] font-black">طلب (مفتوح)</span>
-                                  )}
-                                </button>
-                              )}
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleOrderClick(r); }}
+                                className={`p-1 px-1.5 rounded-lg flex items-center gap-1 font-extrabold transition-all active:scale-95 cursor-pointer ${
+                                  hasDebt && isUnlockedForOrder
+                                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs'
+                                    : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600'
+                                }`}
+                                title={hasDebt && isUnlockedForOrder ? "طلب جديد (تم فتح الطلب استثناءً رغم وجود الدين)" : "طلب جديد / تسجيل ملاحظة"}
+                              >
+                                <ShoppingBag className="w-4 h-4" />
+                                {hasDebt && isUnlockedForOrder && (
+                                  <span className="text-[9px] font-black">طلب (مفتوح)</span>
+                                )}
+                              </button>
                               
                               {hasDebt && !isUnlockedForOrder && !currentUser?.isAdmin && !isDataEntry && (
                                 <span 
                                   className="text-[9px] font-black bg-rose-500/20 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-500/30 shrink-0"
-                                  title="مغلق لوجود دين - يرجى طلب الفتح من الأدمن أو مدخل البيانات"
+                                  title="مغلق لوجود دين - يمكنك النقر على الزر وتسجيل معلومات أخرى"
                                 >
                                   دين مستحق
                                 </span>
@@ -1872,6 +2475,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                         <td className="px-2 py-1.5 font-bold">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-slate-900 dark:text-white font-black">{r.customerName}</span>
+                            {customerNotesCountMap.has(cCode) && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shrink-0"
+                                title={`ملاحظات مسجلة لهذا المحل: (${customerNotesCountMap.get(cCode)})`}
+                              >
+                                <FileText className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                <span>ملاحظة</span>
+                              </span>
+                            )}
                             {(() => {
                               const phone = getCustomerPhone(r);
                               if (!phone) return null;
@@ -1912,29 +2524,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         </button>
       )}
 
-      {/* Admin Only: Download Routes directly below table */}
-      {currentUser?.isAdmin && (
-        <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs ${
-          isDarkMode ? 'bg-slate-800/90 border-slate-700' : 'bg-emerald-50/70 border-emerald-200'
-        }`}>
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>
-              تحميل المسارات المفلترة ({routeFilterDelegate || 'كل المندوبين'} - {routeFilterDay || 'كل الأيام'}):
-              <span className="mr-1.5 font-black text-emerald-700 dark:text-emerald-300 font-mono">({filteredRoutes.length} زبون)</span>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleDownloadFilteredRoutes}
-            className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-            title="تحميل المسارات المفلترة حسب المندوب واليوم في ملف إكسل"
-          >
-            <Download className="w-4 h-4" />
-            <span>تحميل المسارات (Excel)</span>
-          </button>
-        </div>
-      )}
+
 
       {/* Summary Card removed */}
 
@@ -2451,84 +3041,482 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       )}
 
       
-      {/* Admin Only: Bottom of the Page Download Routes Section */}
+
+
+
+
+
+
+      {/* Customer Notes / Delegate Information Section at the bottom of Routes page */}
+      <div className={`mt-8 p-4 sm:p-5 rounded-2xl border shadow-md space-y-4 ${
+        isDarkMode 
+          ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-blue-900/60' 
+          : 'bg-gradient-to-br from-blue-50/70 via-white to-slate-50 border-blue-200'
+      }`}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-blue-100 dark:border-slate-700/80">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30 shrink-0">
+              <FileText className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span>ملاحظات ومعلومات المحلات من المندوبين</span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-xs">
+                  {currentUser?.isAdmin || isDataEntry ? 'جميع الملاحظات (أدمن)' : 'ملاحظاتي فقط (مندوب)'}
+                </span>
+                {(currentUser?.isAdmin || isDataEntry) && (
+                  <button
+                    onClick={handleExportNotesCSV}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-black bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>تحميل البيانات (CSV)</span>
+                  </button>
+                )}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                {currentUser?.isAdmin || isDataEntry 
+                  ? 'عرض جميع الملاحظات والمعلومات المسجلة من كافة المندوبين على محلات المسارات.' 
+                  : 'عرض المحلات التي سجلت عليها ملاحظات والمعلومات الخاصة بك فقط.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Search Box */}
+          <div className="w-full sm:w-64 relative">
+            <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={notesSearchQuery}
+              onChange={(e) => setNotesSearchQuery(e.target.value)}
+              placeholder="بحث بالملاحظات أو المحلات..."
+              className={`w-full pr-9 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
+                isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+              }`}
+            />
+          </div>
+        </div>
+
+        {/* Notes Cards List */}
+        {visibleCustomerNotes.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs">
+            لا توجد ملاحظات مسجلة للمحلات حالياً.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {visibleCustomerNotes.map((note) => {
+              const canDelete = Boolean(
+                currentUser?.isAdmin ||
+                isDataEntry ||
+                normalizeArabic(note.delegateName) === normalizeArabic(currentUser?.name || currentUser?.delegateName)
+              );
+
+              return (
+                <div
+                  key={note.id || `note-${note.timestamp}`}
+                  className={`p-3.5 rounded-xl border shadow-xs transition-all space-y-2 relative ${
+                    isDarkMode ? 'bg-slate-900/90 border-slate-800 hover:border-blue-700/60' : 'bg-white border-blue-100 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>{note.customerName}</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                        كود: {note.customerCode} {note.customerAddress ? `• ${note.customerAddress}` : ''}
+                      </p>
+                    </div>
+
+                    {canDelete && note.id && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomerNote(note.id!, note.customerName)}
+                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
+                        title="حذف الملاحظة"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selected Option Badge */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      {note.selectedOption}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <User className="w-3 h-3 text-slate-400" />
+                      <span>{note.delegateName || 'مندوب'}</span>
+                    </span>
+                  </div>
+
+                  {/* Freeform Notes content */}
+                  {note.notes && (
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/50 leading-relaxed whitespace-pre-wrap">
+                      {note.notes}
+                    </p>
+                  )}
+
+                  {/* Date & Time footer */}
+                  <div className="text-[9px] text-slate-400 font-mono text-left pt-1 border-t border-slate-100 dark:border-slate-800">
+                    {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : note.dateString || ''}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Admin Only: Download & Upload Routes Section at the very bottom of the page */}
       {currentUser?.isAdmin && (
-        <div className={`mt-8 p-4 sm:p-5 rounded-2xl border shadow-md space-y-4 ${
+        <div className={`mt-6 p-3.5 sm:p-4 rounded-2xl border shadow-sm ${
           isDarkMode 
-            ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60' 
-            : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200'
+            ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60 text-white' 
+            : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200 text-slate-900'
         }`}>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-100 dark:border-slate-700/80">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
-                <FileSpreadsheet className="w-6 h-6" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
+                <FileSpreadsheet className="w-5 h-5" />
               </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>تحميل المسارات (Excel)</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs">
+              <div className="truncate">
+                <h3 className="text-xs sm:text-sm font-black flex items-center gap-2 truncate">
+                  <span>إدارة ملفات المسارات (Excel)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs">
                     للأدمن فقط
                   </span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-                  تحميل ملف المسارات حسب المندوب واليوم المحددين مع عمود رقم الزبون مجاور اسم الزبون
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">
+                  المسارات المفلترة: {routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({filteredRoutes.length} زبون)
                 </p>
               </div>
             </div>
 
-            {/* Quick Badges */}
-            <div className="flex items-center gap-2 flex-wrap text-xs font-bold">
-              <span className="px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                المندوب: <span className="font-black">{routeFilterDelegate || 'كل المندوبين'}</span>
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
-                اليوم: <span className="font-black">{routeFilterDay || 'كل الأيام'}</span>
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
-                العدد: <span className="font-mono font-black">{filteredRoutes.length}</span>
-              </span>
+            {/* Icon-Only Action Buttons */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Download Filtered Routes Icon Button */}
+              <button
+                type="button"
+                onClick={handleDownloadFilteredRoutes}
+                className="p-2.5 sm:p-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white rounded-xl shadow-md shadow-emerald-600/30 transition-all cursor-pointer flex items-center justify-center"
+                title={`تحميل المسارات (${filteredRoutes.length} زبون)`}
+              >
+                <Download className="w-5 h-5" />
+              </button>
+
+              {/* Download Empty Template Icon Button */}
+              <button
+                type="button"
+                onClick={handleDownloadRoutesTemplate}
+                className="p-2.5 sm:p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 flex items-center justify-center"
+                title="تحميل نموذج إكسل فارغ (Template)"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+              </button>
+
+              {/* Upload Routes Excel Icon Button */}
+              <label
+                className="p-2.5 sm:p-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center"
+                title="رفع مسارات (Excel)"
+              >
+                <Upload className="w-5 h-5" />
+                <input
+                  type="file"
+                  accept=".xlsx, .xls"
+                  onChange={handleUploadRoutes}
+                  className="hidden"
+                />
+              </label>
             </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={handleDownloadFilteredRoutes}
-              className="flex-1 py-3 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-98 text-white rounded-xl font-black text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
-              title="تحميل المسارات المفلترة حسب المندوب واليوم في ملف إكسل"
-            >
-              <Download className="w-5 h-5 shrink-0" />
-              <span>تحميل المسارات ({filteredRoutes.length} زبون)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadRoutesTemplate}
-              className="py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
-              title="تحميل نموذج إكسل فارغ للمسارات يتضمن عمود رقم الزبون مجاور اسم الزبون"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>تحميل نموذج إكسل فارغ (Template)</span>
-            </button>
-
-            <label className="py-3 px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer">
-              <Upload className="w-4 h-4" />
-              <span>رفع مسارات (Excel)</span>
-              <input
-                type="file"
-                accept=".xlsx, .xls"
-                onChange={handleUploadRoutes}
-                className="hidden"
-              />
-            </label>
           </div>
         </div>
       )}
 
+      {/* Choice Modal (Step 1) */}
+      {actionModalRoute && actionModalStep === 'choice' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => { setActionModalRoute(null); setActionModalStep(null); }}
+          dir="rtl"
+        >
+          <div
+            className={`w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl border text-right space-y-4 animate-in zoom-in-95 duration-200 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  <ShoppingBag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">إجراء على المحل</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">{actionModalRoute.customerName} ({actionModalRoute.customerCode})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setActionModalRoute(null); setActionModalStep(null); }}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
+            {(() => {
+              const cCode = String(actionModalRoute.customerCode ?? '').trim();
+              const hasDebt = customerDebtsSet.has(cCode);
+              const isUnlockedForOrder = Boolean(
+                unlockedCustomerCodes[cCode] ||
+                unlockedCustomerCodes[normalizeArabic(actionModalRoute.customerName)] ||
+                unlockedCustomerCodes[actionModalRoute.customerName]
+              );
+              const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
+              const isSalesCompleted = Boolean(
+                completedDelegates[actionModalRoute.delegateName || ''] ||
+                isDelegateCompletedToday(actionModalRoute.delegateName, actionModalRoute.delegateCode)
+              );
+              const isSalesClosedByTime = Boolean(baghdadStatus?.isPastClosing);
+              const isDebtLocked = hasDebt && !isUnlockedForOrder;
 
+              let disabledReason = '';
+              if (isDebtLocked) {
+                disabledReason = 'مغلق لوجود دين مستحق على المحل';
+              } else if (isSalesCompleted) {
+                disabledReason = 'تم إكمال مبيعات اليوم لهذا المندوب';
+              } else if (isSalesClosedByTime) {
+                disabledReason = 'انتهى وقت المبيعات الرسمية لهذا اليوم';
+              }
 
+              const isNewOrderDisabled = !isPrivilegedUser && Boolean(disabledReason);
+
+              return (
+                <div className="space-y-3 pt-1">
+                  {(!isPrivilegedUser && (isSalesCompleted || isSalesClosedByTime)) ? null : (
+                    <button
+                      type="button"
+                      onClick={() => handleProceedToNewOrder(actionModalRoute)}
+                      className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white rounded-xl font-black text-sm shadow-md shadow-emerald-600/20 flex items-center justify-between transition-all cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ShoppingBag className="w-5 h-5" />
+                        <span>1- طلب جديد</span>
+                      </span>
+                      <span className="text-[11px] bg-emerald-700/60 px-2.5 py-1 rounded-lg font-bold">إنشاء فاتورة</span>
+                    </button>
+                  )}
+                  
+                  {isNewOrderDisabled && (!isSalesCompleted && !isSalesClosedByTime) && (
+                    <div className="w-full p-4 bg-slate-100 dark:bg-slate-800/80 text-slate-400 rounded-xl font-bold text-xs flex flex-col gap-2 border border-slate-200 dark:border-slate-700/80">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="flex items-center gap-2 font-black text-slate-500 dark:text-slate-400 text-sm">
+                          <ShoppingBag className="w-5 h-5 text-slate-400" />
+                          <span>1- طلب جديد</span>
+                        </span>
+                        <span className="text-[10px] bg-rose-500/15 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-md font-black border border-rose-500/30">
+                          غير متاح
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <span>{disabledReason}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleProceedToOtherInfo}
+                    className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-500 active:scale-98 text-white rounded-xl font-black text-sm shadow-md shadow-blue-600/20 flex items-center justify-between transition-all cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      <span>2- معلومات اخرى</span>
+                    </span>
+                    <span className="text-[11px] bg-blue-700/60 px-2.5 py-1 rounded-lg font-bold">تسجيل ملاحظة</span>
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Other Info Modal (Step 2) */}
+      {actionModalRoute && actionModalStep === 'other_info' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => { setActionModalRoute(null); setActionModalStep(null); }}
+          dir="rtl"
+        >
+          <div
+            className={`w-full max-w-xl rounded-2xl p-5 sm:p-6 shadow-2xl border text-right space-y-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">معلومات أخرى - {actionModalRoute.customerName}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">كود: {actionModalRoute.customerCode} {actionModalRoute.customerAddress ? `| ${actionModalRoute.customerAddress}` : ''}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setActionModalRoute(null); setActionModalStep(null); }}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Grid layout for Preset Options & Notes */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Preset Options List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                    اختر من القائمة التالية:
+                  </label>
+                  {(currentUser?.isAdmin || isDataEntry) && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full">
+                      تحكم الأدمن
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 max-h-[220px] overflow-y-auto p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                  {availableOptions.map((opt) => {
+                    const isSelected = selectedOption === opt;
+                    const isPrivileged = Boolean(currentUser?.isAdmin || isDataEntry);
+
+                    return (
+                      <div key={opt} className="flex items-center gap-1 group">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOption(opt)}
+                          className={`flex-1 text-right p-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs font-black ring-2 ring-blue-400/50'
+                              : isDarkMode
+                              ? 'bg-slate-900 text-slate-200 hover:bg-slate-800'
+                              : 'bg-white text-slate-800 hover:bg-slate-100 border border-slate-200'
+                          }`}
+                        >
+                          <span>{opt}</span>
+                          {isSelected && <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />}
+                        </button>
+
+                        {isPrivileged && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCustomOption(opt);
+                            }}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title={`حذف الخيار "${opt}" من القائمة`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Admin Add New Option Form */}
+                {(currentUser?.isAdmin || isDataEntry) && (
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={newOptionInput}
+                      onChange={(e) => setNewOptionInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomOption();
+                        }
+                      }}
+                      placeholder="إضافة خيار جديد للقائمة..."
+                      className={`flex-1 p-2 rounded-xl border text-xs font-bold ${
+                        isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomOption}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                      title="إضافة الخيار الجديد إلى القائمة"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>إضافة</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Freeform Notes Section */}
+              <div className="space-y-2 flex flex-col justify-between">
+                <div>
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
+                    فقرة ملاحظات:
+                  </label>
+                  <textarea
+                    rows={7}
+                    value={otherInfoNotesInput}
+                    onChange={(e) => setOtherInfoNotesInput(e.target.value)}
+                    placeholder="اكتب تفاصيل أو ملاحظات المندوب حول هذا المحل..."
+                    className={`w-full p-3 rounded-xl border text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
+                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                  تظهر هذه الملاحظات في أسفل صفحة المسارات للمندوب وللأدمن.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Buttons */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isSubmittingNote}
+                onClick={() => setActionModalStep('choice')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all active:scale-95 cursor-pointer ${
+                  isDarkMode ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                رجوع
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmittingNote}
+                onClick={handleSubmitOtherInfo}
+                className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-50 text-white rounded-xl font-black text-xs sm:text-sm shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                {isSubmittingNote ? (
+                  <span>جاري الإرسال...</span>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 shrink-0" />
+                    <span>إرسال</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

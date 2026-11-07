@@ -365,18 +365,18 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto" 
+      className="fixed inset-0 z-[100] flex items-center justify-center p-2.5 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto" 
       onClick={onClose}
       dir="rtl"
     >
       <div 
-        className={`w-full max-w-[95vw] sm:max-w-xl h-[85dvh] sm:h-[82vh] max-h-[620px] sm:max-h-[800px] my-auto flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}
+        className={`w-full max-w-[96vw] sm:max-w-xl h-[88dvh] sm:h-[82vh] max-h-[640px] sm:max-h-[800px] my-auto flex flex-col rounded-2xl sm:rounded-3xl shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'}`}
         onClick={e => e.stopPropagation()}
       >
         
         {/* Header */}
-        <div className={`flex items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3.5 border-b shrink-0 ${isDarkMode ? 'border-slate-800 bg-slate-800/60' : 'border-slate-100 bg-slate-50'}`}>
-          <h2 className="text-sm sm:text-base font-black flex items-center gap-2 min-w-0">
+        <div className={`flex items-center justify-between px-3.5 py-2.5 sm:px-6 sm:py-3.5 border-b shrink-0 ${isDarkMode ? 'border-slate-800 bg-slate-800/80' : 'border-slate-100 bg-slate-50'}`}>
+          <h2 className="text-xs sm:text-base font-black flex items-center gap-1.5 sm:gap-2 min-w-0">
             <div className="relative shrink-0">
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
               {(() => {
@@ -394,72 +394,78 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                 : `لوحة المندوب: ${currentUser?.name}`}
             </span>
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+          <button 
+            onClick={onClose} 
+            className="p-1 sm:p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            title="إغلاق النافذة"
+          >
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        {/* Tabs - Horizontal scrollable tab bar to avoid stretching modal width */}
-        <div className="flex items-center p-2 sm:p-3 gap-1.5 sm:gap-2 border-b border-slate-200 dark:border-slate-700 shrink-0 overflow-x-auto scrollbar-none">
-          <button 
-            onClick={() => setActiveTab('alerts')} 
-            className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
-              activeTab === 'alerts' 
-                ? 'bg-emerald-500 text-white shadow-sm' 
-                : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span className="whitespace-nowrap">{isAdminOrDataEntry ? 'التنبيهات المشتركة' : 'تنبيهاتي'}</span>
-            {alerts.length > 0 && (
-              <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
-                {alerts.length}
-              </span>
-            )}
-          </button>
+        {/* Tabs - Responsive tabs that never overflow or exit the screen */}
+        <div className="p-1.5 sm:p-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 w-full min-w-0 bg-slate-50/70 dark:bg-slate-900/70">
+          <div className="flex items-center gap-1 sm:gap-1.5 w-full min-w-0">
+            <button 
+              onClick={() => setActiveTab('alerts')} 
+              className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
+                activeTab === 'alerts' 
+                  ? 'bg-emerald-500 text-white shadow-sm' 
+                  : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100')
+              }`}
+            >
+              <Bell className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+              <span className="truncate">{isAdminOrDataEntry ? 'تنبيهات مشتركة' : 'تنبيهاتي'}</span>
+              {alerts.length > 0 && (
+                <span className="bg-red-500 text-white text-[9px] px-1 py-0.2 rounded-full font-black shrink-0">
+                  {alerts.length}
+                </span>
+              )}
+            </button>
 
-          <button 
-            onClick={() => setActiveTab('notes')} 
-            className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
-              activeTab === 'notes' 
-                ? 'bg-emerald-500 text-white shadow-sm' 
-                : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span className="whitespace-nowrap">{isAdminOrDataEntry ? 'الملاحظات المشتركة' : 'ملاحظاتي'}</span>
-            {notes.length > 0 && (
-              <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
-                {notes.length}
-              </span>
-            )}
-          </button>
+            <button 
+              onClick={() => setActiveTab('notes')} 
+              className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
+                activeTab === 'notes' 
+                  ? 'bg-emerald-500 text-white shadow-sm' 
+                  : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100')
+              }`}
+            >
+              <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+              <span className="truncate">{isAdminOrDataEntry ? 'ملاحظات مشتركة' : 'ملاحظاتي'}</span>
+              {notes.length > 0 && (
+                <span className="bg-blue-500 text-white text-[9px] px-1 py-0.2 rounded-full font-black shrink-0">
+                  {notes.length}
+                </span>
+              )}
+            </button>
 
-          {/* Daily tasks and Notifications are ONLY for delegates */}
-          {!isAdminOrDataEntry && (
-            <>
-              <button 
-                onClick={() => setActiveTab('notifications')} 
-                className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors whitespace-nowrap ${
-                  activeTab === 'notifications' 
-                    ? 'bg-emerald-500 text-white' 
-                    : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
-                }`}
-              >
-                إشعارات
-              </button>
-              <button 
-                onClick={() => setActiveTab('tasks')} 
-                className={`shrink-0 px-2.5 py-1.5 sm:py-2 rounded-lg font-bold text-[11px] sm:text-xs transition-colors whitespace-nowrap ${
-                  activeTab === 'tasks' 
-                    ? 'bg-emerald-500 text-white' 
-                    : (isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
-                }`}
-              >
-                المهام اليومية
-              </button>
-            </>
-          )}
+            {/* Daily tasks and Notifications are ONLY for delegates */}
+            {!isAdminOrDataEntry && (
+              <>
+                <button 
+                  onClick={() => setActiveTab('notifications')} 
+                  className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
+                    activeTab === 'notifications' 
+                      ? 'bg-emerald-500 text-white shadow-sm' 
+                      : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100')
+                  }`}
+                >
+                  <span className="truncate">إشعارات</span>
+                </button>
+                <button 
+                  onClick={() => setActiveTab('tasks')} 
+                  className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
+                    activeTab === 'tasks' 
+                      ? 'bg-emerald-500 text-white shadow-sm' 
+                      : (isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100')
+                  }`}
+                >
+                  <span className="truncate">المهام</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Content */}
