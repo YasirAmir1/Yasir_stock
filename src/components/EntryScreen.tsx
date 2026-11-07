@@ -543,15 +543,20 @@ export const EntryScreen: React.FC = () => {
   const handleWhatsAppInvoice = async (customerName: string, entries: typeof safeSavedEntries) => {
     const delegateName = entries[0]?.delegateName || 'غير محدد';
     const customerAddress = entries[0]?.customerAddress || '';
-    const actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
+    
+    // 1. Initial name extraction
+    let actualCustomerName = customerName.split(' | الزبون: ').pop() || customerName;
     let customerPhone = entries[0]?.customerPhone || '';
     
-    // Try to extract phone number from actualCustomerName if it's missing in entries[0]
-    if (!customerPhone) {
-      const phoneMatch = actualCustomerName.match(/(07\d{8,10}|7\d{8,10}|\+964\d{9,11})/);
-      if (phoneMatch) {
-        customerPhone = phoneMatch[0];
-      }
+    // 2. Robust extraction from name string if missing
+    // Handles 07..., 7..., +9647... with spaces or hyphens
+    const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
+    const phoneMatch = actualCustomerName.match(phoneRegex);
+    
+    if (phoneMatch) {
+      if (!customerPhone) customerPhone = phoneMatch[0];
+      // Clean name: remove the phone number and trailing/leading separators
+      actualCustomerName = actualCustomerName.replace(phoneMatch[0], '').replace(/^[\s-–—]+|[\s-–—]+$/g, '').trim();
     }
     
     const customerCodeMetadata = entries[0]?.customerCode || '---';
@@ -619,7 +624,7 @@ export const EntryScreen: React.FC = () => {
       <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 10px 0; display: flex; justify-content: space-between; align-items: center;">
         <span style="font-size: 11px; color: #000; font-weight: bold;">${invoiceDateStr}</span>
         <div style="font-size: 16px; font-weight: 900; text-align: right; flex: 1;">
-          ${customerPhone ? `${customerPhone} - ` : ''}${actualCustomerName}
+          ${customerPhone ? `${customerPhone.replace(/\s+/g, '')} - ` : ''}${actualCustomerName}
         </div>
       </div>
 
@@ -677,46 +682,53 @@ export const EntryScreen: React.FC = () => {
 
       const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.png`;
       const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
+      const dataUrl = canvas.toDataURL('image/png');
 
-      let shared = false;
+      const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
+      
+      const formatWhatsAppPhone = (phone: string): string => {
+        if (!phone) return '';
+        let cleaned = phone.replace(/\D/g, '');
+        if (cleaned.startsWith('0')) {
+          cleaned = '964' + cleaned.substring(1);
+        } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
+          cleaned = '964' + cleaned;
+        }
+        return cleaned;
+      };
+      
+      const formattedPhone = formatWhatsAppPhone(customerPhone);
+      const waUrl = formattedPhone
+        ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+      // 1. Always download the file so it's ready in the gallery/downloads
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = dataUrl;
+      link.click();
+
+      // 2. Open WhatsApp direct link
+      // We wrap it in a small timeout to ensure the download starts first
+      setTimeout(() => {
+        window.open(waUrl, '_blank');
+      }, 500);
+
+      // 3. Optional: Use navigator.share as a secondary fallback or for browsers that block window.open
       if (blob && navigator.share && navigator.canShare) {
         const file = new File([blob], fileName, { type: 'image/png' });
         if (navigator.canShare({ files: [file] })) {
           try {
-            await navigator.share({
+            // We don't 'await' this to not block the UI if the user takes time
+            navigator.share({
               files: [file],
               title: `فاتورة ${actualCustomerName}`,
-              text: `فاتورة مبيعات الزبون: ${actualCustomerName} - الإجمالي: ${formatWithCommas(totalPrice, true)} د.ع`,
-            });
-            shared = true;
+              text: message,
+            }).catch(e => console.log('Share closed:', e));
           } catch (err) {
-            console.log('Share canceled:', err);
+            console.log('Share API error:', err);
           }
         }
-      }
-
-      if (!shared) {
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-
-        const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(تم تحميل صورة الفاتورة على جهازك)*`;
-        const formatWhatsAppPhone = (phone: string): string => {
-          if (!phone) return '';
-          let cleaned = phone.replace(/\D/g, '');
-          if (cleaned.startsWith('0')) {
-            cleaned = '964' + cleaned.substring(1);
-          } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
-            cleaned = '964' + cleaned;
-          }
-          return cleaned;
-        };
-        const formattedPhone = formatWhatsAppPhone(customerPhone);
-        const url = formattedPhone
-          ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
-          : `https://wa.me/?text=${encodeURIComponent(message)}`;
-        window.open(url, '_blank');
       }
     } catch (err) {
       if (container.parentNode) document.body.removeChild(container);
@@ -1551,11 +1563,8 @@ ${itemsTextCalc}
       );
 
       if (matchedCat) {
-        const prod = productsList.find(p => p.productName === entry.productName);
-        const cartonQty = Number(prod?.cartonQuantity) || 12;
-        const totalUnits = Number(entry.quantity) || 0;
-        const cartons = totalUnits / cartonQty;
-        summary[matchedCat].actual += cartons;
+        const totalWeight = Number(entry.totalWeightKg) || 0;
+        summary[matchedCat].actual += totalWeight;
       }
     });
 
@@ -1819,7 +1828,7 @@ ${itemsTextCalc}
         )}
 
         {/* 1.2 Category Sales & Targets Summary Grid */}
-        {isPrivilegedRole && (
+        {(isPrivilegedRole || (!currentUser?.isAdmin && currentUser?.name)) && (
           <div className={`p-4 rounded-2xl border-2 shadow-md space-y-4 ${
             isDarkMode 
               ? 'bg-slate-900 border-amber-500/40 text-white' 
@@ -1830,33 +1839,37 @@ ${itemsTextCalc}
                 <Package className="w-4 h-4" />
               </div>
               <h3 className="text-xs sm:text-sm font-black flex items-center gap-2">
-                <span>متابعة مبيعات وأهداف الأصناف اليوم</span>
+                <span>متابعة مبيعات وأهداف الأصناف اليوم (كجم)</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600">
-                  {selectedDelegate === 'الكل' ? 'الإجمالي العام' : `للمندوب: ${selectedDelegate}`}
+                  {selectedDelegate === 'الكل' ? 'الإجمالي العام' : (!currentUser?.isAdmin ? 'أدائي اليومي وتاركت الأصناف' : `للمندوب: ${selectedDelegate}`)}
                 </span>
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
               {TARGET_CATEGORIES.map((cat) => {
                 const { actual, target } = categorySalesSummary[cat] || { actual: 0, target: 0 };
+                const isAchieved = target > 0 && actual >= target;
+                
                 return (
                   <div key={cat} className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all ${
-                    actual > 0 
-                      ? isDarkMode ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-emerald-50 border-emerald-200 shadow-xs'
-                      : isDarkMode ? 'bg-slate-800/50 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60'
+                    isAchieved
+                      ? 'bg-blue-800 dark:bg-blue-900 border-blue-900 shadow-md ring-2 ring-blue-500/20' 
+                      : actual > 0 
+                        ? isDarkMode ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-emerald-50 border-emerald-200 shadow-xs'
+                        : isDarkMode ? 'bg-slate-800/50 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60'
                   }`}>
-                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mb-1 truncate w-full" title={cat}>{cat}</span>
+                    <span className={`text-[9px] font-bold mb-1 truncate w-full ${isAchieved ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} title={cat}>{cat}</span>
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1 justify-center">
-                        <span className="text-[10px] font-bold text-slate-400">محقق:</span>
-                        <span className={`text-xs font-black ${actual > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                          {actual > 0 ? parseFloat(actual.toFixed(1)) : '0'} <span className="text-[8px]">كارتون</span>
+                        <span className={`text-[10px] font-bold ${isAchieved ? 'text-blue-100' : 'text-slate-400'}`}>محقق:</span>
+                        <span className={`text-xs font-black ${isAchieved ? 'text-white' : actual > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {actual > 0 ? parseFloat(actual.toFixed(1)) : '0'} <span className="text-[8px]">كجم</span>
                         </span>
                       </div>
                       {target > 0 && (
-                        <div className="flex items-center gap-1 justify-center border-t border-slate-200 dark:border-slate-800 pt-0.5 mt-0.5">
-                          <span className="text-[9px] font-bold text-slate-400">هدف:</span>
-                          <span className="text-[10px] font-black text-amber-600 dark:text-amber-400">
+                        <div className={`flex items-center gap-1 justify-center border-t pt-0.5 mt-0.5 ${isAchieved ? 'border-blue-500/50' : 'border-slate-200 dark:border-slate-800'}`}>
+                          <span className={`text-[9px] font-bold ${isAchieved ? 'text-blue-100' : 'text-slate-400'}`}>هدف:</span>
+                          <span className={`text-[10px] font-black ${isAchieved ? 'text-white' : 'text-amber-600 dark:text-amber-400'}`}>
                             {parseFloat(target.toFixed(0))} <span className="text-[8px]">كجم</span>
                           </span>
                         </div>
