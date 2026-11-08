@@ -128,7 +128,16 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   }
 
   // Handle old canonical names mapping to new ones
-  if (str === normalizeArabic('زبادي') || str === normalizeArabic('لبن')) {
+  if (
+    str === normalizeArabic('زبادي') ||
+    str === normalizeArabic('لبن') ||
+    str === normalizeArabic('اللبن') ||
+    str === normalizeArabic('خاثر') ||
+    str === normalizeArabic('الخاثر') ||
+    str === normalizeArabic('البان') ||
+    str === normalizeArabic('الالبان') ||
+    str === normalizeArabic('ماست')
+  ) {
     return 'لبن';
   }
   if (str === normalizeArabic('كل انواع الجبن العادي') || str === normalizeArabic('جبن 1') || str === normalizeArabic('جبن1')) {
@@ -224,7 +233,9 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
     str.includes('حلوم') ||
     str.includes('قشقوان') ||
     str.includes('كاسات') ||
-    str.includes('مثلثات')
+    str.includes('مثلثات') ||
+    str.includes('لبنه') ||
+    str.includes('لبنة')
   ) {
     return 'جبن 1';
   }
@@ -239,8 +250,29 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
     return 'قشطة';
   }
 
-  // 13. Yogurt / Laban (لبن / زبادي)
-  if (str.includes('زبادي') || str.includes('لبن') || str.includes('يوغرت')) {
+  // 13. Yogurt / Laban (لبن / زبادي / خاثر / ألبان / ماست / رائب / سفن / جاموس)
+  if (
+    str.includes('زبادي') ||
+    str.includes('لبن') ||
+    str.includes('خاثر') ||
+    str.includes('البان') ||
+    str.includes('ماست') ||
+    str.includes('رايب') ||
+    str.includes('رائب') ||
+    str.includes('يوغرت') ||
+    str.includes('سفن') ||
+    str.includes('جاموس') ||
+    str === 'لبن' ||
+    str === 'اللبن' ||
+    str === 'زبادي' ||
+    str === 'الزبادي' ||
+    str === 'خاثر' ||
+    str === 'الخاثر' ||
+    str === 'البان' ||
+    str === 'الالبان' ||
+    str === 'ماست' ||
+    str === 'الماست'
+  ) {
     return 'لبن';
   }
 
@@ -286,6 +318,11 @@ export const isMatchingReport11Category = (catA: any, catB: any): boolean => {
   const isVegA = normA.includes('خضراوات') || normA.includes('خضروات') || normA.includes('خضار') || normA.includes('فنكر') || normA.includes('فنجر') || normA.includes('بطاطا');
   const isVegB = normB.includes('خضراوات') || normB.includes('خضروات') || normB.includes('خضار') || normB.includes('فنكر') || normB.includes('فنجر') || normB.includes('بطاطا');
   if (isVegA && isVegB) return true;
+
+  // Extra check for laban / yogurt / khather / alba'an variations
+  const isLabanA = normA.includes('لبن') || normA.includes('زبادي') || normA.includes('خاثر') || normA.includes('البان') || normA.includes('ماست') || normA.includes('رايب') || normA.includes('رائب') || normA.includes('سفن') || normA.includes('جاموس');
+  const isLabanB = normB.includes('لبن') || normB.includes('زبادي') || normB.includes('خاثر') || normB.includes('البان') || normB.includes('ماست') || normB.includes('رايب') || normB.includes('رائب') || normB.includes('سفن') || normB.includes('جاموس');
+  if (isLabanA && isLabanB) return true;
 
   return false;
 };
@@ -350,6 +387,8 @@ export const matchSalesEntryToReport11Category = (entry: SalesEntry): Report11Ca
     combined.includes('جبن حلوم') ||
     combined.includes('جبن قشقوان') ||
     combined.includes('جبن كريم') ||
+    combined.includes('لبنه') ||
+    combined.includes('لبنة') ||
     (combined.includes('جبن') && !combined.includes('بيتزا') && !combined.includes('ويلي'))
   ) {
     return 'جبن 1';
@@ -370,8 +409,23 @@ export const matchSalesEntryToReport11Category = (entry: SalesEntry): Report11Ca
     combined.includes('زبادي') ||
     combined.includes('لبن') ||
     combined.includes('يوغرت') ||
+    combined.includes('خاثر') ||
+    combined.includes('البان') ||
+    combined.includes('ماست') ||
+    combined.includes('رايب') ||
+    combined.includes('رائب') ||
+    combined.includes('سفن') ||
+    combined.includes('جاموس') ||
+    cat.includes('لبن') ||
+    cat.includes('زبادي') ||
+    cat.includes('خاثر') ||
+    cat.includes('البان') ||
+    cat.includes('ماست') ||
     cat === 'لبن' ||
-    cat === 'زبادي'
+    cat === 'زبادي' ||
+    cat === 'خاثر' ||
+    cat === 'البان' ||
+    cat === 'ماست'
   ) {
     return 'لبن';
   }
@@ -1897,7 +1951,7 @@ export const Report11Screen: React.FC = () => {
             const matchedDel = delegateNamesList.find(d => normalizeArabic(d) === normDel) || rawDelegate;
 
             // 1. Category Targets & Sales (Long Format with Category Column)
-            const rawCategory = String(
+            let rawCategory = String(
               row['الصنف'] ??
               row['اسم الصنف'] ??
               row['صنف'] ??
@@ -1905,14 +1959,43 @@ export const Report11Screen: React.FC = () => {
               row['categoryName'] ??
               row['الأصناف'] ??
               row['الاصناف'] ??
+              row['المجموعة'] ??
+              row['اسم المجموعة'] ??
+              row['المجموعات'] ??
+              row['القسم'] ??
+              row['اسم القسم'] ??
+              row['الفئة'] ??
+              row['اسم الفئة'] ??
               ''
             ).trim();
+
+            if (!rawCategory) {
+              for (const [k, v] of Object.entries(row)) {
+                if (!v) continue;
+                const normK = normalizeArabic(k);
+                if (
+                  normK === 'صنف' || normK === 'الصنف' || normK === 'اسم الصنف' ||
+                  normK === 'مجموعه' || normK === 'المجموعه' || normK === 'اسم المجموعه' ||
+                  normK === 'قسم' || normK === 'القسم' || normK === 'اسم القسم' ||
+                  normK === 'فئه' || normK === 'الفئه' || normK === 'اسم الفئه' ||
+                  normK.includes('صنف') || normK.includes('category')
+                ) {
+                  rawCategory = String(v).trim();
+                  break;
+                }
+              }
+            }
 
             if (rawCategory) {
               const matchedCat = matchReport11CategoryName(rawCategory) || rawCategory;
               providedCategoryKeys.add(`${matchedDel}_${matchedCat}`);
+              providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_${matchedCat}`);
+              if (matchedCat === 'لبن') {
+                providedCategoryKeys.add(`${matchedDel}_لبن`);
+                providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_لبن`);
+              }
 
-              const rawMonthlyTarget =
+              let rawMonthlyTarget =
                 row['الهدف الشهري'] ??
                 row['التاركت الشهري'] ??
                 row['تاركت شهري'] ??
@@ -1933,7 +2016,7 @@ export const Report11Screen: React.FC = () => {
                 row['target'] ??
                 null;
 
-              const rawMonthlySales =
+              let rawMonthlySales =
                 row['المبيعات الشهرية'] ??
                 row['المبيعات لحد الآن'] ??
                 row['المبيعات لحد الان'] ??
@@ -1949,9 +2032,39 @@ export const Report11Screen: React.FC = () => {
                 row['sales'] ??
                 null;
 
+              if (rawMonthlyTarget === null || rawMonthlyTarget === undefined) {
+                for (const [k, v] of Object.entries(row)) {
+                  if (v === '' || v === null || v === undefined) continue;
+                  const normK = normalizeArabic(k);
+                  if (
+                    (normK.includes('هدف') || normK.includes('تاركت') || normK.includes('target')) &&
+                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('قطعه') && !normK.includes('محل') && !normK.includes('زبائن')
+                  ) {
+                    rawMonthlyTarget = v;
+                    break;
+                  }
+                }
+              }
+
+              if (rawMonthlySales === null || rawMonthlySales === undefined) {
+                for (const [k, v] of Object.entries(row)) {
+                  if (v === '' || v === null || v === undefined) continue;
+                  const normK = normalizeArabic(k);
+                  if (
+                    (normK.includes('مبيعات') || normK.includes('بيع') || normK.includes('sales')) &&
+                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('نقد') && !normK.includes('قطعه') && !normK.includes('محل') && !normK.includes('زبائن')
+                  ) {
+                    rawMonthlySales = v;
+                    break;
+                  }
+                }
+              }
+
               if (rawMonthlyTarget !== null || rawMonthlySales !== null) {
-                const monthlyTarget = parseFloat(String(rawMonthlyTarget || 0).replace(/,/g, '').trim()) || 0;
-                const monthlySales = parseFloat(String(rawMonthlySales || 0).replace(/,/g, '').trim()) || 0;
+                const cleanTargetStr = parseArabicDigits(String(rawMonthlyTarget ?? 0)).replace(/,/g, '').trim();
+                const cleanSalesStr = parseArabicDigits(String(rawMonthlySales ?? 0)).replace(/,/g, '').trim();
+                const monthlyTarget = parseFloat(cleanTargetStr) || 0;
+                const monthlySales = parseFloat(cleanSalesStr) || 0;
 
                 const docKey = `${matchedDel}_${matchedCat}`.replace(/[\/\s#$[\]]/g, '_');
                 const docRef = doc(db, 'report11_targets', docKey);
@@ -1999,16 +2112,28 @@ export const Report11Screen: React.FC = () => {
 
                 const colCat = matchReport11CategoryName(colKey);
                 if (colCat) {
-                  const numVal = parseFloat(String(colVal).replace(/,/g, '').trim());
+                  providedCategoryKeys.add(`${matchedDel}_${colCat}`);
+                  providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_${colCat}`);
+                  if (colCat === 'لبن') {
+                    providedCategoryKeys.add(`${matchedDel}_لبن`);
+                    providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_لبن`);
+                  }
+
+                  const numVal = parseFloat(parseArabicDigits(String(colVal)).replace(/,/g, '').trim());
                   if (!isNaN(numVal) && numVal >= 0) {
                     const docKey = `${matchedDel}_${colCat}`.replace(/[\/\s#$[\]]/g, '_');
                     const docRef = doc(db, 'report11_targets', docKey);
+
+                    const existingRecord = newTargetsList.find(
+                      t => normalizeArabic(t.delegateName) === normalizeArabic(matchedDel) &&
+                           isMatchingReport11Category(t.categoryName, colCat)
+                    );
 
                     const record: Report11CategoryTarget = {
                       delegateName: matchedDel,
                       categoryName: colCat,
                       monthlyTarget: numVal,
-                      monthlySales: 0,
+                      monthlySales: existingRecord ? (existingRecord.monthlySales || 0) : 0,
                       updatedAt: new Date().toISOString(),
                       updatedBy: currentUser?.name || 'الأدمن'
                     };
@@ -2282,8 +2407,19 @@ export const Report11Screen: React.FC = () => {
 
       targetDelegates.forEach((del) => {
         REPORT_11_CATEGORIES.forEach((cat) => {
-          const key = `${del}_${cat}`;
-          if (!providedCategoryKeys.has(key)) {
+          const key1 = `${del}_${cat}`;
+          const key2 = `${normalizeArabic(del)}_${cat}`;
+          const isProvided =
+            providedCategoryKeys.has(key1) ||
+            providedCategoryKeys.has(key2) ||
+            Array.from(providedCategoryKeys).some(k => {
+              const parts = k.split('_');
+              const kDel = parts[0];
+              const kCat = parts.slice(1).join('_');
+              return normalizeArabic(kDel) === normalizeArabic(del) && isMatchingReport11Category(kCat, cat);
+            });
+
+          if (!isProvided) {
             const docKey = `${del}_${cat}`.replace(/[\/\s#$[\]]/g, '_');
             const docRef = doc(db, 'report11_targets', docKey);
             const record: Report11CategoryTarget = {

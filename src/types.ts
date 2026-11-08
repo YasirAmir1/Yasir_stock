@@ -133,6 +133,11 @@ export interface CustomerInfoNote {
   timestamp: number;
   dateString?: string;
   createdAt?: string;
+  adminActionTaken?: boolean; // هل تم اتخاذ إجراء من قبل الإدارة / الأدمن
+  adminActionDetails?: string; // تفاصيل الإجراء المتخذ من الأدمن
+  adminActionBy?: string; // اسم الأدمن أو مدخل البيانات الذي اتخذ الإجراء
+  adminActionAt?: string; // تاريخ ووقت اتخاذ الإجراء
+  status?: 'pending' | 'action_taken'; // حالة الملاحظة
 }
 
 export const CUSTOMER_INFO_OPTIONS = [

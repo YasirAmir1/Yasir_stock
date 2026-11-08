@@ -12,6 +12,7 @@ import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas-pro';
+import { captureInvoiceToBlob, shareOrDownloadInvoice } from '../utils/invoiceCapture';
 
 const TARGET_CATEGORIES = [
   'قشطة', 'جبن بيتزا', 'جبن 1', 'جبن ويلي', 'لبن', 'حليب بطل', 'حليب باكيت',
@@ -719,103 +720,24 @@ export const EntryScreen: React.FC = () => {
       <div style="border: 1.5px solid #0b3b8c; padding: 6px 8px; text-align: center; font-size: 13px; font-weight: 900; color: #000;">رقم المبيعات : 07718458337</div>
     `;
 
-    document.body.appendChild(container);
-
     try {
-      const canvas = await html2canvas(container, {
-        scale: 2.0,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
-      document.body.removeChild(container);
-
       const fileName = `فاتورة-${actualCustomerName.replace(/\s+/g, '-')}.jpg`;
-      const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.90));
-      
+      const blob = await captureInvoiceToBlob(container, {
+        scale: 1.6,
+        quality: 0.78,
+        maxWidth: 720,
+      });
+
       const message = `🧾 *فاتورة مبيعات - تطبيق كالة*\n👤 *الزبون:* ${actualCustomerName}\n💰 *الإجمالي:* ${formatWithCommas(totalPrice, true)} د.ع\n*(صورة الفاتورة مرفقة)*`;
-      
-      const formatWhatsAppPhone = (phone: string): string => {
-        if (!phone) return '';
-        const normalized = parseArabicDigits(String(phone));
-        let cleaned = normalized.replace(/\D/g, '');
-        if (cleaned.startsWith('00964')) {
-          cleaned = cleaned.substring(2);
-        } else if (cleaned.startsWith('07')) {
-          cleaned = '964' + cleaned.substring(1);
-        } else if (cleaned.startsWith('0')) {
-          cleaned = '964' + cleaned.substring(1);
-        } else if (cleaned.startsWith('7') && cleaned.length === 10) {
-          cleaned = '964' + cleaned;
-        } else if (!cleaned.startsWith('964') && cleaned.length >= 10) {
-          cleaned = '964' + cleaned;
-        }
-        return cleaned;
-      };
-      
-      // 1. Mobile Native Share (Prioritize this for image sharing/attachment)
-      let sharedSuccessfully = false;
-      if (blob && navigator.share) {
-        const file = new File([blob], 'invoice.jpg', { type: 'image/jpeg' });
-        
-        // Some browsers support share but not canShare for files specifically
-        const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
-        
-        if (canShareFiles) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: `فاتورة ${actualCustomerName}`,
-              text: message,
-            });
-            sharedSuccessfully = true;
-          } catch (err) {
-            console.log('Share API error or cancelled:', err);
-          }
-        }
-      }
 
-      // 2. Fallback: If not shared or unsupported, use URL API + Clipboard + Download
-      if (!sharedSuccessfully) {
-        if (typeof addToast === 'function') {
-          addToast({ title: 'مشاركة واتساب', message: `📋 تم حفظ صورة الفاتورة! سيتم فتح المحادثة، قم بلصق الصورة (Ctrl+V) أو استخدام الصورة التي تم تنزيلها.`, type: 'info' });
-        }
-        
-        // Copy JPEG image to clipboard if supported for easy Ctrl+V in WhatsApp Web
-        if (blob && navigator.clipboard && window.ClipboardItem) {
-          try {
-            const item = new ClipboardItem({ 'image/jpeg': blob });
-            await navigator.clipboard.write([item]);
-          } catch (clipErr) {
-            console.log('Clipboard write issue:', clipErr);
-          }
-        }
-
-        // Trigger automatic download of JPEG invoice image
-        if (blob) {
-          const downloadUrl = URL.createObjectURL(blob);
-          const dlLink = document.createElement('a');
-          dlLink.href = downloadUrl;
-          dlLink.download = fileName;
-          document.body.appendChild(dlLink);
-          dlLink.click();
-          document.body.removeChild(dlLink);
-          setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-        }
-
-        // Open direct chat window
-        const formattedPhone = formatWhatsAppPhone(customerPhone);
-        const directWaUrl = formattedPhone 
-          ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(message)}`
-          : `https://wa.me/?text=${encodeURIComponent(message)}`;
-        
-        const waLink = document.createElement('a');
-        waLink.href = directWaUrl;
-        waLink.target = '_blank';
-        document.body.appendChild(waLink);
-        waLink.click();
-        document.body.removeChild(waLink);
-      }
+      await shareOrDownloadInvoice({
+        blob,
+        fileName,
+        message,
+        customerPhone,
+        actualCustomerName,
+        addToast,
+      });
     } catch (err) {
       if (container.parentNode) document.body.removeChild(container);
       console.error('Error generating image:', err);

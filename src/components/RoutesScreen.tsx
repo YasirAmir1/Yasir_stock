@@ -6,7 +6,7 @@ import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, 
 import { safeOnSnapshot } from '../lib/firestoreUtils';
 import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus, CustomerInfoNote, CUSTOMER_INFO_OPTIONS } from '../types';
 import { parseArabicDigits } from '../utils/numberUtils';
-import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock } from 'lucide-react';
+import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock, ShieldCheck, RotateCcw, Edit3 } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
 
 
@@ -29,6 +29,16 @@ const normalizeArabic = (text: any): string => {
     // Remove tatweel (kashida)
     .replace(/ـ/g, '')
     // Collapse multiple whitespace
+};
+
+// Helper to format debt amounts without decimal numbers: 1,000.4 -> 1,000
+const formatDebtAmount = (val: number | string | undefined | null): string => {
+  if (val === undefined || val === null || val === '') return '0';
+  const num = typeof val === 'number' ? val : Number(val);
+  if (isNaN(num)) return '0';
+  return Math.round(num).toLocaleString('en-US', {
+    maximumFractionDigits: 0
+  });
 };
 
 const isHiddenDelegateForFilter = (name: any): boolean => {
@@ -115,6 +125,10 @@ export const RoutesScreen: React.FC = () => {
   const [otherInfoNotesInput, setOtherInfoNotesInput] = useState<string>('');
   const [isSubmittingNote, setIsSubmittingNote] = useState<boolean>(false);
   const [notesSearchQuery, setNotesSearchQuery] = useState<string>('');
+  const [notesActionFilter, setNotesActionFilter] = useState<'all' | 'pending' | 'action_taken'>('all');
+  const [actionModalNote, setActionModalNote] = useState<CustomerInfoNote | null>(null);
+  const [actionDetailsInput, setActionDetailsInput] = useState<string>('');
+  const [isSubmittingAdminAction, setIsSubmittingAdminAction] = useState<boolean>(false);
 
   // Firestore real-time listener for preset customer info options
   useEffect(() => {
@@ -389,7 +403,7 @@ export const RoutesScreen: React.FC = () => {
 👤 *المندوب:* ${delName}
 🏬 *اسم الزبون:* ${debt.customerName}
 🔢 *كود الزبون:* ${debt.customerCode}
-${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress}\n` : ''}💰 *المبلغ المستحق:* ${debt.amountDue.toLocaleString()} د.ع
+${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress}\n` : ''}💰 *المبلغ المستحق:* ${formatDebtAmount(debt.amountDue)} د.ع
 📅 *تاريخ الفاتورة:* ${debt.invoiceDate}
 ⏰ *تاريخ السداد:* ${debt.paymentDueDate}
 📌 *حالة الاستحقاق:* ${dueStatusText}
@@ -674,7 +688,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           <div className={`grid grid-cols-2 gap-4 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
               <div className="text-center">
                   <div className="text-[10px] font-bold text-slate-500 mb-1">إجمالي الديون المستحقة</div>
-                  <div className="text-lg font-black text-slate-900 dark:text-white">{totalDebts.toLocaleString()}</div>
+                  <div className="text-lg font-black text-slate-900 dark:text-white">{formatDebtAmount(totalDebts)}</div>
               </div>
               <div className="text-center">
                   <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">عدد الزبائن</div>
@@ -729,7 +743,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       onClick={() => setSelectedDelegateFilter(null)} 
                       className={`px-3 py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-[70px] ${
                         !selectedDelegateFilter 
-                          ? 'bg-emerald-600 text-white shadow-emerald-600/30' 
+                           ? 'bg-emerald-600 text-white shadow-emerald-600/30' 
                           : isDarkMode 
                             ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700' 
                             : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
@@ -737,7 +751,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     >
                       <span className="text-xs font-black leading-tight">الكل</span>
                       <span className={`text-[10px] font-bold mt-0.5 leading-tight ${!selectedDelegateFilter ? 'text-emerald-100' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                        {totalDebts.toLocaleString()} <span className="text-[8px]">د.ع</span>
+                        {formatDebtAmount(totalDebts)} <span className="text-[8px]">د.ع</span>
                       </span>
                     </button>
 
@@ -769,7 +783,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                                 ? 'text-emerald-100' 
                                 : 'text-amber-600 dark:text-amber-400 font-black'
                             }`}>
-                              {delegateTotal.toLocaleString()} <span className="text-[8px]">د.ع</span>
+                              {formatDebtAmount(delegateTotal)} <span className="text-[8px]">د.ع</span>
                             </span>
                           </button>
                         );
@@ -887,7 +901,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       </span>
                     </td>
                     <td className="px-2 py-1.5 font-black text-emerald-700 dark:text-emerald-300 font-mono text-[11px] sm:text-xs whitespace-nowrap">
-                      {d.amountDue.toLocaleString()} <span className="text-[9px] font-sans">د.ع</span>
+                      {formatDebtAmount(d.amountDue)} <span className="text-[9px] font-sans">د.ع</span>
                     </td>
                     <td className="px-1.5 py-1.5 font-mono text-slate-700 dark:text-slate-300 text-[10px] whitespace-nowrap">{d.invoiceDate}</td>
                     <td className="px-1.5 py-1.5 font-mono text-slate-700 dark:text-slate-300 text-[10px] whitespace-nowrap">{d.paymentDueDate}</td>
@@ -1044,7 +1058,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         const newDebt = {
           customerName: row[0] || '',
           customerCode: row[1] || '',
-          amountDue: parseFloat(row[2] || 0),
+          amountDue: Math.round(parseFloat(row[2] || 0) || 0),
           delegateCode: String(row[3] || '').trim(),
           invoiceDate: excelDateToJSDate(row[4]),
           paymentDueDate: excelDateToJSDate(row[5]),
@@ -1716,6 +1730,13 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       });
     }
 
+    // Filter by action status
+    if (notesActionFilter === 'pending') {
+      list = list.filter(note => !note.adminActionTaken);
+    } else if (notesActionFilter === 'action_taken') {
+      list = list.filter(note => Boolean(note.adminActionTaken));
+    }
+
     const q = normalizeArabic(notesSearchQuery);
     if (q) {
       list = list.filter(note => {
@@ -1725,26 +1746,50 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           normalizeArabic(note.customerAddress),
           normalizeArabic(note.delegateName),
           normalizeArabic(note.selectedOption),
-          normalizeArabic(note.notes)
+          normalizeArabic(note.notes),
+          normalizeArabic(note.adminActionDetails),
+          normalizeArabic(note.adminActionBy)
         ].join(' ');
         return searchStr.includes(q);
       });
     }
 
     return list;
-  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesSearchQuery]);
+  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesActionFilter, notesSearchQuery]);
+
+  // Overall counts for tabs (total, pending, action_taken) based on user's visibility
+  const notesCounts = useMemo(() => {
+    const isPrivileged = Boolean(currentUser?.isAdmin || isDataEntry);
+    const currentDelName = normalizeArabic(currentUser?.name || currentUser?.delegateName || '');
+    const currentDelCode = String(currentUser?.delegateCode || effectiveDelegateCode || '').trim().toLowerCase();
+
+    let baseList = customerNotes;
+    if (!isPrivileged) {
+      baseList = baseList.filter(note => {
+        const nDelName = normalizeArabic(note.delegateName);
+        const nDelCode = String(note.delegateCode || '').trim().toLowerCase();
+        return (currentDelName && (nDelName === currentDelName || nDelName.includes(currentDelName))) ||
+               (currentDelCode && nDelCode === currentDelCode);
+      });
+    }
+
+    const total = baseList.length;
+    const actionTaken = baseList.filter(n => Boolean(n.adminActionTaken)).length;
+    const pending = total - actionTaken;
+    return { total, actionTaken, pending };
+  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode]);
 
   // Customer code -> Notes count map for route table badges
   const customerNotesCountMap = useMemo(() => {
     const map = new Map<string, number>();
-    visibleCustomerNotes.forEach(note => {
+    customerNotes.forEach(note => {
       const code = String(note.customerCode || '').trim();
       if (code) {
         map.set(code, (map.get(code) || 0) + 1);
       }
     });
     return map;
-  }, [visibleCustomerNotes]);
+  }, [customerNotes]);
 
   const handleExportNotesCSV = () => {
     if (visibleCustomerNotes.length === 0) {
@@ -1752,14 +1797,32 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       return;
     }
 
-    const headers = ['التاريخ', 'المندوب', 'اسم الزبون', 'كود الزبون', 'الملاحظة', 'العنوان'];
+    const headers = [
+      'التاريخ',
+      'المندوب',
+      'اسم الزبون',
+      'كود الزبون',
+      'ملاحظة المندوب',
+      'تفاصيل الملاحظة',
+      'العنوان',
+      'حالة الإجراء',
+      'تفاصيل إجراء الإدارة',
+      'تم الإجراء بواسطة',
+      'تاريخ الإجراء'
+    ];
+
     const rows = visibleCustomerNotes.map(note => [
       new Date(note.timestamp).toLocaleString('ar-EG'),
       note.delegateName || '',
       note.customerName || '',
       note.customerCode || '',
       note.selectedOption || '',
-      note.customerAddress || ''
+      note.notes || '',
+      note.customerAddress || '',
+      note.adminActionTaken ? 'تم اتخاذ إجراء' : 'قيد الانتظار',
+      note.adminActionDetails || '',
+      note.adminActionBy || '',
+      note.adminActionAt ? new Date(note.adminActionAt).toLocaleString('ar-EG') : ''
     ]);
 
     const csvContent = [
@@ -1776,6 +1839,78 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     link.click();
     document.body.removeChild(link);
     addToast({ title: 'نجاح', message: 'تم تحميل ملف الملاحظات بنجاح', type: 'success' });
+  };
+
+  const handleOpenAdminActionModal = (note: CustomerInfoNote) => {
+    setActionModalNote(note);
+    setActionDetailsInput(note.adminActionDetails || '');
+  };
+
+  const handleSaveAdminAction = async () => {
+    if (!actionModalNote?.id) {
+      addToast({ title: 'خطأ', message: 'لم يتم العثور على معرف الملاحظة', type: 'info' });
+      return;
+    }
+    if (!actionDetailsInput.trim()) {
+      alert('يرجى كتابة الإجراء المتخذ بخصوص هذا الزبون ليظهر للمندوب في أعلى البطاقة');
+      return;
+    }
+
+    setIsSubmittingAdminAction(true);
+    try {
+      const noteRef = doc(db, 'customer_info_notes', actionModalNote.id);
+      const actionBy = currentUser?.name || currentUser?.delegateName || 'الادمن';
+      const nowIso = new Date().toISOString();
+
+      await updateDoc(noteRef, {
+        adminActionTaken: true,
+        adminActionDetails: actionDetailsInput.trim(),
+        adminActionBy: actionBy,
+        adminActionAt: nowIso,
+        status: 'action_taken'
+      });
+
+      addToast({
+        title: 'تم اعتماد الإجراء',
+        message: `تم اتخاذ الإجراء وحفظه بنجاح لزبون: ${actionModalNote.customerName}`,
+        type: 'success'
+      });
+
+      setActionModalNote(null);
+      setActionDetailsInput('');
+    } catch (err) {
+      console.error('Error saving admin action:', err);
+      alert('حدث خطأ أثناء حفظ الإجراء، يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsSubmittingAdminAction(false);
+    }
+  };
+
+  const handleRevertAdminAction = async (note: CustomerInfoNote) => {
+    if (!note.id) return;
+    if (!confirm(`هل أنت متأكد من إلغاء الإجراء المتخذ وإعادة بطاقة الزبون (${note.customerName}) إلى قيد الانتظار؟`)) {
+      return;
+    }
+
+    try {
+      const noteRef = doc(db, 'customer_info_notes', note.id);
+      await updateDoc(noteRef, {
+        adminActionTaken: false,
+        adminActionDetails: '',
+        adminActionBy: '',
+        adminActionAt: '',
+        status: 'pending'
+      });
+
+      addToast({
+        title: 'تم التراجع',
+        message: `تمت إعادة حالة الزبون (${note.customerName}) إلى قيد الانتظار`,
+        type: 'info'
+      });
+    } catch (err) {
+      console.error('Error reverting admin action:', err);
+      alert('حدث خطأ أثناء التراجع عن الإجراء.');
+    }
   };
 
   const handleOrderClick = (r: RouteItem) => {
@@ -1888,7 +2023,12 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         notes: otherInfoNotesInput.trim(),
         timestamp: Date.now(),
         dateString: todayStr,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        adminActionTaken: false,
+        adminActionDetails: '',
+        adminActionBy: '',
+        adminActionAt: '',
+        status: 'pending'
       };
 
       const docRef = doc(collection(db, 'customer_info_notes'));
@@ -2545,7 +2685,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 <p><span className="font-bold text-slate-500">كود الزبون:</span> {selectedDebt.customerCode}</p>
                 <p><span className="font-bold text-slate-500">تاريخ الفاتورة:</span> {selectedDebt.invoiceDate}</p>
                 <p><span className="font-bold text-slate-500">تاريخ السداد:</span> {selectedDebt.paymentDueDate}</p>
-                <p><span className="font-bold text-slate-500">المبلغ المستحق:</span> {selectedDebt.amountDue.toLocaleString()} د.ع</p>
+                <p><span className="font-bold text-slate-500">المبلغ المستحق:</span> {formatDebtAmount(selectedDebt.amountDue)} د.ع</p>
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs border border-slate-200 dark:border-slate-700">
                   <span className="font-bold text-slate-600 dark:text-slate-400">حالة الاستحقاق (مستحقة):</span>
                   {(() => {
@@ -2655,14 +2795,14 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               {/* Sub-text: required amount and status */}
               <div className="text-center pt-1 space-y-0.5">
                 <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                  المبلغ المطلوب: <span className="font-black text-emerald-600 dark:text-emerald-400">{paymentModalDebt.amountDue.toLocaleString()} د.ع</span>
+                  المبلغ المطلوب: <span className="font-black text-emerald-600 dark:text-emerald-400">{formatDebtAmount(paymentModalDebt.amountDue)} د.ع</span>
                 </p>
                 {(() => {
                   const val = parseFloat(paymentAmountInput) || 0;
                   if (val > 0 && val < paymentModalDebt.amountDue) {
                     return (
                       <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                        المتبقي في ذمة الزبون بعد التسديد: {(paymentModalDebt.amountDue - val).toLocaleString()} د.ع
+                        المتبقي في ذمة الزبون بعد التسديد: {formatDebtAmount(paymentModalDebt.amountDue - val)} د.ع
                       </p>
                     );
                   }
@@ -2764,7 +2904,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 dark:text-slate-400">المبلغ المستحق:</span>
                 <span className="font-black text-rose-600 dark:text-rose-400">
-                  {whatsappModalDebt.amountDue.toLocaleString()} د.ع
+                  {formatDebtAmount(whatsappModalDebt.amountDue)} د.ع
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -2956,7 +3096,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                           </div>
                         </td>
                         <td className="px-2 sm:px-3 py-2 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-xs sm:text-sm whitespace-nowrap">
-                          {Number(debt.amountDue || 0).toLocaleString()} <span className="text-[10px] font-sans">د.ع</span>
+                          {formatDebtAmount(debt.amountDue)} <span className="text-[10px] font-sans">د.ع</span>
                         </td>
                         <td className="px-2 sm:px-3 py-2 text-center whitespace-nowrap">
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black bg-rose-500 text-white shadow-xs">
@@ -2973,7 +3113,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                         إجمالي الديون المتأخرة ({representativeOverdueDebts.length} زبائن)
                       </td>
                       <td className="px-2 sm:px-3 py-2 text-left font-mono font-black text-rose-600 dark:text-rose-400 text-xs sm:text-sm whitespace-nowrap">
-                        {representativeOverdueDebts.reduce((sum, it) => sum + (Number(it.amountDue) || 0), 0).toLocaleString()} <span className="text-[10px] font-sans">د.ع</span>
+                        {formatDebtAmount(representativeOverdueDebts.reduce((sum, it) => sum + (Number(it.amountDue) || 0), 0))} <span className="text-[10px] font-sans">د.ع</span>
                       </td>
                       <td className="px-2 sm:px-3 py-2 text-center text-[10px] text-slate-400 font-bold">&gt; 1 يوم</td>
                     </tr>
@@ -3059,7 +3199,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               <FileText className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
                 <span>ملاحظات ومعلومات المحلات من المندوبين</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-xs">
                   {currentUser?.isAdmin || isDataEntry ? 'جميع الملاحظات (أدمن)' : 'ملاحظاتي فقط (مندوب)'}
@@ -3076,8 +3216,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
                 {currentUser?.isAdmin || isDataEntry 
-                  ? 'عرض جميع الملاحظات والمعلومات المسجلة من كافة المندوبين على محلات المسارات.' 
-                  : 'عرض المحلات التي سجلت عليها ملاحظات والمعلومات الخاصة بك فقط.'}
+                  ? 'متابعة ملاحظات المحلات، واتخاذ الإجراءات والموافقات عليها ليراها المندوب مباشرة.' 
+                  : 'ملاحظاتك المسجلة للمحلات مع بيان الإجراءات والموافقات المتخذة من الإدارة.'}
               </p>
             </div>
           </div>
@@ -3089,7 +3229,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               type="text"
               value={notesSearchQuery}
               onChange={(e) => setNotesSearchQuery(e.target.value)}
-              placeholder="بحث بالملاحظات أو المحلات..."
+              placeholder="بحث بالزبون، المندوب، الإجراء..."
               className={`w-full pr-9 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
                 isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
               }`}
@@ -3097,13 +3237,75 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </div>
         </div>
 
+        {/* Action Status Filter Tabs */}
+        <div className="flex items-center gap-2 flex-wrap pt-1">
+          <button
+            type="button"
+            onClick={() => setNotesActionFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+              notesActionFilter === 'all'
+                ? 'bg-blue-600 text-white shadow-blue-600/30'
+                : isDarkMode
+                ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <span>الكل</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              notesActionFilter === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+            }`}>
+              {notesCounts.total}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setNotesActionFilter('pending')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+              notesActionFilter === 'pending'
+                ? 'bg-amber-600 text-white shadow-amber-600/30'
+                : isDarkMode
+                ? 'bg-slate-800 text-amber-300 hover:bg-slate-700'
+                : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>بانتظار إجراء</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              notesActionFilter === 'pending' ? 'bg-white/20 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+            }`}>
+              {notesCounts.pending}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setNotesActionFilter('action_taken')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+              notesActionFilter === 'action_taken'
+                ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                : isDarkMode
+                ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700'
+                : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>تم اتخاذ إجراء</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              notesActionFilter === 'action_taken' ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+            }`}>
+              {notesCounts.actionTaken}
+            </span>
+          </button>
+        </div>
+
         {/* Notes Cards List */}
         {visibleCustomerNotes.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs">
-            لا توجد ملاحظات مسجلة للمحلات حالياً.
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+            لا توجد ملاحظات مطابقة للتصفية الحالية.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {visibleCustomerNotes.map((note) => {
               const canDelete = Boolean(
                 currentUser?.isAdmin ||
@@ -3114,53 +3316,131 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               return (
                 <div
                   key={note.id || `note-${note.timestamp}`}
-                  className={`p-3.5 rounded-xl border shadow-xs transition-all space-y-2 relative ${
-                    isDarkMode ? 'bg-slate-900/90 border-slate-800 hover:border-blue-700/60' : 'bg-white border-blue-100 hover:border-blue-300'
+                  className={`p-3.5 rounded-2xl border shadow-xs transition-all space-y-3 relative flex flex-col justify-between ${
+                    note.adminActionTaken
+                      ? isDarkMode
+                        ? 'bg-slate-900/95 border-emerald-800/60 hover:border-emerald-600'
+                        : 'bg-white border-emerald-200 hover:border-emerald-400 ring-1 ring-emerald-500/10'
+                      : isDarkMode
+                      ? 'bg-slate-900/90 border-slate-800 hover:border-amber-700/60'
+                      : 'bg-white border-amber-200/80 hover:border-amber-300'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>{note.customerName}</span>
-                      </h4>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                        كود: {note.customerCode} {note.customerAddress ? `• ${note.customerAddress}` : ''}
-                      </p>
+                  <div className="space-y-2.5">
+                    {/* فقرة اتخاذ الإجراء من الأدمن بأعلى بطاقة الزبون كما طلب المستخدم */}
+                    {note.adminActionTaken ? (
+                      <div className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 dark:from-emerald-950/60 dark:via-teal-950/40 dark:to-emerald-950/60 border border-emerald-400 dark:border-emerald-600/80 shadow-xs space-y-1.5">
+                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-black text-xs">
+                            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span>تم اتخاذ إجراء بخصوص هذا الزبون</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-600 text-white shadow-xs">
+                            معتمد ومكتمل ✅
+                          </span>
+                        </div>
+
+                        {note.adminActionDetails && (
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-100 bg-white/90 dark:bg-slate-900/90 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800/60 leading-relaxed whitespace-pre-wrap">
+                            {note.adminActionDetails}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between text-[9px] text-emerald-700 dark:text-emerald-400 font-bold pt-0.5">
+                          <span>بواسطة الإدارة: {note.adminActionBy || 'الادمن'}</span>
+                          <span className="font-mono">
+                            {note.adminActionAt ? new Date(note.adminActionAt).toLocaleString('ar-IQ') : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 flex items-center justify-between gap-2 text-amber-800 dark:text-amber-300">
+                        <div className="flex items-center gap-1.5 text-[11px] font-black">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>قيد المتابعة (بانتظار إجراء الإدارة)</span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                          قيد الانتظار ⏳
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Customer Info Header */}
+                    <div className="flex items-start justify-between gap-2 pt-1">
+                      <div>
+                        <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span>{note.customerName}</span>
+                        </h4>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                          كود: {note.customerCode} {note.customerAddress ? `• ${note.customerAddress}` : ''}
+                        </p>
+                      </div>
+
+                      {canDelete && note.id && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomerNote(note.id!, note.customerName)}
+                          className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
+                          title="حذف الملاحظة"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
 
-                    {canDelete && note.id && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCustomerNote(note.id!, note.customerName)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
-                        title="حذف الملاحظة"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {/* Selected Option Badge */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                        {note.selectedOption}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                        <User className="w-3 h-3 text-slate-400" />
+                        <span>{note.delegateName || 'مندوب'}</span>
+                      </span>
+                    </div>
+
+                    {/* Freeform Notes content */}
+                    {note.notes && (
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/50 leading-relaxed whitespace-pre-wrap">
+                        {note.notes}
+                      </p>
                     )}
                   </div>
 
-                  {/* Selected Option Badge */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      {note.selectedOption}
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                      <User className="w-3 h-3 text-slate-400" />
-                      <span>{note.delegateName || 'مندوب'}</span>
-                    </span>
-                  </div>
+                  {/* Card Footer: Date & Admin Action Control */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="text-[9px] text-slate-400 font-mono text-left">
+                      تسجيل الملاحظة: {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : note.dateString || ''}
+                    </div>
 
-                  {/* Freeform Notes content */}
-                  {note.notes && (
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/50 leading-relaxed whitespace-pre-wrap">
-                      {note.notes}
-                    </p>
-                  )}
+                    {/* Admin Action Button for Admin / DataEntry */}
+                    {(currentUser?.isAdmin || isDataEntry) && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdminActionModal(note)}
+                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 ${
+                            note.adminActionTaken
+                              ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                          }`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                          <span>{note.adminActionTaken ? 'تعديل الإجراء المتخذ' : 'اتخاذ إجراء وموافقة'}</span>
+                        </button>
 
-                  {/* Date & Time footer */}
-                  <div className="text-[9px] text-slate-400 font-mono text-left pt-1 border-t border-slate-100 dark:border-slate-800">
-                    {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : note.dateString || ''}
+                        {note.adminActionTaken && (
+                          <button
+                            type="button"
+                            onClick={() => handleRevertAdminAction(note)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                            title="تراجع عن الإجراء وإعادته لقيد الانتظار"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -3510,6 +3790,144 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   <>
                     <Send className="w-4 h-4 shrink-0" />
                     <span>إرسال</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Action & Approval Modal */}
+      {actionModalNote && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl p-4 sm:p-5 space-y-4 my-auto ${
+            isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">
+                    اتخاذ إجراء وموافقة على ملاحظة الزبون
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                    الزبون: {actionModalNote.customerName} (كود: {actionModalNote.customerCode})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSubmittingAdminAction) {
+                    setActionModalNote(null);
+                    setActionDetailsInput('');
+                  }
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Note Summary Card */}
+            <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+              isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between font-bold text-slate-600 dark:text-slate-300">
+                <span>المندوب: {actionModalNote.delegateName}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-black">
+                  {actionModalNote.selectedOption}
+                </span>
+              </div>
+              {actionModalNote.notes && (
+                <p className="text-slate-700 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 leading-relaxed whitespace-pre-wrap">
+                  ملاحظة المندوب: {actionModalNote.notes}
+                </p>
+              )}
+            </div>
+
+            {/* Quick Action Presets */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                نماذج سريعة للإجراءات (اضغط للاختيار السريع):
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'تم التواصل مع الزبون والاتفاق معه وحل المشكلة',
+                  'تمت الموافقة وتجهيز اللوحة الخارجية المطلوبة للمحل',
+                  'تم تعديل جدول الزيارات للمحل والتنسيق مع المندوب',
+                  'تمت تسوية الحساب والاتفاق على موعد التسديد',
+                  'تم فحص الموقع وتحديث بيانات المحل رسمياً'
+                ].map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActionDetailsInput(preset)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer text-right ${
+                      actionDetailsInput === preset
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : isDarkMode
+                        ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                        : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Details Input */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                تفاصيل الإجراء المتخذ من الإدارة: <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={4}
+                value={actionDetailsInput}
+                onChange={(e) => setActionDetailsInput(e.target.value)}
+                placeholder="اكتب هنا الإجراء الذي تم اتخاذه بخصوص هذا الزبون (سيظهر للمندوب في أعلى بطاقة الزبون)..."
+                className={`w-full p-3 rounded-xl border text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none ${
+                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                }`}
+              />
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                هذه الفقرة تظهر للمندوب في أعلى بطاقة الزبون لتأكيد اتخاذ الإجراء وموافقة الأدمن.
+              </p>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isSubmittingAdminAction}
+                onClick={() => {
+                  setActionModalNote(null);
+                  setActionDetailsInput('');
+                }}
+                className={`px-4 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
+                  isDarkMode ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                إلغاء
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmittingAdminAction || !actionDetailsInput.trim()}
+                onClick={handleSaveAdminAction}
+                className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-50 text-white rounded-xl font-black text-xs sm:text-sm shadow-md shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                {isSubmittingAdminAction ? (
+                  <span>جاري حفظ الإجراء...</span>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span>اعتماد وحفظ الإجراء المتخذ</span>
                   </>
                 )}
               </button>
