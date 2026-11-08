@@ -22,3 +22,61 @@
 .grid-cell-input:focus {
   background-color: #f0fdf4;
 }
+
+/* Dedicated CSS for direct invoice printing (@media print) */
+@media screen {
+  #direct-invoice-print-area {
+    display: none !important;
+  }
+}
+
+@media print {
+  @page {
+    margin: 3mm 4mm;
+    size: auto;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When printing an invoice directly, isolate the invoice area */
+  body.printing-direct-invoice * {
+    visibility: hidden !important;
+  }
+
+  body.printing-direct-invoice #direct-invoice-print-area,
+  body.printing-direct-invoice #direct-invoice-print-area * {
+    visibility: visible !important;
+  }
+
+  body.printing-direct-invoice #direct-invoice-print-area {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    margin: 0 auto !important;
+    width: 80mm !important;
+    max-width: 100% !important;
+    padding: 2mm 3mm !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    z-index: 9999999 !important;
+  }
+
+  /* Elements to suppress during print */
+  .no-print {
+    display: none !important;
+  }
+}
+

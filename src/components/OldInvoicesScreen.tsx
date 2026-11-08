@@ -9,6 +9,7 @@ import { SalesEntry, RouteItem, DebtItem } from '../types';
 import { parseArabicDigits } from '../utils/numberUtils';
 import html2canvas from 'html2canvas-pro';
 import { captureInvoiceToBlob, shareOrDownloadInvoice } from '../utils/invoiceCapture';
+import { printInvoiceDirectly } from '../utils/directInvoicePrint';
 import { 
   FileText, 
   Search, 
@@ -772,201 +773,29 @@ export const OldInvoicesScreen: React.FC = () => {
     const entries = inv.entries;
     const delegateName = entries[0]?.delegateName || 'غير محدد';
     const customerAddress = inv.customerAddress || entries[0]?.customerAddress || '';
+    const customerCode = inv.customerCode || entries[0]?.customerCode || (actualCustomerName.includes('كود:') ? actualCustomerName.split('كود: ')[1].split(' |')[0] : '');
+    const priceMode = entries[0]?.priceMode === 'wholesale' ? 'wholesale' : 'retail';
 
-    let rowsHtml = '';
-    let totalPrice = 0;
-    let totalCartons = 0;
-
-    entries.forEach((e) => {
-      const isGift = Boolean(e.isGift);
-      const prod = productsList.find(p => p.productName === e.productName);
-      const cartonSize = Number(prod?.cartonQuantity) || 1;
-      const isCarton = e.entryUnit === 'carton';
-      const pieces = isCarton ? (e.quantity || 0) : (e.enteredQuantity || e.quantity || 0);
-      const rowPrice = prod && !isGift ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
-      totalPrice += rowPrice;
-
-      let quantityText = '';
-      if (isGift) {
-        quantityText = `<div style="font-weight: bold; color: #d97706;">${pieces} قطعة (هدية)</div>`;
-      } else if (cartonSize > 1) {
-        const cVal = isCarton ? (e.enteredQuantity || (pieces / cartonSize)) : (pieces / cartonSize);
-        totalCartons += cVal;
-        const displayCarton = cVal.toFixed(0).endsWith('.00') ? cVal.toFixed(0) : cVal.toFixed(0);
-        quantityText = `<div style="font-weight: bold;">${pieces} قطعة</div><div style="font-size: 10px; color: #555;">(${displayCarton} كارتون)</div>`;
-      } else {
-        totalCartons += pieces;
-        quantityText = `<div style="font-weight: bold;">${pieces} قطعة</div>`;
-      }
-
-      rowsHtml += `
-        <tr style="${isGift ? 'background-color: #fffbeb;' : ''}">
-          <td>${isGift ? '🎁' : getProductCode(e.productName)}</td>
-          <td class="text-right">
-            ${isGift ? '<span style="color: #b45309; font-weight: bold; margin-left: 4px;">[هدية]</span>' : ''}
-            ${e.productName}
-          </td>
-          <td>${quantityText}</td>
-          <td class="text-left" style="${isGift ? 'font-weight: bold; color: #b45309;' : ''}">
-            ${isGift ? 'هدية' : `${formatWithCommas(rowPrice, true)} د.ع`}
-          </td>
-        </tr>
-      `;
+    printInvoiceDirectly({
+      customerName: actualCustomerName,
+      customerCode,
+      customerPhone,
+      customerAddress,
+      delegateName,
+      timestamp: entries[0]?.timestamp || Date.now(),
+      priceMode,
+      entries: entries.map((e) => ({
+        productName: e.productName,
+        quantity: e.entryUnit === 'carton' ? (e.quantity || 0) : (e.enteredQuantity || e.quantity || 0),
+        enteredQuantity: e.enteredQuantity,
+        entryUnit: e.entryUnit,
+        isGift: Boolean(e.isGift),
+        priceMode: e.priceMode,
+      })),
+      productsList,
     });
-
-    const displayTotalCartons = totalCartons.toFixed(0).endsWith('.00') ? totalCartons.toFixed(0) : totalCartons.toFixed(0);
-
-    rowsHtml += `
-      <tr style="border-top: 2px solid #000; font-weight: bold; background-color: #f9f9f9;">
-        <td colspan="3" class="text-right" style="padding-top: 8px; padding-bottom: 8px;">الإجمالي</td>
-        <td class="text-left" style="padding-top: 8px; padding-bottom: 8px;">${formatWithCommas(totalPrice, true)} د.ع</td>
-      </tr>
-    `;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html dir="rtl">
-        <head>
-          <meta charset="utf-8">
-          <title>فاتورة قديمة - ${actualCustomerName}</title>
-          <style>
-            @media print {
-              @page { margin: 0; }
-              body { margin: 0; padding: 5px; }
-              button { display: none !important; }
-              .invoice-print-view { padding: 0 !important; }
-            }
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 10px; color: #000; max-width: 80mm; margin: 0 auto; background: #fff; line-height: 1.2; }
-            .header-container { text-align: center; display: flex; flex-direction: column; align-items: center; margin-bottom: 3px; }
-            .logo-img { width: 50px; height: auto; margin-bottom: 4px; filter: grayscale(100%); }
-            h1 { margin: 0 0 3px 0; font-size: 15px; font-weight: bold; }
-            .header-customer-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 5px; border-top: 1px dashed #000; padding-top: 5px; }
-            .header-customer-name { margin: 0; font-size: 17px; font-weight: bold; }
-            .header-invoice-date { font-size: 10px; color: #333; }
-            .divider { border: none; border-top: 1px dashed #000; margin: 6px 0; }
-            .info-container { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; text-align: right; }
-            .info-item { font-size: 12px; line-height: 1.2; display: flex; flex-wrap: wrap; }
-            .info-label { font-weight: bold; margin-left: 4px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; page-break-inside: auto; }
-            tr { page-break-inside: avoid; page-break-after: auto; }
-            th, td { border-bottom: 1px dashed #ccc; padding: 4px 2px; text-align: center; }
-            th { font-weight: bold; border-bottom: 1px solid #000; }
-            td.text-right { text-align: right; }
-            td.text-left { text-align: left; }
-            .print-btn { display: block; width: 100%; padding: 10px; background: #059669; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
-          </style>
-        </head>
-        <body class="invoice-print-view">
-          <div style="display: flex; gap: 6px; margin-bottom: 20px;">
-            <button class="print-btn" onclick="window.print()" style="flex: 1; margin-bottom: 0;">🖨️ طباعة الفاتورة الآن</button>
-            <button onclick="window.open('${(() => {
-              const customerPhone = entries[0]?.customerPhone || '';
-              let totalPriceCalc = 0;
-              let itemsTextCalc = '';
-              entries.forEach((e, idx) => {
-                const isGift = Boolean(e.isGift);
-                const prod = productsList.find(p => p.productName === e.productName);
-                const rowPrice = prod && !isGift ? ((e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) * e.quantity) : 0;
-                totalPriceCalc += rowPrice;
-                itemsTextCalc += `${idx + 1}. ${e.productName} - ${e.quantity} قطعة ${isGift ? '(هدية)' : `- ${formatWithCommas(rowPrice, true)} د.ع`}\n`;
-              });
-              const message = `🧾 *فاتورة مبيعات سابقة - تطبيق ياسر للمبيعات*
-----------------------------------------
-👤 *اسم الزبون:* ${actualCustomerName}
-📍 *العنوان:* ${customerAddress || 'غير محدد'}
-👨‍💼 *المندوب:* ${delegateName}
-📅 *التاريخ:* ${inv.dateString || new Date().toLocaleDateString('en-GB')}
-----------------------------------------
-📦 *المواد المطلوبة:*
-${itemsTextCalc}
-----------------------------------------
-💰 *الإجمالي الكلي:* *${formatWithCommas(totalPriceCalc, true)} د.ع*
-----------------------------------------
-شكراً لتعاملك معنا! 🙏`;
-              const formatWhatsAppPhone = (phone: string): string => {
-                if (!phone) return '';
-                const normalized = parseArabicDigits(String(phone));
-                let cleaned = normalized.replace(/\D/g, '');
-                if (cleaned.startsWith('00964')) {
-                  cleaned = cleaned.substring(2);
-                } else if (cleaned.startsWith('0')) {
-                  cleaned = '964' + cleaned.substring(1);
-                } else if (!cleaned.startsWith('964') && cleaned.length === 10) {
-                  cleaned = '964' + cleaned;
-                }
-                return cleaned;
-              };
-              const formattedPhone = formatWhatsAppPhone(customerPhone);
-              return formattedPhone
-                ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
-                : `https://wa.me/?text=${encodeURIComponent(message)}`;
-            })()}', '_blank')" style="flex: 1; margin-bottom: 0; padding: 10px; background: #25d366; color: white; border: none; border-radius: 5px; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">💬 واتساب الزبون</button>
-          </div>
-          
-          <div style="border: 2px solid #000; padding: 6px; margin-bottom: 10px;">
-            <div class="header-container">
-              <img src="${logoImg}" alt="Logo" class="logo-img" onerror="this.style.display='none'" />
-              <h1>شركة كالة للألبان والعصائر</h1>
-              <div style="font-size: 11px; margin-bottom: 2px;">فرع صلاح الدين - تكريت</div>
-              <div class="header-customer-row">
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="header-customer-name">${actualCustomerName}</span>
-                  ${customerPhone ? `
-                    <span style="border: 2px solid #000; border-radius: 5px; padding: 2px 7px; font-size: 13px; font-weight: 900; font-family: monospace; direction: ltr; background: #fff; color: #000; display: inline-block;">
-                      ${customerPhone.replace(/\s+/g, '')}
-                    </span>
-                  ` : ''}
-                </div>
-                <span class="header-invoice-date">${inv.dateString}</span>
-              </div>
-            </div>
-            
-            <hr class="divider" />
-            
-            <div class="info-container">
-              ${inv.customerCode ? `<div class="info-item"><span class="info-label">كود المحل/الزبون:</span> <span>${inv.customerCode}</span></div>` : ''}
-              ${inv.customerAddress ? `<div class="info-item"><span class="info-label">العنوان:</span> <span>${inv.customerAddress}</span></div>` : ''}
-              <div class="info-item"><span class="info-label">المندوب:</span> <span>${inv.delegateName}</span></div>
-              <div class="info-item"><span class="info-label">نوع الفاتورة:</span> <span>${inv.priceMode === 'wholesale' ? 'جملة' : 'مفرد'} (أرشيف قديم)</span></div>
-              <div class="info-item"><span class="info-label">تاريخ وتوقيت الفاتورة:</span> <span dir="ltr">${inv.dateString}</span></div>
-            </div>
-            
-            <hr class="divider" />
-            
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 15%;">الكود</th>
-                  <th class="text-right" style="width: 45%;">المنتج</th>
-                  <th style="width: 20%;">الكمية</th>
-                  <th class="text-left" style="width: 20%;">السعر</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
-            </table>
-            
-            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #000; font-size: 11px; display: flex; justify-content: space-between;">
-              <span>مجموع الكراتين: <b>${displayTotalCartons}</b></span>
-              <span>الوزن الكلي: <b>${formatWithCommas(parseFloat(inv.totalWeight.toFixed(0)), true)} كجم</b></span>
-            </div>
-            
-            <div style="text-align: center; margin-top: 15px; font-size: 11px; border-top: 1px dashed #000; padding-top: 5px;">
-              شكراً لتعاملكم معنا
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.open();
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-    }
   };
+
 
   // Manual deletion of an old/historical invoice (Admin only, never automatic)
   const handleDeleteOldInvoice = async (inv: typeof groupedOldInvoices[0]) => {
