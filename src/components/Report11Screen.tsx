@@ -1241,6 +1241,8 @@ export const Report11Screen: React.FC = () => {
       amount: allMap[name]?.amount || 0,
     })).sort((a, b) => b.weight - a.weight);
 
+    const supervisorDailySales = supervisorTableData.totals.totalDailySales;
+
     const totalRetailStats = {
       count: retailSalesList.reduce((s, d) => s + d.count, 0),
       weight: retailSalesList.reduce((s, d) => s + d.weight, 0),
@@ -1255,7 +1257,7 @@ export const Report11Screen: React.FC = () => {
 
     const totalAllStats = {
       count: allSalesList.reduce((s, d) => s + d.count, 0),
-      weight: allSalesList.reduce((s, d) => s + d.weight, 0),
+      weight: supervisorDailySales,
       amount: allSalesList.reduce((s, d) => s + d.amount, 0),
     };
 
@@ -1267,7 +1269,7 @@ export const Report11Screen: React.FC = () => {
       totalWholesaleStats,
       totalAllStats
     };
-  }, [delegateNamesList, entriesToday, productPriceMap]);
+  }, [delegateNamesList, entriesToday, productPriceMap, supervisorTableData]);
 
   // 4. Total Delegate Daily Report Metrics (عدد الفواتير، وزن المبيعات اليومي، الهدف اليومي، والنسبة)
   const delegateDailySummaryList = useMemo(() => {
