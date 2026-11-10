@@ -387,9 +387,10 @@ const MainAppContent: React.FC = () => {
               {/* Notification Button (Available for Admin, Data Entry, and Delegates - Hidden for mohammedsauce) */}
               {!isSauceUser && (
                 <button
+                  type="button"
                   onClick={() => setShowDelegateModal(true)}
                   onMouseEnter={() => import('./components/DelegatePanelModal')}
-                  className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 cursor-pointer ${
+                  className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                     isDarkMode
                       ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
                       : 'bg-blue-100 text-blue-950 hover:bg-blue-200 border-blue-300'
@@ -397,45 +398,45 @@ const MainAppContent: React.FC = () => {
                   title="لوحة الإشعارات والتنبيهات"
                 >
                   <div className="relative flex items-center justify-center">
-                    <Bell className={`w-3.5 h-3.5 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0 ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
+                    <Bell className={`w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0 ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
                     <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} onCountChange={setUnreadCount} />
                   </div>
-                  <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">اشعارات</span>
                 </button>
               )}
 
               {/* Calculator Button */}
               <button
+                type="button"
                 onClick={() => setShowCalculatorModal(true)}
                 onMouseEnter={() => import('./components/CalculatorModal')}
-                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
+                className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                   isDarkMode
                     ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
                 }`}
                 title="فتح الحاسبة السريعة"
               >
-                <Calculator className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">الحاسبة</span>
+                <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               </button>
 
               {/* Refresh Data Button with Optimistic UI & Latency-Aware Indicator */}
               <button
+                type="button"
                 onClick={() => {
                   refreshAllData();
                 }}
                 disabled={isDataRefreshing}
-                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 cursor-pointer ${
+                className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                   isDataRefreshing ? 'opacity-90' : ''
                 } ${
                   isDarkMode
                     ? 'bg-slate-800 text-indigo-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-indigo-100 text-indigo-950 hover:bg-indigo-200 border-indigo-300'
                 }`}
-                title="تحديث فوري للبيانات من الذاكرة المحلية وقاعدة البيانات"
+                title={`تحديث فوري للبيانات - آخر تحديث: ${new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}`}
               >
                 <div className="relative flex items-center justify-center">
-                  <RefreshCw className={`w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed || isDataRefreshing ? 'animate-spin' : 'hover:rotate-180 transition-transform duration-500'}`} />
+                  <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed || isDataRefreshing ? 'animate-spin' : 'hover:rotate-180 transition-transform duration-500'}`} />
                   {/* Small Latency-Aware Network Indicator - ONLY visible when real network delay occurs */}
                   {(isNetworkDelayed || pendingSyncCount > 0) && (
                     <span className="absolute -top-1 -right-1 flex h-1.5 w-1.5 sm:h-2 sm:w-2">
@@ -444,20 +445,6 @@ const MainAppContent: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold flex flex-col items-center">
-                  <span>
-                    {isDataRefreshing 
-                      ? (pendingSyncCount > 0 ? `مزامنة (${pendingSyncCount})` : 'تحديث..') 
-                      : isNetworkDelayed 
-                      ? 'جاري المزامنة'
-                      : 'تحديث'}
-                  </span>
-                  {!isDataRefreshing && !isNetworkDelayed && (
-                    <span className="text-[7px] opacity-60 font-bold mt-0.5">
-                      {new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  )}
-                </span>
               </button>
 
               {/* Date Display */}
@@ -476,9 +463,10 @@ const MainAppContent: React.FC = () => {
                 currentUser.role !== 'dataEntry' &&
                 !isSauceUser && (
                 <button
+                  type="button"
                   onClick={() => setActiveTab('admin')}
                   onMouseEnter={() => import('./components/AdminScreen')}
-                  className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
+                  className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                     activeTab === 'admin'
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
                       : isDarkMode
@@ -487,15 +475,15 @@ const MainAppContent: React.FC = () => {
                   }`}
                   title="صفحة الادمن"
                 >
-                  <Shield className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
-                  <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">أدمن</span>
+                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
                 </button>
               )}
 
               {/* Theme Toggle Button */}
               <button
+                type="button"
                 onClick={toggleDarkMode}
-                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
+                className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                   isDarkMode
                     ? 'bg-slate-800 text-amber-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
@@ -503,30 +491,24 @@ const MainAppContent: React.FC = () => {
                 title={isDarkMode ? 'التحويل للوضع الفاتح' : 'التحويل للوضع المظلم'}
               >
                 {isDarkMode ? (
-                  <>
-                    <Sun className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
-                    <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">فاتح</span>
-                  </>
+                  <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
                 ) : (
-                  <>
-                    <Moon className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
-                    <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">داكن</span>
-                  </>
+                  <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-800 fill-emerald-800/20 shrink-0" />
                 )}
               </button>
 
               {/* Logout Button */}
               <button
+                type="button"
                 onClick={() => setShowLogoutModal(true)}
-                className={`px-1.5 py-1 sm:px-2.5 sm:py-2 rounded-xl border font-black text-[8.5px] sm:text-xs flex flex-col items-center justify-center gap-0.5 sm:gap-1 transition-all shadow-sm active:scale-95 min-w-[34px] sm:min-w-[58px] shrink-0 ${
+                className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                   isDarkMode
                     ? 'bg-red-950/80 text-red-300 hover:bg-red-900 border-red-800/80'
                     : 'bg-red-600 text-white hover:bg-red-700 border-red-600'
                 }`}
                 title="تسجيل الخروج والعودة لشاشة الدخول"
               >
-                <LogOut className="w-3.5 h-3.5 sm:w-5 sm:h-5 shrink-0" />
-                <span className="text-[8px] sm:text-[11px] leading-tight font-extrabold">خروج</span>
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
               </button>
             </div>
           </div>

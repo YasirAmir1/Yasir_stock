@@ -430,8 +430,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
 
 
-  // Configurable auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
-  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  // Configurable auto-lock closing time (default 21:00 / 9:00 PM) & real-time clock tick
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
   const [timeTick, setTimeTick] = useState<number>(Date.now());
 
   useEffect(() => {

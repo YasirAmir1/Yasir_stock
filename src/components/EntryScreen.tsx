@@ -27,6 +27,8 @@ export const EntryScreen: React.FC = () => {
     currentUser,
     selectedDelegate,
     setSelectedDelegate,
+    selectedDate,
+    calculateUnifiedSalesStats,
     delegatesList = [],
     delegateAccounts = [],
     delegateTargets = [],
@@ -129,7 +131,7 @@ export const EntryScreen: React.FC = () => {
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [showCustomExportModal, setShowCustomExportModal] = useState(false);
   const [selectedDelegatesForExport, setSelectedDelegatesForExport] = useState<Set<string>>(new Set());
-  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
   const [isPastClosing, setIsPastClosing] = useState<boolean>(false);
 
   useEffect(() => {
@@ -490,53 +492,14 @@ export const EntryScreen: React.FC = () => {
       ? (savedEntriesFilterDelegate !== 'الكل' ? savedEntriesFilterDelegate : (selectedDelegate !== 'الكل' ? selectedDelegate : ''))
       : (currentUser?.name || '');
 
+    const stats = calculateUnifiedSalesStats(selectedDate, targetDelegate || 'الكل');
+
     // Filter today's entries according to active delegate scope
     const scopedEntries = targetDelegate
       ? safeSavedEntries.filter(e => normalizeArabicText(e.delegateName || '') === normalizeArabicText(targetDelegate))
       : safeSavedEntries;
 
-    // 2. Separate Retail and Wholesale entries with rigorous precision
-    const retailEntries = scopedEntries.filter(e => e.priceMode !== 'wholesale');
-    const wholesaleEntries = scopedEntries.filter(e => e.priceMode === 'wholesale');
-
-    // Standard key for grouping invoices: Customer + PriceMode (and delegate when viewing all)
-    const getInvoiceGroupKey = (entry: SalesEntry) => {
-      const cName = entry.customerName || 'بدون اسم زبون';
-      const mode = entry.priceMode === 'wholesale' ? 'wholesale' : 'retail';
-      if (!targetDelegate && currentUser?.isAdmin) {
-        return `${entry.delegateName || 'مندوب غير محدد'} | الزبون: ${cName}__${mode}`;
-      }
-      return `${cName}__${mode}`;
-    };
-
-    // Retail metrics
-    const retailInvoicesSet = new Set(retailEntries.map(getInvoiceGroupKey));
-    const retailInvoicesCount = retailInvoicesSet.size;
-    const retailSalesWeight = retailEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
-    const retailSalesPrice = retailEntries.reduce((sum, e) => {
-      if (e.isGift) return sum;
-      const prod = productsList.find(p => p.productName === e.productName);
-      const price = prod ? (prod.retailPrice || 0) : 0;
-      return sum + (price * (Number(e.quantity) || 0));
-    }, 0);
-
-    // Wholesale metrics
-    const wholesaleInvoicesSet = new Set(wholesaleEntries.map(getInvoiceGroupKey));
-    const wholesaleInvoicesCount = wholesaleInvoicesSet.size;
-    const wholesaleSalesWeight = wholesaleEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
-    const wholesaleSalesPrice = wholesaleEntries.reduce((sum, e) => {
-      if (e.isGift) return sum;
-      const prod = productsList.find(p => p.productName === e.productName);
-      const price = prod ? (prod.wholesalePrice || 0) : 0;
-      return sum + (price * (Number(e.quantity) || 0));
-    }, 0);
-
-    // Total unified metrics (exact mathematical sums)
-    const totalInvoicesCount = retailInvoicesCount + wholesaleInvoicesCount;
-    const totalSalesWeight = retailSalesWeight + wholesaleSalesWeight;
-    const totalSalesPrice = retailSalesPrice + wholesaleSalesPrice;
-
-    // 3. Remaining stores in route for today
+    // Remaining stores in route for today
     let todayDayName = '';
     try {
       todayDayName = new Intl.DateTimeFormat('ar-IQ', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
@@ -576,22 +539,22 @@ export const EntryScreen: React.FC = () => {
     const activeDelegateDisplay = targetDelegate || (currentUser?.isAdmin ? 'جميع المندوبين' : currentUser?.name || 'المندوب');
 
     return {
-      totalInvoicesCount,
-      totalSalesPrice,
-      totalSalesWeight,
-      retailInvoicesCount,
-      retailSalesWeight,
-      retailSalesPrice,
-      wholesaleInvoicesCount,
-      wholesaleSalesWeight,
-      wholesaleSalesPrice,
+      totalInvoicesCount: stats.totalInvoicesCount,
+      totalSalesPrice: stats.totalSalesPrice,
+      totalSalesWeight: stats.totalSalesWeight,
+      retailInvoicesCount: stats.retailInvoicesCount,
+      retailSalesWeight: stats.retailSalesWeight,
+      retailSalesPrice: stats.retailSalesPrice,
+      wholesaleInvoicesCount: stats.wholesaleInvoicesCount,
+      wholesaleSalesWeight: stats.wholesaleSalesWeight,
+      wholesaleSalesPrice: stats.wholesaleSalesPrice,
       todayDayName,
       totalRouteStoresCount: todayStores.length,
       remainingStoresCount,
       visitedRouteStoresCount,
       activeDelegateDisplay
     };
-  }, [safeSavedEntries, productsList, routes, currentUser, selectedDelegate, savedEntriesFilterDelegate]);
+  }, [calculateUnifiedSalesStats, selectedDate, safeSavedEntries, routes, currentUser, selectedDelegate, savedEntriesFilterDelegate]);
 
   // Initialize default 6 rows with unique keys
   const [gridRows, setGridRows] = useState<GridRow[]>(() => {

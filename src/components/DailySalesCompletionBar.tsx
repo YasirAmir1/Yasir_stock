@@ -39,10 +39,10 @@ export const DailySalesCompletionBar: React.FC = () => {
   const [isPastTargetTime, setIsPastTargetTime] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
 
-  // Configurable auto-lock time (default 15:00 / 3:00 PM)
-  const [targetAutoLockTime, setTargetAutoLockTime] = useState('15:00');
+  // Configurable auto-lock time (default 21:00 / 9:00 PM)
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState('21:00');
   const [showEditTimeModal, setShowEditTimeModal] = useState(false);
-  const [newTimeInput, setNewTimeInput] = useState('15:00');
+  const [newTimeInput, setNewTimeInput] = useState('21:00');
   const [isUpdatingTime, setIsUpdatingTime] = useState(false);
 
   // Activation Modal State

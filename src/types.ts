@@ -121,6 +121,33 @@ export interface SalesEntry {
   status?: 'active' | 'cancelled'; // حالة الطلب
 }
 
+export interface DelegateSalesStatsBreakdown {
+  name: string;
+  totalInvoicesCount: number;
+  totalSalesWeight: number;
+  totalSalesPrice: number;
+  retailInvoicesCount: number;
+  retailSalesWeight: number;
+  retailSalesPrice: number;
+  wholesaleInvoicesCount: number;
+  wholesaleSalesWeight: number;
+  wholesaleSalesPrice: number;
+}
+
+export interface UnifiedSalesStats {
+  totalInvoicesCount: number;
+  totalSalesWeight: number;
+  totalSalesPrice: number;
+  retailInvoicesCount: number;
+  retailSalesWeight: number;
+  retailSalesPrice: number;
+  wholesaleInvoicesCount: number;
+  wholesaleSalesWeight: number;
+  wholesaleSalesPrice: number;
+  delegatesBreakdown: Record<string, DelegateSalesStatsBreakdown>;
+}
+
+
 export interface CustomerInfoNote {
   id?: string;
   customerCode: string;

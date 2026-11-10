@@ -540,6 +540,7 @@ export const Report11Screen: React.FC = () => {
     productsList = [],
     selectedDate,
     setSelectedDate,
+    calculateUnifiedSalesStats,
     isDarkMode,
     setUserMessage,
     refreshAllData
@@ -1165,7 +1166,11 @@ export const Report11Screen: React.FC = () => {
     return map;
   }, [productsList]);
 
-  // 3. Comprehensive Daily Sales Report Data (Retail, Wholesale, and All Sales)
+  // 3. Unified Daily Sales Report Data (Retail, Wholesale, and All Sales)
+  const unifiedStats = useMemo(() => {
+    return calculateUnifiedSalesStats(todayDateString, 'الكل');
+  }, [calculateUnifiedSalesStats, todayDateString]);
+
   const {
     retailSalesList,
     wholesaleSalesList,
@@ -1174,91 +1179,52 @@ export const Report11Screen: React.FC = () => {
     totalWholesaleStats,
     totalAllStats
   } = useMemo(() => {
-    const retailMap: Record<string, { countSet: Set<string>; weight: number; amount: number }> = {};
-    const wholesaleMap: Record<string, { countSet: Set<string>; weight: number; amount: number }> = {};
-    const allMap: Record<string, { countSet: Set<string>; weight: number; amount: number }> = {};
+    const retailSalesList = delegateNamesList.map(name => {
+      const b = unifiedStats.delegatesBreakdown[name] || { retailInvoicesCount: 0, retailSalesWeight: 0, retailSalesPrice: 0 };
+      return {
+        name,
+        count: b.retailInvoicesCount,
+        weight: b.retailSalesWeight,
+        amount: b.retailSalesPrice
+      };
+    }).sort((a, b) => b.weight - a.weight);
 
-    delegateNamesList.forEach(name => {
-      retailMap[name] = { countSet: new Set(), weight: 0, amount: 0 };
-      wholesaleMap[name] = { countSet: new Set(), weight: 0, amount: 0 };
-      allMap[name] = { countSet: new Set(), weight: 0, amount: 0 };
-    });
+    const wholesaleSalesList = delegateNamesList.map(name => {
+      const b = unifiedStats.delegatesBreakdown[name] || { wholesaleInvoicesCount: 0, wholesaleSalesWeight: 0, wholesaleSalesPrice: 0 };
+      return {
+        name,
+        count: b.wholesaleInvoicesCount,
+        weight: b.wholesaleSalesWeight,
+        amount: b.wholesaleSalesPrice
+      };
+    }).sort((a, b) => b.weight - a.weight);
 
-    entriesToday.forEach(e => {
-      const rawName = e.delegateName ? e.delegateName.trim() : '';
-      if (!rawName) return;
-
-      const matchedDel = delegateNamesList.find(d => normalizeArabic(d) === normalizeArabic(rawName)) || rawName;
-      if (!allMap[matchedDel]) {
-        retailMap[matchedDel] = { countSet: new Set(), weight: 0, amount: 0 };
-        wholesaleMap[matchedDel] = { countSet: new Set(), weight: 0, amount: 0 };
-        allMap[matchedDel] = { countSet: new Set(), weight: 0, amount: 0 };
-      }
-
-      const invKey = `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`;
-      const weight = Number(e.totalWeightKg) || 0;
-      const qty = Number(e.quantity) || 0;
-      const prodInfo = productPriceMap.get(e.productName);
-
-      const priceMode = e.priceMode === 'wholesale' ? 'wholesale' : 'retail';
-      const itemPrice = prodInfo ? (priceMode === 'wholesale' ? prodInfo.wholesalePrice : prodInfo.retailPrice) : 0;
-      const itemAmount = itemPrice * qty;
-
-      // Add to 'all'
-      allMap[matchedDel].countSet.add(invKey);
-      allMap[matchedDel].weight += weight;
-      allMap[matchedDel].amount += itemAmount;
-
-      if (priceMode === 'retail') {
-        retailMap[matchedDel].countSet.add(invKey);
-        retailMap[matchedDel].weight += weight;
-        retailMap[matchedDel].amount += itemAmount;
-      } else {
-        wholesaleMap[matchedDel].countSet.add(invKey);
-        wholesaleMap[matchedDel].weight += weight;
-        wholesaleMap[matchedDel].amount += itemAmount;
-      }
-    });
-
-    const retailSalesList = delegateNamesList.map(name => ({
-      name,
-      count: retailMap[name]?.countSet.size || 0,
-      weight: retailMap[name]?.weight || 0,
-      amount: retailMap[name]?.amount || 0,
-    })).sort((a, b) => b.weight - a.weight);
-
-    const wholesaleSalesList = delegateNamesList.map(name => ({
-      name,
-      count: wholesaleMap[name]?.countSet.size || 0,
-      weight: wholesaleMap[name]?.weight || 0,
-      amount: wholesaleMap[name]?.amount || 0,
-    })).sort((a, b) => b.weight - a.weight);
-
-    const allSalesList = delegateNamesList.map(name => ({
-      name,
-      count: allMap[name]?.countSet.size || 0,
-      weight: allMap[name]?.weight || 0,
-      amount: allMap[name]?.amount || 0,
-    })).sort((a, b) => b.weight - a.weight);
-
-    const supervisorDailySales = supervisorTableData.totals.totalDailySales;
+    const allSalesList = delegateNamesList.map(name => {
+      const b = unifiedStats.delegatesBreakdown[name] || { totalInvoicesCount: 0, totalSalesWeight: 0, totalSalesPrice: 0 };
+      return {
+        name,
+        count: b.totalInvoicesCount,
+        weight: b.totalSalesWeight,
+        amount: b.totalSalesPrice
+      };
+    }).sort((a, b) => b.weight - a.weight);
 
     const totalRetailStats = {
-      count: retailSalesList.reduce((s, d) => s + d.count, 0),
-      weight: retailSalesList.reduce((s, d) => s + d.weight, 0),
-      amount: retailSalesList.reduce((s, d) => s + d.amount, 0),
+      count: unifiedStats.retailInvoicesCount,
+      weight: unifiedStats.retailSalesWeight,
+      amount: unifiedStats.retailSalesPrice,
     };
 
     const totalWholesaleStats = {
-      count: wholesaleSalesList.reduce((s, d) => s + d.count, 0),
-      weight: wholesaleSalesList.reduce((s, d) => s + d.weight, 0),
-      amount: wholesaleSalesList.reduce((s, d) => s + d.amount, 0),
+      count: unifiedStats.wholesaleInvoicesCount,
+      weight: unifiedStats.wholesaleSalesWeight,
+      amount: unifiedStats.wholesaleSalesPrice,
     };
 
     const totalAllStats = {
-      count: allSalesList.reduce((s, d) => s + d.count, 0),
-      weight: supervisorDailySales,
-      amount: allSalesList.reduce((s, d) => s + d.amount, 0),
+      count: unifiedStats.totalInvoicesCount,
+      weight: unifiedStats.totalSalesWeight,
+      amount: unifiedStats.totalSalesPrice,
     };
 
     return {
@@ -1269,17 +1235,17 @@ export const Report11Screen: React.FC = () => {
       totalWholesaleStats,
       totalAllStats
     };
-  }, [delegateNamesList, entriesToday, productPriceMap, supervisorTableData]);
+  }, [delegateNamesList, unifiedStats]);
 
   // 4. Total Delegate Daily Report Metrics (عدد الفواتير، وزن المبيعات اليومي، الهدف اليومي، والنسبة)
   const delegateDailySummaryList = useMemo(() => {
     return delegateNamesList.map(name => {
       const delTable = getDelegateTableData(name);
-      const delEntries = entriesToday.filter(e => normalizeArabic(e.delegateName) === normalizeArabic(name));
-      const invoiceCount = new Set(delEntries.map(e => `${e.dateString || ''}_${e.customerCode || e.customerName || e.invoiceId || e.id}`)).size;
-      const dailySalesWeight = delTable.totals.totalDailySales;
+      const b = unifiedStats.delegatesBreakdown[name];
+      const invoiceCount = b ? b.totalInvoicesCount : 0;
+      const dailySalesWeight = b ? b.totalSalesWeight : delTable.totals.totalDailySales;
       const dailyTarget = delTable.totals.totalDailyTarget;
-      const pct = delTable.totals.totalDailyPct;
+      const pct = dailyTarget > 0 ? (dailySalesWeight / dailyTarget) * 100 : 0;
       const isAchieved = dailyTarget <= 0 || dailySalesWeight >= dailyTarget;
       const remaining = Math.max(0, dailyTarget - dailySalesWeight);
 
@@ -1293,7 +1259,7 @@ export const Report11Screen: React.FC = () => {
         remaining
       };
     }).sort((a, b) => b.dailySalesWeight - a.dailySalesWeight);
-  }, [delegateNamesList, getDelegateTableData, entriesToday]);
+  }, [delegateNamesList, getDelegateTableData, unifiedStats]);
 
   // Active delegate's total summary for today
   const activeDelegateDailySummary = useMemo(() => {

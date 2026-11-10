@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, query, where, getDocs, getDoc, runTransaction, increment } from 'firebase/firestore';
 import { db, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -18,7 +18,9 @@ import {
   AppTab,
   GiftPromotion,
   InventoryLogRecord,
-  RestockedProductItem
+  RestockedProductItem,
+  UnifiedSalesStats,
+  DelegateSalesStatsBreakdown
 } from '../types';
 
 export const ORDERED_CATEGORY_PRIORITY = [
@@ -183,6 +185,47 @@ export const getFixedDelegatePhone = (delegateName?: string, delegateCode?: stri
   return '';
 };
 
+export const getBaghdadDateAndSeconds = (): { todayStr: string; timeStr: string; currentSeconds: number; hour: number } => {
+  try {
+    const now = new Date();
+    const dateOpts: Intl.DateTimeFormatOptions = {
+      timeZone: 'Asia/Baghdad',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    };
+    const timeOpts: Intl.DateTimeFormatOptions = {
+      timeZone: 'Asia/Baghdad',
+      hour12: false,
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    };
+    const dateParts = new Intl.DateTimeFormat('en-CA', dateOpts).formatToParts(now);
+    const y = dateParts.find(p => p.type === 'year')?.value || '';
+    const m = dateParts.find(p => p.type === 'month')?.value || '';
+    const d = dateParts.find(p => p.type === 'day')?.value || '';
+    const todayStr = `${y}-${m}-${d}`;
+
+    const timeParts = new Intl.DateTimeFormat('en-US', timeOpts).formatToParts(now);
+    const hour = parseInt(timeParts.find(p => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(timeParts.find(p => p.type === 'minute')?.value || '0', 10);
+    const second = parseInt(timeParts.find(p => p.type === 'second')?.value || '0', 10);
+
+    const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+    const currentSeconds = hour * 3600 + minute * 60 + second;
+
+    return { todayStr, timeStr, currentSeconds, hour };
+  } catch {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const hour = now.getHours();
+    const currentSeconds = hour * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    const timeStr = `${hour.toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    return { todayStr, timeStr, currentSeconds, hour };
+  }
+};
+
 export const DEFAULT_DELEGATE_ACCOUNTS_ENTITIES: DelegateAccount[] = [
   { username: 'YASIR', password: '377377', delegateName: 'الأدمن', monthlyTargetKg: 0, isAdmin: true },
   { username: 'najikala', password: '1111', delegateName: 'ناجي خلف', delegateCode: '60037899', phone: '07748172333', monthlyTargetKg: 1000, isAdmin: false },
@@ -341,6 +384,9 @@ interface SalesContextType {
   getProductLiveStock: (prod: ProductItem) => { totalUnits: number, cartons: number, pieces: number, unitsPerCarton: number, soldToday: number };
   report11Targets: Report11CategoryTarget[];
   report11Config: Report11Config;
+  calculateUnifiedSalesStats: (targetDate?: string, delegateFilter?: string) => UnifiedSalesStats;
+  unifiedSalesStats: UnifiedSalesStats;
+  triggerDaily9PMArchivingManually: () => Promise<void>;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -3544,6 +3590,237 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await fetchUnifiedDataFromFirestore();
   };
 
+  const calculateUnifiedSalesStats = useCallback(
+    (targetDate?: string, delegateFilter?: string): UnifiedSalesStats => {
+      const dateToUse = targetDate || selectedDate;
+      const filterDel = delegateFilter || 'الكل';
+
+      const entriesToFilter = allSalesEntries.length > 0 ? allSalesEntries : salesEntries;
+
+      const dateMatched = entriesToFilter.filter(
+        (e) =>
+          e.dateString === dateToUse &&
+          e.status !== 'cancelled' &&
+          !isExcludedReportDelegate(e.delegateName)
+      );
+
+      const scopedEntries =
+        filterDel !== 'الكل'
+          ? dateMatched.filter(
+              (e) => normalizeArabicText(e.delegateName) === normalizeArabicText(filterDel)
+            )
+          : dateMatched;
+
+      const getEntryInvoiceKey = (entry: SalesEntry) => {
+        const del = entry.delegateName || 'غير محدد';
+        const custKey = entry.customerCode
+          ? entry.customerCode.trim()
+          : normalizeArabicText(entry.customerName || 'بدون اسم');
+        const mode = entry.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+        return `${del}__${custKey}__${mode}`;
+      };
+
+      const retailEntries = scopedEntries.filter((e) => e.priceMode !== 'wholesale');
+      const wholesaleEntries = scopedEntries.filter((e) => e.priceMode === 'wholesale');
+
+      const retailInvoicesSet = new Set(retailEntries.map(getEntryInvoiceKey));
+      const retailInvoicesCount = retailInvoicesSet.size;
+      const retailSalesWeight = retailEntries.reduce(
+        (sum, e) => sum + (Number(e.totalWeightKg) || 0),
+        0
+      );
+      const retailSalesPrice = retailEntries.reduce((sum, e) => {
+        if (e.isGift) return sum;
+        const prod = productsList.find((p) => p.productName === e.productName);
+        const price = prod ? (prod.retailPrice || 0) : 0;
+        return sum + price * (Number(e.quantity) || 0);
+      }, 0);
+
+      const wholesaleInvoicesSet = new Set(wholesaleEntries.map(getEntryInvoiceKey));
+      const wholesaleInvoicesCount = wholesaleInvoicesSet.size;
+      const wholesaleSalesWeight = wholesaleEntries.reduce(
+        (sum, e) => sum + (Number(e.totalWeightKg) || 0),
+        0
+      );
+      const wholesaleSalesPrice = wholesaleEntries.reduce((sum, e) => {
+        if (e.isGift) return sum;
+        const prod = productsList.find((p) => p.productName === e.productName);
+        const price = prod ? (prod.wholesalePrice || 0) : 0;
+        return sum + price * (Number(e.quantity) || 0);
+      }, 0);
+
+      const totalInvoicesCount = retailInvoicesCount + wholesaleInvoicesCount;
+      const totalSalesWeight = retailSalesWeight + wholesaleSalesWeight;
+      const totalSalesPrice = retailSalesPrice + wholesaleSalesPrice;
+
+      const delegatesBreakdown: Record<string, DelegateSalesStatsBreakdown> = {};
+
+      const delegateNamesSet = new Set<string>();
+      dateMatched.forEach((e) => {
+        if (e.delegateName) delegateNamesSet.add(e.delegateName);
+      });
+
+      delegateNamesSet.forEach((delName) => {
+        const delEntries = dateMatched.filter(
+          (e) => normalizeArabicText(e.delegateName) === normalizeArabicText(delName)
+        );
+        const delRetail = delEntries.filter((e) => e.priceMode !== 'wholesale');
+        const delWholesale = delEntries.filter((e) => e.priceMode === 'wholesale');
+
+        const dRetailInvSet = new Set(delRetail.map(getEntryInvoiceKey));
+        const dWholesaleInvSet = new Set(delWholesale.map(getEntryInvoiceKey));
+
+        const dRetailWeight = delRetail.reduce(
+          (sum, e) => sum + (Number(e.totalWeightKg) || 0),
+          0
+        );
+        const dRetailPrice = delRetail.reduce((sum, e) => {
+          if (e.isGift) return sum;
+          const prod = productsList.find((p) => p.productName === e.productName);
+          const price = prod ? (prod.retailPrice || 0) : 0;
+          return sum + price * (Number(e.quantity) || 0);
+        }, 0);
+
+        const dWholesaleWeight = delWholesale.reduce(
+          (sum, e) => sum + (Number(e.totalWeightKg) || 0),
+          0
+        );
+        const dWholesalePrice = delWholesale.reduce((sum, e) => {
+          if (e.isGift) return sum;
+          const prod = productsList.find((p) => p.productName === e.productName);
+          const price = prod ? (prod.wholesalePrice || 0) : 0;
+          return sum + price * (Number(e.quantity) || 0);
+        }, 0);
+
+        delegatesBreakdown[delName] = {
+          name: delName,
+          totalInvoicesCount: dRetailInvSet.size + dWholesaleInvSet.size,
+          totalSalesWeight: dRetailWeight + dWholesaleWeight,
+          totalSalesPrice: dRetailPrice + dWholesalePrice,
+          retailInvoicesCount: dRetailInvSet.size,
+          retailSalesWeight: dRetailWeight,
+          retailSalesPrice: dRetailPrice,
+          wholesaleInvoicesCount: dWholesaleInvSet.size,
+          wholesaleSalesWeight: dWholesaleWeight,
+          wholesaleSalesPrice: dWholesalePrice,
+        };
+      });
+
+      return {
+        totalInvoicesCount,
+        totalSalesWeight,
+        totalSalesPrice,
+        retailInvoicesCount,
+        retailSalesWeight,
+        retailSalesPrice,
+        wholesaleInvoicesCount,
+        wholesaleSalesWeight,
+        wholesaleSalesPrice,
+        delegatesBreakdown,
+      };
+    },
+    [allSalesEntries, salesEntries, selectedDate, productsList]
+  );
+
+  const unifiedSalesStats = useMemo(() => {
+    return calculateUnifiedSalesStats(selectedDate, selectedDelegate);
+  }, [calculateUnifiedSalesStats, selectedDate, selectedDelegate]);
+
+  const checkAndRunAuto9PMArchiving = useCallback(async (isManualTrigger = false) => {
+    try {
+      const { todayStr, currentSeconds } = getBaghdadDateAndSeconds();
+      // 9:00 PM = 21:00 = 21 * 3600 = 75600 seconds
+      const targetArchiveSeconds = 21 * 3600;
+
+      // If not manual trigger and current Baghdad time is before 9 PM (21:00), skip
+      if (!isManualTrigger && currentSeconds < targetArchiveSeconds) {
+        return;
+      }
+
+      // Query active entries from sales_entries
+      const salesSnap = await getDocs(collection(db, 'sales_entries'));
+      if (salesSnap.empty) {
+        if (isManualTrigger) {
+          setUserMessage('لا توجد فواتير نشطة حالياً في صفحة الفواتير لأرشفتها.');
+        }
+        return;
+      }
+
+      const entriesToArchive: { id: string; data: SalesEntry }[] = [];
+      salesSnap.forEach((docSnap) => {
+        const data = docSnap.data() as SalesEntry;
+        if (data && data.id) {
+          if (isManualTrigger || (data.dateString && data.dateString <= todayStr)) {
+            entriesToArchive.push({ id: data.id, data });
+          }
+        }
+      });
+
+      if (entriesToArchive.length === 0) {
+        if (isManualTrigger) {
+          setUserMessage('جميع الفواتير مؤرشفة بالفعل في صفحة الفواتير القديمة.');
+        }
+        return;
+      }
+
+      console.log(`[9 PM Auto Archiving] Archiving ${entriesToArchive.length} active invoices...`);
+
+      let batch = writeBatch(db);
+      let count = 0;
+
+      for (const item of entriesToArchive) {
+        const archiveRef = doc(db, 'sales_entries_archive', item.id);
+        const activeRef = doc(db, 'sales_entries', item.id);
+
+        batch.set(archiveRef, cleanFirestoreData(item.data), { merge: true });
+        batch.delete(activeRef);
+        count++;
+
+        if (count === 400) {
+          await batch.commit();
+          batch = writeBatch(db);
+          count = 0;
+        }
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      // Zero out active salesEntries in local state & cache
+      setSalesEntries([]);
+      try {
+        localStorage.setItem('cache_sales_entries', JSON.stringify([]));
+      } catch {}
+
+      const msg = '⏰ تمت الساعة 9:00 مساءً — تم أرشفة جميع الفواتير وتحويلها لصفحة الفواتير القديمة بنجاح، وتصفير العدادات للبدء بيوم مبيعات جديد 🚀✨';
+      setUserMessage(msg);
+      addToast({
+        title: 'أرشفة وتصفير المبيعات (9:00 م)',
+        message: msg,
+        type: 'success',
+      });
+
+      // Refresh unified state from Firestore
+      await fetchUnifiedDataFromFirestore();
+    } catch (err) {
+      console.error('Error performing 9 PM daily archiving:', err);
+    }
+  }, [addToast, fetchUnifiedDataFromFirestore]);
+
+  const triggerDaily9PMArchivingManually = useCallback(async () => {
+    await checkAndRunAuto9PMArchiving(true);
+  }, [checkAndRunAuto9PMArchiving]);
+
+  // Automated timer to check and trigger 9 PM archiving and app reset
+  useEffect(() => {
+    checkAndRunAuto9PMArchiving();
+    const interval = setInterval(() => {
+      checkAndRunAuto9PMArchiving();
+    }, 15000); // Check every 15 seconds
+    return () => clearInterval(interval);
+  }, [checkAndRunAuto9PMArchiving]);
+
   const countUniqueInvoices = (
     date: string,
     delegateName: string,
@@ -3563,6 +3840,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <SalesContext.Provider
       value={{
         currentUser,
+        calculateUnifiedSalesStats,
+        unifiedSalesStats,
+        triggerDaily9PMArchivingManually,
         countUniqueInvoices,
         selectedDate,
         selectedDelegate,

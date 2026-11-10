@@ -118,8 +118,8 @@ export const OldInvoicesScreen: React.FC = () => {
   const [deletingInvoiceKey, setDeletingInvoiceKey] = useState<string | null>(null);
   const [isSharingWhatsApp, setIsSharingWhatsApp] = useState<string | null>(null);
 
-  // Auto-lock closing time (default 15:00 / 3:00 PM) & real-time clock tick
-  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('15:00');
+  // Auto-lock closing time (default 21:00 / 9:00 PM) & real-time clock tick
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
   const [timeTick, setTimeTick] = useState<number>(Date.now());
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
 
