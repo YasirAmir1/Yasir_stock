@@ -126,10 +126,10 @@ const MainAppContent: React.FC = () => {
 
   const tabInfoMap: Record<string, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
     entry: { label: 'الفواتير', icon: FileText },
-    old_invoices: { label: 'الفواتير القديمة', icon: History },
+    old_invoices: { label: 'الارشفة', icon: History },
     routes: { label: 'المسارات', icon: MapPin },
-    report_11: { label: 'التقرير (11)', icon: FileSpreadsheet },
-    additional_target: { label: 'الهدف الإضافي', icon: Target },
+    report_11: { label: 'التقارير', icon: FileSpreadsheet },
+    additional_target: { label: 'الاضافي', icon: Target },
     item_tracking: { label: 'الأصناف', icon: Layers },
     products: { label: 'المنتجات', icon: Package },
     returns: { label: 'المرتجعات', icon: RotateCcw },

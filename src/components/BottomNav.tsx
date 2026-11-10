@@ -36,11 +36,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       ]
     : [
         { id: 'entry', label: 'الفواتير', icon: FileText },
-        ...(isAdmin ? [{ id: 'old_invoices', label: 'القديمة', icon: History }] : []),
+        ...(isAdmin ? [{ id: 'old_invoices', label: 'الارشفة', icon: History }] : []),
         { id: 'routes', label: 'المسارات', icon: MapPin },
 
-        { id: 'report_11', label: 'التقرير (11)', icon: FileSpreadsheet },
-        ...(!isSauceUser ? [{ id: 'additional_target', label: 'الهدف الإضافي', icon: Target }] : []),
+        { id: 'report_11', label: 'التقارير', icon: FileSpreadsheet },
+        ...(!isSauceUser ? [{ id: 'additional_target', label: 'الاضافي', icon: Target }] : []),
         ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },
