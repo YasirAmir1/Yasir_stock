@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Bell, FileText, Info, Trash2, Edit2 } from 'lucide-react';
+import { X, Bell, FileText, Info, Trash2, Edit2, Volume2, VolumeX } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc, deleteDoc, updateDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
+import { isNotificationSoundEnabled, setNotificationSoundEnabled, testNotificationSound } from '../utils/soundAlert';
 
 interface DelegatePanelModalProps {
   onClose: () => void;
@@ -48,6 +49,16 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const isAdminOrDataEntry = isAdmin || isDataEntry;
 
   const [activeTab, setActiveTab] = useState<'alerts' | 'notes' | 'notifications' | 'route' | 'tasks'>('alerts');
+  const [soundEnabled, setSoundEnabled] = useState(isNotificationSoundEnabled());
+
+  const handleToggleSound = async () => {
+    const nextState = !soundEnabled;
+    setSoundEnabled(nextState);
+    setNotificationSoundEnabled(nextState);
+    if (nextState) {
+      await testNotificationSound();
+    }
+  };
   
   // Alerts State
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -394,13 +405,32 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                 : `لوحة المندوب: ${currentUser?.name}`}
             </span>
           </h2>
-          <button 
-            onClick={onClose} 
-            className="p-1 sm:p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-            title="إغلاق النافذة"
-          >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleToggleSound}
+              className={`px-2 py-1 rounded-xl border text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all shadow-xs cursor-pointer ${
+                soundEnabled
+                  ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+              }`}
+              title={soundEnabled ? 'التنبيه الصوتي مفعل - انقر للاختبار أو الكتم' : 'التنبيه الصوتي مكتوم - انقر للتفعيل'}
+            >
+              {soundEnabled ? (
+                <Volume2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span className="hidden xs:inline">{soundEnabled ? 'صوت التنبيه 🔊' : 'صامت 🔇'}</span>
+            </button>
+            <button 
+              onClick={onClose} 
+              className="p-1 sm:p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              title="إغلاق النافذة"
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tabs - Responsive tabs that never overflow or exit the screen */}
@@ -666,6 +696,35 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
 
           {activeTab === 'notifications' && !isAdminOrDataEntry && (
             <div className="space-y-4">
+              {/* Audio Notification Sound Status & Test Card */}
+              <div className={`p-2.5 sm:p-3 rounded-2xl border flex items-center justify-between text-xs font-bold ${
+                soundEnabled 
+                  ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200' 
+                  : 'bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {soundEnabled ? (
+                    <Volume2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                  <span>{soundEnabled ? '🔔 التنبيه الصوتي مفعل: ستسمع نغمة واضحة عند أي إشعار جديد' : '🔕 التنبيه الصوتي متوقف'}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!soundEnabled) {
+                      setSoundEnabled(true);
+                      setNotificationSoundEnabled(true);
+                    }
+                    await testNotificationSound();
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-[10px] sm:text-[11px] font-black hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-xs cursor-pointer shrink-0"
+                >
+                  🔊 تجربة النغمة
+                </button>
+              </div>
+
               {globalNotifs.length === 0 && <p className="text-center p-4 text-xs opacity-60">لا توجد إشعارات</p>}
               {globalNotifs.map((notif) => {
                 const readAt = readsMap[notif.id];

@@ -124,6 +124,21 @@ const MainAppContent: React.FC = () => {
     setTimeout(() => setIsLoading(false), 500);
   };
 
+  const tabInfoMap: Record<string, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+    entry: { label: 'الفواتير', icon: FileText },
+    old_invoices: { label: 'الفواتير القديمة', icon: History },
+    routes: { label: 'المسارات', icon: MapPin },
+    report_11: { label: 'التقرير (11)', icon: FileSpreadsheet },
+    additional_target: { label: 'الهدف الإضافي', icon: Target },
+    item_tracking: { label: 'الأصناف', icon: Layers },
+    products: { label: 'المنتجات', icon: Package },
+    returns: { label: 'المرتجعات', icon: RotateCcw },
+    qc: { label: 'QC', icon: AlertTriangle },
+    admin: { label: 'الإدارة', icon: Shield },
+  };
+
+  const currentTabInfo = tabInfoMap[activeTab] || { label: 'الفواتير', icon: FileText };
+
   if (!isLoggedIn) {
     return <LoginScreen />;
   }
@@ -257,6 +272,18 @@ const MainAppContent: React.FC = () => {
                   >
                     Build by: Eng.Yasir
                   </span>
+                </div>
+                {/* Active Page Name Shading Badge in Header */}
+                <div 
+                  className={`flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-xl border-2 text-[9px] sm:text-xs font-black shadow-xs transition-all ${
+                    isDarkMode 
+                      ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300' 
+                      : 'bg-emerald-50 border-emerald-700 text-emerald-900'
+                  }`}
+                  title={`الصفحة الحالية: ${currentTabInfo.label}`}
+                >
+                  <currentTabInfo.icon className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span className="whitespace-nowrap">{currentTabInfo.label}</span>
                 </div>
               </div>
               
@@ -513,22 +540,22 @@ const MainAppContent: React.FC = () => {
               : 'bg-white/95 border-slate-200 text-slate-900'
           }`}
         >
-          <div className="max-w-5xl mx-auto px-1 sm:px-4 flex flex-wrap">
+          <div className="max-w-5xl mx-auto px-1 sm:px-4 py-1.5 flex flex-wrap gap-1 items-center justify-between w-full">
           {!isSauceUser && (
             <button
               onClick={() => handleTabChange('entry')}
               onMouseEnter={() => import('./components/EntryScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'entry'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+              <FileText className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'entry' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
               <span>الفواتير</span>
             </button>
           )}
@@ -538,17 +565,17 @@ const MainAppContent: React.FC = () => {
             <button
               onClick={() => handleTabChange('old_invoices')}
               onMouseEnter={() => import('./components/OldInvoicesScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'old_invoices'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <History className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <History className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'old_invoices' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
               <span>الفواتير القديمة</span>
             </button>
           )}
@@ -557,22 +584,20 @@ const MainAppContent: React.FC = () => {
             <button
               onClick={() => handleTabChange('routes')}
               onMouseEnter={() => import('./components/RoutesScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'routes'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <MapPin className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'routes' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
               <span>المسارات</span>
             </button>
           )}
-
-
 
           {!isSauceUser && (
             <button
@@ -580,17 +605,17 @@ const MainAppContent: React.FC = () => {
               onMouseEnter={() => {
                 import('./components/Report11Screen');
               }}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'report_11'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <FileSpreadsheet className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <FileSpreadsheet className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'report_11' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
               <span>التقرير (11)</span>
             </button>
           )}
@@ -601,38 +626,38 @@ const MainAppContent: React.FC = () => {
               onMouseEnter={() => {
                 import('./components/AdditionalTargetScreen');
               }}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'additional_target'
                   ? isDarkMode
-                    ? 'border-blue-400 text-blue-300 bg-blue-900/30'
-                    : 'border-blue-600 text-blue-800 bg-blue-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <Target className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" />
-              <span>الاضافي</span>
+              <Target className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'additional_target' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+              <span>الهدف الإضافي</span>
             </button>
           )}
 
-          {/* ITEM TRACKING TAB (متابعة الأصناف) - ADMIN, DATA ENTRY & MOHAMMEDSAUCE */}
+          {/* ITEM TRACKING TAB (الأصناف) - ADMIN, DATA ENTRY & MOHAMMEDSAUCE */}
           {isAllowedItemTracking && (
             <button
               onClick={() => handleTabChange('item_tracking')}
               onMouseEnter={() => import('./components/ItemTrackingScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[70px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'item_tracking'
                   ? isDarkMode
-                    ? 'border-amber-400 text-amber-300 bg-amber-900/30'
-                    : 'border-amber-600 text-amber-800 bg-amber-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <Layers className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400" />
-              <span>الصلصات</span>
+              <Layers className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'item_tracking' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+              <span>الأصناف</span>
             </button>
           )}
 
@@ -643,17 +668,17 @@ const MainAppContent: React.FC = () => {
               handleTabChange('products');
             }}
             onMouseEnter={() => import('./components/ProductsScreen')}
-            className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+            className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
               activeTab === 'products'
                 ? isDarkMode
-                  ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                  : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                  ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                  : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                 : isDarkMode
-                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
             }`}
           >
-            <Package className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+            <Package className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'products' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
             <span>المنتجات</span>
           </button>
 
@@ -665,17 +690,17 @@ const MainAppContent: React.FC = () => {
                 handleTabChange('returns');
               }}
               onMouseEnter={() => import('./components/ReturnsScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'returns'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
+              <RotateCcw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'returns' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
               <span>المرتجعات</span>
             </button>
           )}
@@ -688,18 +713,41 @@ const MainAppContent: React.FC = () => {
                 handleTabChange('qc');
               }}
               onMouseEnter={() => import('./components/QCScreen')}
-              className={`flex-1 py-2 px-1 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border-b-2 transition-all min-w-[60px] ${
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[60px] ${
                 activeTab === 'qc'
                   ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-900/30'
-                    : 'border-emerald-600 text-emerald-800 bg-emerald-100/70'
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
                   : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <AlertTriangle className="w-3 h-3 sm:w-4 sm:h-4 text-amber-500" />
+              <AlertTriangle className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'qc' ? 'text-amber-500' : ''}`} />
               <span>QC</span>
+            </button>
+          )}
+
+          {/* ADMIN TAB (الإدارة) */}
+          {(currentUser?.isAdmin || currentUser?.name === 'الأدمن') &&
+            currentUser?.username?.toLowerCase() !== 'rafatdata' &&
+            currentUser?.role !== 'dataEntry' &&
+            !isSauceUser && (
+            <button
+              onClick={() => handleTabChange('admin')}
+              onMouseEnter={() => import('./components/AdminScreen')}
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
+                activeTab === 'admin'
+                  ? isDarkMode
+                    ? 'border-amber-400 text-amber-300 bg-amber-950/80 shadow-sm scale-105'
+                    : 'border-amber-600 text-amber-950 bg-amber-100 shadow-sm scale-105'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <Shield className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'admin' ? 'text-amber-500' : ''}`} />
+              <span>الإدارة</span>
             </button>
           )}
 

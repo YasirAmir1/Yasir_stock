@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useSales, DEFAULT_CATEGORIES_LIST } from '../context/SalesContext';
+import { useSales, DEFAULT_CATEGORIES_LIST, normalizeArabicText } from '../context/SalesContext';
 import { useDebounce } from '../hooks/useDebounce';
 import { db } from '../lib/firebase';
 import { collection, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X , Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, RefreshCw, UserCheck, Shield, Calendar, ChevronDown, Scale, Phone } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X, Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, RefreshCw, UserCheck, Shield, Calendar, ChevronDown, ChevronUp, Scale, Phone, Store, ShoppingBag, TrendingUp, MapPin, FileText, CreditCard } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
+import { getFormattedWeekday } from '../utils/dateUtils';
 import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
@@ -476,6 +477,127 @@ export const EntryScreen: React.FC = () => {
     }, 0);
     return { modalTotalWeight: weight, modalTotalPrice: price };
   }, [safeSavedEntries, activeDelegateName, productsList]);
+
+  const [isDashboardCardExpanded, setIsDashboardCardExpanded] = useState<boolean>(true);
+
+  // Live Daily Performance Stats: Total sales, invoices count, total amount, remaining route stores, wholesale & retail breakdowns
+  const dailyPerformanceStats = useMemo(() => {
+    // 1. Group today's safeSavedEntries into discrete invoices
+    const invoicesMap = new Map<string, SalesEntry[]>();
+
+    safeSavedEntries.forEach((entry) => {
+      let key = entry.invoiceId || '';
+      if (!key) {
+        const cKey = entry.customerCode || entry.customerName || 'بدون اسم زبون';
+        if (currentUser?.isAdmin && selectedDelegate === 'الكل') {
+          key = `${entry.delegateName || 'مندوب'}_${cKey}`;
+        } else {
+          key = cKey;
+        }
+      }
+      const list = invoicesMap.get(key) || [];
+      list.push(entry);
+      invoicesMap.set(key, list);
+    });
+
+    const totalInvoicesCount = invoicesMap.size;
+    let totalSalesPrice = 0;
+    let totalSalesWeight = 0;
+
+    let retailInvoicesCount = 0;
+    let retailSalesWeight = 0;
+    let retailSalesPrice = 0;
+
+    let wholesaleInvoicesCount = 0;
+    let wholesaleSalesWeight = 0;
+    let wholesaleSalesPrice = 0;
+
+    invoicesMap.forEach((entries) => {
+      const isWholesaleInvoice = entries.some(e => e.priceMode === 'wholesale') || entries[0]?.priceMode === 'wholesale';
+      if (isWholesaleInvoice) {
+        wholesaleInvoicesCount++;
+      } else {
+        retailInvoicesCount++;
+      }
+
+      entries.forEach((e) => {
+        const isGift = Boolean(e.isGift);
+        const prod = productsList.find(p => p.productName === e.productName);
+        const price = prod && !isGift 
+          ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
+          : 0;
+        const rowPrice = price * (Number(e.quantity) || 0);
+        const rowWeight = Number(e.totalWeightKg) || 0;
+
+        totalSalesPrice += rowPrice;
+        totalSalesWeight += rowWeight;
+
+        if (e.priceMode === 'wholesale') {
+          wholesaleSalesPrice += rowPrice;
+          wholesaleSalesWeight += rowWeight;
+        } else {
+          retailSalesPrice += rowPrice;
+          retailSalesWeight += rowWeight;
+        }
+      });
+    });
+
+    // 2. Remaining stores in route for today
+    const effectiveDelName = currentUser?.isAdmin && selectedDelegate !== 'الكل'
+      ? selectedDelegate
+      : (!currentUser?.isAdmin ? currentUser?.name : '');
+
+    let todayDayName = '';
+    try {
+      todayDayName = new Intl.DateTimeFormat('ar-IQ', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
+    } catch {
+      todayDayName = getFormattedWeekday();
+    }
+    const normToday = normalizeArabicText(todayDayName);
+
+    // Filter routes for active delegate and today's path weekday
+    const todayStores = routes.filter(r => {
+      if (effectiveDelName) {
+        if (normalizeArabicText(r.delegateName) !== normalizeArabicText(effectiveDelName)) return false;
+      }
+      const normPath = normalizeArabicText(r.path || '');
+      return normPath.includes(normToday);
+    });
+
+    // Customer codes and names visited / registered today
+    const visitedCodes = new Set<string>();
+    const visitedNames = new Set<string>();
+
+    safeSavedEntries.forEach(e => {
+      if (e.customerCode) visitedCodes.add(String(e.customerCode).trim());
+      if (e.customerName) visitedNames.add(normalizeArabicText(e.customerName));
+    });
+
+    const remainingStores = todayStores.filter(r => {
+      const code = String(r.customerCode || '').trim();
+      const name = normalizeArabicText(r.customerName || '');
+      const isVisitedByCode = code && visitedCodes.has(code);
+      const isVisitedByName = name && visitedNames.has(name);
+      return !isVisitedByCode && !isVisitedByName;
+    });
+
+    return {
+      totalInvoicesCount,
+      totalSalesPrice,
+      totalSalesWeight,
+      retailInvoicesCount,
+      retailSalesWeight,
+      retailSalesPrice,
+      wholesaleInvoicesCount,
+      wholesaleSalesWeight,
+      wholesaleSalesPrice,
+      todayDayName,
+      totalRouteStoresCount: todayStores.length,
+      remainingStoresCount: remainingStores.length,
+      visitedRouteStoresCount: todayStores.length - remainingStores.length,
+      activeDelegateDisplay: effectiveDelName || (currentUser?.isAdmin ? 'جميع المندوبين' : currentUser?.name || 'المندوب')
+    };
+  }, [safeSavedEntries, productsList, routes, currentUser, selectedDelegate]);
 
   // Initialize default 6 rows with unique keys
   const [gridRows, setGridRows] = useState<GridRow[]>(() => {
@@ -1512,16 +1634,325 @@ export const EntryScreen: React.FC = () => {
     <PullToRefresh onRefresh={async () => { await refreshAllData(); await new Promise(r => setTimeout(r, 500)); }}>
       <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
       <DelegateLoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
-      {/* Summary Bar - Persistent at top of content area */}
-      <div className="sticky top-0 z-40 bg-emerald-700 text-white p-2 rounded-lg shadow-md border border-emerald-900 flex justify-between items-center mb-3 w-full max-w-full">
-        <div className="text-center px-1 flex-1 min-w-0">
-          <div className="text-[9px] opacity-90 truncate">إجمالي المبيعات اليوم</div>
-          <div className="font-black text-xs truncate">{formatWithCommas(totalSavedPrice, true)}</div>
+      {/* Comprehensive Live Daily Performance Card */}
+      <div className={`w-full rounded-2xl shadow-sm border transition-all duration-300 overflow-hidden ${
+        isDarkMode 
+          ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950/80 border-emerald-500/30 text-white' 
+          : 'bg-white border-slate-200/90 text-slate-800 shadow-sm'
+      }`}>
+        {/* Card Header */}
+        <div className={`px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-2 border-b transition-colors ${
+          isDarkMode 
+            ? 'border-white/10 bg-black/25' 
+            : 'border-emerald-100 bg-emerald-50/70'
+        }`}>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className={`font-black text-xs sm:text-sm tracking-wide ${isDarkMode ? 'text-white' : 'text-emerald-950'}`}>
+              ملخص مبيعات وفواتير اليوم
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border truncate max-w-[150px] ${
+              isDarkMode 
+                ? 'bg-white/15 text-white border-white/20 backdrop-blur-xs' 
+                : 'bg-white text-emerald-800 border-emerald-200 shadow-2xs'
+            }`}>
+              {dailyPerformanceStats.activeDelegateDisplay}
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${
+              isDarkMode 
+                ? 'bg-emerald-400/20 text-emerald-200 border-emerald-400/30' 
+                : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+            }`}>
+              مسار {dailyPerformanceStats.todayDayName}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsDashboardCardExpanded(prev => !prev)}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                isDarkMode 
+                  ? 'bg-white/10 hover:bg-white/20 text-white' 
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs'
+              }`}
+              title={isDashboardCardExpanded ? "طي البطاقة" : "عرض التفاصيل"}
+            >
+              <span>{isDashboardCardExpanded ? 'تصغير' : 'توسيع'}</span>
+              {isDashboardCardExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
-        <div className="text-center px-1 flex-1 min-w-0 border-r border-emerald-800">
-          <div className="text-[9px] opacity-90 truncate">إجمالي الوزن اليوم</div>
-          <div className="font-black text-xs truncate">{formatWithCommas(parseFloat(totalSavedWeight.toFixed(0)), true)} كجم</div>
-        </div>
+
+        {/* Collapsible Content */}
+        {isDashboardCardExpanded ? (
+          <div className="p-3 sm:p-4 space-y-3.5">
+            {/* 4 Main Performance Metrics */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+              {/* 1. Total Daily Sales (Weight & Price) */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border flex flex-col justify-between transition-colors ${
+                isDarkMode 
+                  ? 'bg-white/10 hover:bg-white/15 border-white/10 backdrop-blur-xs' 
+                  : 'bg-emerald-50/70 hover:bg-emerald-50 border-emerald-100 shadow-2xs'
+              }`}>
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <span className={`text-[10px] sm:text-[11px] font-bold truncate ${
+                    isDarkMode ? 'text-emerald-200' : 'text-emerald-800'
+                  }`}>
+                    إجمالي مبيعات اليوم
+                  </span>
+                  <div className={`p-1 rounded-md shrink-0 ${
+                    isDarkMode ? 'bg-emerald-500/30 text-emerald-200' : 'bg-emerald-600 text-white shadow-2xs'
+                  }`}>
+                    <TrendingUp className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-sm sm:text-base font-black tracking-tight truncate ${
+                    isDarkMode ? 'text-white' : 'text-emerald-950'
+                  }`} title={`${formatWithCommas(dailyPerformanceStats.totalSalesPrice, true)} د.ع`}>
+                    {formatWithCommas(dailyPerformanceStats.totalSalesPrice, true)} <span className="text-[10px] font-normal opacity-80">د.ع</span>
+                  </div>
+                  <div className={`text-[10px] sm:text-[11px] font-bold mt-0.5 truncate ${
+                    isDarkMode ? 'text-emerald-200/90' : 'text-emerald-700'
+                  }`}>
+                    الوزن: {formatWithCommas(parseFloat(dailyPerformanceStats.totalSalesWeight.toFixed(1)), true)} كجم
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Total Invoices Count */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border flex flex-col justify-between transition-colors ${
+                isDarkMode 
+                  ? 'bg-white/10 hover:bg-white/15 border-white/10 backdrop-blur-xs' 
+                  : 'bg-sky-50/70 hover:bg-sky-50 border-sky-100 shadow-2xs'
+              }`}>
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <span className={`text-[10px] sm:text-[11px] font-bold truncate ${
+                    isDarkMode ? 'text-sky-200' : 'text-sky-800'
+                  }`}>
+                    عدد الفواتير المنشأة
+                  </span>
+                  <div className={`p-1 rounded-md shrink-0 ${
+                    isDarkMode ? 'bg-sky-500/30 text-sky-200' : 'bg-sky-600 text-white shadow-2xs'
+                  }`}>
+                    <FileText className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-sm sm:text-base font-black tracking-tight truncate ${
+                    isDarkMode ? 'text-white' : 'text-sky-950'
+                  }`}>
+                    {formatWithCommas(dailyPerformanceStats.totalInvoicesCount, true)} <span className="text-[10px] font-normal opacity-80">فاتورة</span>
+                  </div>
+                  <div className={`text-[10px] sm:text-[11px] font-bold mt-0.5 truncate ${
+                    isDarkMode ? 'text-sky-200/90' : 'text-sky-700'
+                  }`}>
+                    مباشر لحظي ⚡
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Total Amount of Invoices */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border flex flex-col justify-between transition-colors ${
+                isDarkMode 
+                  ? 'bg-white/10 hover:bg-white/15 border-white/10 backdrop-blur-xs' 
+                  : 'bg-amber-50/70 hover:bg-amber-50 border-amber-100 shadow-2xs'
+              }`}>
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <span className={`text-[10px] sm:text-[11px] font-bold truncate ${
+                    isDarkMode ? 'text-amber-200' : 'text-amber-800'
+                  }`}>
+                    المبلغ الكلي للفواتير
+                  </span>
+                  <div className={`p-1 rounded-md shrink-0 ${
+                    isDarkMode ? 'bg-amber-500/30 text-amber-200' : 'bg-amber-600 text-white shadow-2xs'
+                  }`}>
+                    <CreditCard className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-sm sm:text-base font-black tracking-tight truncate ${
+                    isDarkMode ? 'text-amber-200' : 'text-amber-950'
+                  }`} title={`${formatWithCommas(dailyPerformanceStats.totalSalesPrice, true)} د.ع`}>
+                    {formatWithCommas(dailyPerformanceStats.totalSalesPrice, true)} <span className="text-[10px] font-normal opacity-80">د.ع</span>
+                  </div>
+                  <div className={`text-[10px] sm:text-[11px] font-bold mt-0.5 truncate ${
+                    isDarkMode ? 'text-amber-200/80' : 'text-amber-700'
+                  }`}>
+                    صافي مبيعات مسجلة
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Remaining Stores in Today's Route */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border flex flex-col justify-between transition-colors ${
+                isDarkMode 
+                  ? 'bg-white/10 hover:bg-white/15 border-white/10 backdrop-blur-xs' 
+                  : 'bg-rose-50/70 hover:bg-rose-50 border-rose-100 shadow-2xs'
+              }`}>
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <span className={`text-[10px] sm:text-[11px] font-bold truncate ${
+                    isDarkMode ? 'text-rose-200' : 'text-rose-800'
+                  }`}>
+                    المحلات المتبقية بالمسار
+                  </span>
+                  <div className={`p-1 rounded-md shrink-0 ${
+                    isDarkMode ? 'bg-rose-500/30 text-rose-200' : 'bg-rose-600 text-white shadow-2xs'
+                  }`}>
+                    <MapPin className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-sm sm:text-base font-black tracking-tight truncate ${
+                    isDarkMode ? 'text-white' : 'text-rose-950'
+                  }`}>
+                    {formatWithCommas(dailyPerformanceStats.remainingStoresCount, true)} <span className="text-[10px] font-normal opacity-80">محل متبقي</span>
+                  </div>
+                  <div className={`text-[10px] sm:text-[11px] font-bold mt-0.5 truncate ${
+                    isDarkMode ? 'text-rose-200/90' : 'text-rose-700'
+                  }`} title={`من أصل ${dailyPerformanceStats.totalRouteStoresCount} محل (${dailyPerformanceStats.visitedRouteStoresCount} تمت زيارتهم)`}>
+                    من أصل {dailyPerformanceStats.totalRouteStoresCount} ({dailyPerformanceStats.visitedRouteStoresCount} تمت زيارتهم)
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2 Sub-boxes: Retail (المفرد) & Wholesale (الجملة) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+              {/* Sub-box 1: المفرد (Retail) */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border space-y-2 ${
+                isDarkMode 
+                  ? 'bg-sky-950/40 border-sky-400/30 backdrop-blur-xs' 
+                  : 'bg-gradient-to-br from-sky-50/80 to-blue-50/40 border-sky-200 shadow-2xs'
+              }`}>
+                <div className={`flex items-center justify-between pb-1.5 border-b ${
+                  isDarkMode ? 'border-sky-400/20' : 'border-sky-200'
+                }`}>
+                  <div className={`flex items-center gap-1.5 font-bold text-xs ${
+                    isDarkMode ? 'text-sky-200' : 'text-sky-900'
+                  }`}>
+                    <Store className={`w-4 h-4 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`} />
+                    <span>فواتير المفرد (تجزئة)</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                    isDarkMode 
+                      ? 'bg-sky-400/20 text-sky-100 border-sky-300/30' 
+                      : 'bg-sky-100 text-sky-800 border-sky-200'
+                  }`}>
+                    {formatWithCommas(dailyPerformanceStats.retailInvoicesCount, true)} فاتورة
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center pt-0.5">
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-sky-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-sky-200/80' : 'text-slate-500'}`}>عدد الفواتير</div>
+                    <div className={`text-xs sm:text-sm font-black ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+                      {formatWithCommas(dailyPerformanceStats.retailInvoicesCount, true)}
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-sky-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-sky-200/80' : 'text-slate-500'}`}>الوزن</div>
+                    <div className={`text-xs sm:text-sm font-black truncate ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
+                      {formatWithCommas(parseFloat(dailyPerformanceStats.retailSalesWeight.toFixed(1)), true)} كجم
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-sky-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-sky-200/80' : 'text-slate-500'}`}>المبلغ</div>
+                    <div className={`text-xs sm:text-sm font-black truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`} title={`${formatWithCommas(dailyPerformanceStats.retailSalesPrice, true)} د.ع`}>
+                      {formatWithCommas(dailyPerformanceStats.retailSalesPrice, true)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub-box 2: الجملة (Wholesale) */}
+              <div className={`p-2.5 sm:p-3 rounded-xl border space-y-2 ${
+                isDarkMode 
+                  ? 'bg-amber-950/40 border-amber-400/30 backdrop-blur-xs' 
+                  : 'bg-gradient-to-br from-amber-50/80 to-orange-50/40 border-amber-200 shadow-2xs'
+              }`}>
+                <div className={`flex items-center justify-between pb-1.5 border-b ${
+                  isDarkMode ? 'border-amber-400/20' : 'border-amber-200'
+                }`}>
+                  <div className={`flex items-center gap-1.5 font-bold text-xs ${
+                    isDarkMode ? 'text-amber-200' : 'text-amber-900'
+                  }`}>
+                    <Package className={`w-4 h-4 ${isDarkMode ? 'text-amber-300' : 'text-amber-600'}`} />
+                    <span>فواتير الجملة</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                    isDarkMode 
+                      ? 'bg-amber-400/20 text-amber-100 border-amber-300/30' 
+                      : 'bg-amber-100 text-amber-800 border-amber-200'
+                  }`}>
+                    {formatWithCommas(dailyPerformanceStats.wholesaleInvoicesCount, true)} فاتورة
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center pt-0.5">
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-amber-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-amber-200/80' : 'text-slate-500'}`}>عدد الفواتير</div>
+                    <div className={`text-xs sm:text-sm font-black ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+                      {formatWithCommas(dailyPerformanceStats.wholesaleInvoicesCount, true)}
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-amber-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-amber-200/80' : 'text-slate-500'}`}>الوزن</div>
+                    <div className={`text-xs sm:text-sm font-black truncate ${isDarkMode ? 'text-amber-200' : 'text-amber-700'}`}>
+                      {formatWithCommas(parseFloat(dailyPerformanceStats.wholesaleSalesWeight.toFixed(1)), true)} كجم
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-1.5 ${
+                    isDarkMode ? 'bg-white/5' : 'bg-white border border-amber-100 shadow-2xs'
+                  }`}>
+                    <div className={`text-[9px] font-bold ${isDarkMode ? 'text-amber-200/80' : 'text-slate-500'}`}>المبلغ</div>
+                    <div className={`text-xs sm:text-sm font-black truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`} title={`${formatWithCommas(dailyPerformanceStats.wholesaleSalesPrice, true)} د.ع`}>
+                      {formatWithCommas(dailyPerformanceStats.wholesaleSalesPrice, true)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Compact Collapsed View for Small Screens */
+          <div className={`px-3.5 py-2 grid grid-cols-3 sm:grid-cols-5 gap-2 text-center text-xs ${
+            isDarkMode ? 'text-white' : 'text-slate-800 bg-slate-50/70'
+          }`}>
+            <div>
+              <span className={`text-[10px] block ${isDarkMode ? 'opacity-80' : 'text-slate-500'}`}>المبيعات</span>
+              <span className="font-bold truncate block">{formatWithCommas(dailyPerformanceStats.totalSalesPrice, true)}</span>
+            </div>
+            <div>
+              <span className={`text-[10px] block ${isDarkMode ? 'opacity-80' : 'text-slate-500'}`}>الوزن</span>
+              <span className="font-bold truncate block">{formatWithCommas(parseFloat(dailyPerformanceStats.totalSalesWeight.toFixed(0)), true)} كجم</span>
+            </div>
+            <div>
+              <span className={`text-[10px] block ${isDarkMode ? 'opacity-80' : 'text-slate-500'}`}>الفواتير</span>
+              <span className="font-bold truncate block">{dailyPerformanceStats.totalInvoicesCount}</span>
+            </div>
+            <div className="hidden sm:block">
+              <span className={`text-[10px] block ${isDarkMode ? 'opacity-80' : 'text-slate-500'}`}>المفرد</span>
+              <span className="font-bold truncate block">{dailyPerformanceStats.retailInvoicesCount} ({formatWithCommas(dailyPerformanceStats.retailSalesPrice, true)})</span>
+            </div>
+            <div className="hidden sm:block">
+              <span className={`text-[10px] block ${isDarkMode ? 'opacity-80' : 'text-slate-500'}`}>الجملة</span>
+              <span className="font-bold truncate block">{dailyPerformanceStats.wholesaleInvoicesCount} ({formatWithCommas(dailyPerformanceStats.wholesaleSalesPrice, true)})</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 1. New Top Section: Representatives First Invoice Timestamps & Status (Admin & Data Entry Only) */}
