@@ -558,7 +558,7 @@ const MainAppContent: React.FC = () => {
               }`}
             >
               <History className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'old_invoices' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-              <span>الفواتير القديمة</span>
+              <span>الارشفة</span>
             </button>
           )}
 
@@ -598,7 +598,7 @@ const MainAppContent: React.FC = () => {
               }`}
             >
               <FileSpreadsheet className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'report_11' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-              <span>التقرير (11)</span>
+              <span>التقارير</span>
             </button>
           )}
 
@@ -619,7 +619,7 @@ const MainAppContent: React.FC = () => {
               }`}
             >
               <Target className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'additional_target' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-              <span>الهدف الإضافي</span>
+              <span>الاضافي</span>
             </button>
           )}
 
