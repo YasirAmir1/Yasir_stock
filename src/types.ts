@@ -182,11 +182,13 @@ export const CUSTOMER_INFO_OPTIONS = [
 
 export interface GiftPromotion {
   id: string;
-  productCode: string;           // كود المنتج
-  productName: string;           // اسم المنتج
+  productCode: string;           // كود المنتج المطلوبة منه الشراء
+  productName: string;           // اسم المنتج المطلوبة منه الشراء
   requirementCondition: string;  // الشرط المراد تحقيقه (نص توضيحي مثل: كل 15 قطعة أو كل 1 كارتون)
   conditionUnit?: 'piece' | 'carton'; // وحدة الشرط (قطعة أو كارتون)
   conditionQuantity: number;     // الكمية المطلوبة لتحقيق الشرط (مثلاً 15 قطعة)
+  giftProductCode?: string;      // كود المنتج الممنوح كهدية (اختياري إن كان مختلفاً عن المنتج الأصلي)
+  giftProductName?: string;      // اسم المنتج الممنوح كهدية (اختياري إن كان مختلفاً عن المنتج الأصلي)
   giftQuantityPieces: number;    // كمية الهدية بالقطع (مثلاً 1 قطعة هدية)
   customerType?: 'الكل' | 'مفرد' | 'جملة'; // نوع الزبون المشمول بالعرض (مفرد / جملة / الكل)
   startDate: string;             // تاريخ بدء التنفيذ (YYYY-MM-DD)

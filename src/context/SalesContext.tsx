@@ -1232,17 +1232,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         });
 
-        // Clean base64 images exceeding size limits
         const cleanedProducts = parsedProducts.map(p => {
-          let img = p.imageUrl || '';
-          if (img.startsWith('data:') && img.length > 20000) img = '';
-          return { ...p, imageUrl: img };
+          return { ...p, imageUrl: p.imageUrl || '' };
         });
 
         const cleanedRestockedList = restockedList.map(item => {
-          let img = item.imageUrl || '';
-          if (img.startsWith('data:') && img.length > 20000) img = '';
-          return { ...item, imageUrl: img };
+          return { ...item, imageUrl: item.imageUrl || '' };
         });
 
         // Generate formatted timestamp with English numerals

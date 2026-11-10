@@ -170,6 +170,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const [showOnlyPriceChanged, setShowOnlyPriceChanged] = useState<boolean>(false);
   const [showPriceChangesModal, setShowPriceChangesModal] = useState<boolean>(false);
   const [acknowledgingPriceId, setAcknowledgingPriceId] = useState<string | null>(null);
+  const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({});
 
   // Unique sanitized key for current user (persisted across sessions)
   const userKey = useMemo(() => {
@@ -974,8 +975,18 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
         if (qualifiedMultiplier > 0) {
           const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          const giftTargetName = matchingPromotion.giftProductName || matchingPromotion.productName;
+          const giftTargetCode = matchingPromotion.giftProductCode || matchingPromotion.productCode;
+          const giftProd = (giftTargetName || giftTargetCode)
+            ? productsList.find(p => {
+                const codeMatch = giftTargetCode && norm(p.productCode) === norm(giftTargetCode);
+                const nameMatch = giftTargetName && norm(p.productName) === norm(giftTargetName);
+                return codeMatch || nameMatch;
+              }) || prod
+            : prod;
+
           earnedGiftsList.push({
-            productName: prod.productName,
+            productName: giftProd.productName,
             orderedText,
             giftPieces: totalGiftPieces,
             conditionText: matchingPromotion.requirementCondition
@@ -1116,21 +1127,31 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
         if (qualifiedMultiplier > 0) {
           const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
+          const giftTargetName = matchingPromotion.giftProductName || matchingPromotion.productName;
+          const giftTargetCode = matchingPromotion.giftProductCode || matchingPromotion.productCode;
+          const giftProd = (giftTargetName || giftTargetCode)
+            ? productsList.find(p => {
+                const codeMatch = giftTargetCode && norm(p.productCode) === norm(giftTargetCode);
+                const nameMatch = giftTargetName && norm(p.productName) === norm(giftTargetName);
+                return codeMatch || nameMatch;
+              }) || prod
+            : prod;
+
           earnedGiftsList.push({
-            productName: prod.productName,
+            productName: giftProd.productName,
             orderedText,
             giftPieces: totalGiftPieces,
             conditionText: matchingPromotion.requirementCondition
           });
 
           // Append earned gift pieces as separate row in customer's invoice
-          const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+          const wGrams = Math.round(Number(giftProd.pieceWeightKg) * 1000) || 0;
           const pieceWeightKg = wGrams / 1000;
           const totalGiftWeight = (totalGiftPieces * wGrams) / 1000;
 
           itemsToSave.push({
-            productName: prod.productName,
-            categoryName: prod.categoryName,
+            productName: giftProd.productName,
+            categoryName: giftProd.categoryName || prod.categoryName,
             quantity: totalGiftPieces,
             entryUnit: 'piece' as const,
             enteredQuantity: totalGiftPieces,
@@ -2203,19 +2224,22 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                     {/* Image Display */}
                     {!isEditing && (
                       <div className="shrink-0 animate-in fade-in zoom-in-95 duration-200">
-                        {prod.imageUrl ? (
+                        {prod.imageUrl && !failedImageIds[prod.id] ? (
                           <img 
                             key={prod.imageUpdatedAt || prod.id}
                             src={prod.imageUrl} 
                             alt={prod.productName} 
                             loading="lazy"
-                            className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-cover rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white`}
-                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                            decoding="async"
+                            className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-contain rounded-md shadow-sm border border-slate-200 dark:border-slate-700 bg-white p-1`}
+                            onError={() => setFailedImageIds(prev => ({ ...prev, [prod.id]: true }))}
                           />
                         ) : (
-                          <div className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass}`}>
-                            <span className="text-5xl font-black opacity-90 drop-shadow-md">{getAvatarProps(prod.productName).initial}</span>
-                            <span className="text-[10px] font-bold opacity-75 mt-2 bg-black/20 px-2 py-0.5 rounded">بدون صورة</span>
+                          <div className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} flex flex-col items-center justify-center rounded-md shadow-sm border border-slate-200 dark:border-slate-700 text-white ${getAvatarProps(prod.productName).colorClass} p-3 text-center select-none`}>
+                            <span className="text-5xl font-black opacity-90 drop-shadow-md mb-1">{getAvatarProps(prod.productName).initial}</span>
+                            <span className="text-[11px] font-black truncate max-w-full px-2 py-0.5 rounded bg-black/25 text-white">
+                              {prod.categoryName || 'منتج'}
+                            </span>
                           </div>
                         )}
                       </div>

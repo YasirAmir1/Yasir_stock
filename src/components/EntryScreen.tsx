@@ -1053,13 +1053,24 @@ export const EntryScreen: React.FC = () => {
 
         if (qualifiedMultiplier > 0) {
           const totalGiftPieces = qualifiedMultiplier * (matchingPromotion.giftQuantityPieces || 1);
-          const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+          
+          const giftTargetName = matchingPromotion.giftProductName || matchingPromotion.productName;
+          const giftTargetCode = matchingPromotion.giftProductCode || matchingPromotion.productCode;
+          const giftProd = (giftTargetName || giftTargetCode)
+            ? productsList.find(p => {
+                const codeMatch = giftTargetCode && norm(p.productCode) === norm(giftTargetCode);
+                const nameMatch = giftTargetName && norm(p.productName) === norm(giftTargetName);
+                return codeMatch || nameMatch;
+              }) || prod
+            : prod;
+
+          const wGrams = Math.round(Number(giftProd.pieceWeightKg) * 1000) || 0;
           const pieceWeightKg = wGrams / 1000;
           const totalGiftWeight = (totalGiftPieces * wGrams) / 1000;
 
           itemsToSave.push({
-            productName: prod.productName,
-            categoryName: prod.categoryName,
+            productName: giftProd.productName,
+            categoryName: giftProd.categoryName || prod.categoryName,
             quantity: totalGiftPieces,
             entryUnit: 'piece',
             enteredQuantity: totalGiftPieces,
@@ -1078,8 +1089,8 @@ export const EntryScreen: React.FC = () => {
 
           addToast?.({
             type: 'gift_earned',
-            title: `مبروك! هدية ترويجية (${prod.productName}) 🎁`,
-            message: `لقد أضفت ${savedItem.quantity} قطعة وتأهلت لـ ${totalGiftPieces} قطع هدية مجانية بناءً على شروط (${invoiceType})!`,
+            title: `مبروك! هدية ترويجية (${giftProd.productName}) 🎁`,
+            message: `لقد أضفت ${savedItem.quantity} قطعة وتأهلت لـ ${totalGiftPieces} قطعة هدية مجانية من (${giftProd.productName})!`,
             percentage: 100,
             delegateName: activeDelegateName || ''
           });
