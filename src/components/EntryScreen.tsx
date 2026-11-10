@@ -457,96 +457,86 @@ export const EntryScreen: React.FC = () => {
   const dailyTargetKg = delCategoryTargets.reduce((sum, t) => sum + t.dailyTargetWeightKg, 0) || 800;
 
   // Saved metrics for active delegate
-  const totalSavedWeight = safeSavedEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
-  const totalSavedQuantity = safeSavedEntries.reduce((sum, e) => sum + e.quantity, 0);
+  // Saved metrics for active delegate (Audited & Unified)
+  const totalSavedWeight = safeSavedEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
+  const totalSavedQuantity = safeSavedEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
   const totalSavedPrice = safeSavedEntries.reduce((sum, e) => {
+    if (e.isGift) return sum;
     const prod = productsList.find(p => p.productName === e.productName);
     const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-    return sum + (price * e.quantity);
+    return sum + (price * (Number(e.quantity) || 0));
   }, 0);
 
   const dailyPct = dailyTargetKg > 0 ? (totalSavedWeight / dailyTargetKg) * 100 : 0;
 
   const { modalTotalWeight, modalTotalPrice } = useMemo(() => {
     const delegateEntries = safeSavedEntries.filter(e => e.delegateName === activeDelegateName);
-    const weight = delegateEntries.reduce((sum, e) => sum + e.totalWeightKg, 0);
+    const weight = delegateEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
     const price = delegateEntries.reduce((sum, e) => {
+      if (e.isGift) return sum;
       const prod = productsList.find(p => p.productName === e.productName);
       const price = prod ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-      return sum + (price * e.quantity);
+      return sum + (price * (Number(e.quantity) || 0));
     }, 0);
     return { modalTotalWeight: weight, modalTotalPrice: price };
   }, [safeSavedEntries, activeDelegateName, productsList]);
 
   const [isDashboardCardExpanded, setIsDashboardCardExpanded] = useState<boolean>(true);
 
-  // Live Daily Performance Stats: Total sales, invoices count, total amount, remaining route stores, wholesale & retail breakdowns
+  // Live Daily Performance Stats: Fully Audited and Unified across invoices, weights, amounts, and routes
   const dailyPerformanceStats = useMemo(() => {
-    // 1. Group today's safeSavedEntries into discrete invoices
-    const invoicesMap = new Map<string, SalesEntry[]>();
+    // 1. Determine active delegate scope
+    const targetDelegate = currentUser?.isAdmin
+      ? (savedEntriesFilterDelegate !== 'الكل' ? savedEntriesFilterDelegate : (selectedDelegate !== 'الكل' ? selectedDelegate : ''))
+      : (currentUser?.name || '');
 
-    safeSavedEntries.forEach((entry) => {
-      let key = entry.invoiceId || '';
-      if (!key) {
-        const cKey = entry.customerCode || entry.customerName || 'بدون اسم زبون';
-        if (currentUser?.isAdmin && selectedDelegate === 'الكل') {
-          key = `${entry.delegateName || 'مندوب'}_${cKey}`;
-        } else {
-          key = cKey;
-        }
+    // Filter today's entries according to active delegate scope
+    const scopedEntries = targetDelegate
+      ? safeSavedEntries.filter(e => normalizeArabicText(e.delegateName || '') === normalizeArabicText(targetDelegate))
+      : safeSavedEntries;
+
+    // 2. Separate Retail and Wholesale entries with rigorous precision
+    const retailEntries = scopedEntries.filter(e => e.priceMode !== 'wholesale');
+    const wholesaleEntries = scopedEntries.filter(e => e.priceMode === 'wholesale');
+
+    // Standard key for grouping invoices: Customer + PriceMode (and delegate when viewing all)
+    const getInvoiceGroupKey = (entry: SalesEntry) => {
+      const cName = entry.customerName || 'بدون اسم زبون';
+      const mode = entry.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+      if (!targetDelegate && currentUser?.isAdmin) {
+        return `${entry.delegateName || 'مندوب غير محدد'} | الزبون: ${cName}__${mode}`;
       }
-      const list = invoicesMap.get(key) || [];
-      list.push(entry);
-      invoicesMap.set(key, list);
-    });
+      return `${cName}__${mode}`;
+    };
 
-    const totalInvoicesCount = invoicesMap.size;
-    let totalSalesPrice = 0;
-    let totalSalesWeight = 0;
+    // Retail metrics
+    const retailInvoicesSet = new Set(retailEntries.map(getInvoiceGroupKey));
+    const retailInvoicesCount = retailInvoicesSet.size;
+    const retailSalesWeight = retailEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
+    const retailSalesPrice = retailEntries.reduce((sum, e) => {
+      if (e.isGift) return sum;
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (prod.retailPrice || 0) : 0;
+      return sum + (price * (Number(e.quantity) || 0));
+    }, 0);
 
-    let retailInvoicesCount = 0;
-    let retailSalesWeight = 0;
-    let retailSalesPrice = 0;
+    // Wholesale metrics
+    const wholesaleInvoicesSet = new Set(wholesaleEntries.map(getInvoiceGroupKey));
+    const wholesaleInvoicesCount = wholesaleInvoicesSet.size;
+    const wholesaleSalesWeight = wholesaleEntries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
+    const wholesaleSalesPrice = wholesaleEntries.reduce((sum, e) => {
+      if (e.isGift) return sum;
+      const prod = productsList.find(p => p.productName === e.productName);
+      const price = prod ? (prod.wholesalePrice || 0) : 0;
+      return sum + (price * (Number(e.quantity) || 0));
+    }, 0);
 
-    let wholesaleInvoicesCount = 0;
-    let wholesaleSalesWeight = 0;
-    let wholesaleSalesPrice = 0;
+    // Total unified metrics (exact mathematical sums)
+    const totalInvoicesCount = retailInvoicesCount + wholesaleInvoicesCount;
+    const totalSalesWeight = retailSalesWeight + wholesaleSalesWeight;
+    const totalSalesPrice = retailSalesPrice + wholesaleSalesPrice;
 
-    invoicesMap.forEach((entries) => {
-      const isWholesaleInvoice = entries.some(e => e.priceMode === 'wholesale') || entries[0]?.priceMode === 'wholesale';
-      if (isWholesaleInvoice) {
-        wholesaleInvoicesCount++;
-      } else {
-        retailInvoicesCount++;
-      }
-
-      entries.forEach((e) => {
-        const isGift = Boolean(e.isGift);
-        const prod = productsList.find(p => p.productName === e.productName);
-        const price = prod && !isGift 
-          ? (e.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
-          : 0;
-        const rowPrice = price * (Number(e.quantity) || 0);
-        const rowWeight = Number(e.totalWeightKg) || 0;
-
-        totalSalesPrice += rowPrice;
-        totalSalesWeight += rowWeight;
-
-        if (e.priceMode === 'wholesale') {
-          wholesaleSalesPrice += rowPrice;
-          wholesaleSalesWeight += rowWeight;
-        } else {
-          retailSalesPrice += rowPrice;
-          retailSalesWeight += rowWeight;
-        }
-      });
-    });
-
-    // 2. Remaining stores in route for today
-    const effectiveDelName = currentUser?.isAdmin && selectedDelegate !== 'الكل'
-      ? selectedDelegate
-      : (!currentUser?.isAdmin ? currentUser?.name : '');
-
+    // 3. Remaining stores in route for today
     let todayDayName = '';
     try {
       todayDayName = new Intl.DateTimeFormat('ar-IQ', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(new Date());
@@ -557,29 +547,33 @@ export const EntryScreen: React.FC = () => {
 
     // Filter routes for active delegate and today's path weekday
     const todayStores = routes.filter(r => {
-      if (effectiveDelName) {
-        if (normalizeArabicText(r.delegateName) !== normalizeArabicText(effectiveDelName)) return false;
+      if (targetDelegate) {
+        if (normalizeArabicText(r.delegateName) !== normalizeArabicText(targetDelegate)) return false;
       }
       const normPath = normalizeArabicText(r.path || '');
-      return normPath.includes(normToday);
+      return normPath.includes(normToday) || normToday.includes(normPath);
     });
 
     // Customer codes and names visited / registered today
     const visitedCodes = new Set<string>();
     const visitedNames = new Set<string>();
 
-    safeSavedEntries.forEach(e => {
+    scopedEntries.forEach(e => {
       if (e.customerCode) visitedCodes.add(String(e.customerCode).trim());
       if (e.customerName) visitedNames.add(normalizeArabicText(e.customerName));
     });
 
-    const remainingStores = todayStores.filter(r => {
+    const visitedRouteStoresCount = todayStores.filter(r => {
       const code = String(r.customerCode || '').trim();
       const name = normalizeArabicText(r.customerName || '');
-      const isVisitedByCode = code && visitedCodes.has(code);
-      const isVisitedByName = name && visitedNames.has(name);
-      return !isVisitedByCode && !isVisitedByName;
-    });
+      const isVisitedByCode = Boolean(code && visitedCodes.has(code));
+      const isVisitedByName = Boolean(name && visitedNames.has(name));
+      return isVisitedByCode || isVisitedByName;
+    }).length;
+
+    const remainingStoresCount = Math.max(0, todayStores.length - visitedRouteStoresCount);
+
+    const activeDelegateDisplay = targetDelegate || (currentUser?.isAdmin ? 'جميع المندوبين' : currentUser?.name || 'المندوب');
 
     return {
       totalInvoicesCount,
@@ -593,11 +587,11 @@ export const EntryScreen: React.FC = () => {
       wholesaleSalesPrice,
       todayDayName,
       totalRouteStoresCount: todayStores.length,
-      remainingStoresCount: remainingStores.length,
-      visitedRouteStoresCount: todayStores.length - remainingStores.length,
-      activeDelegateDisplay: effectiveDelName || (currentUser?.isAdmin ? 'جميع المندوبين' : currentUser?.name || 'المندوب')
+      remainingStoresCount,
+      visitedRouteStoresCount,
+      activeDelegateDisplay
     };
-  }, [safeSavedEntries, productsList, routes, currentUser, selectedDelegate]);
+  }, [safeSavedEntries, productsList, routes, currentUser, selectedDelegate, savedEntriesFilterDelegate]);
 
   // Initialize default 6 rows with unique keys
   const [gridRows, setGridRows] = useState<GridRow[]>(() => {
@@ -1363,10 +1357,12 @@ export const EntryScreen: React.FC = () => {
     return matchSearch && matchDelegate && matchPrice;
   });
 
-  // Group base entries into full invoices
+  // Group base entries into full invoices (Audited & Unified by Customer & PriceMode)
   const fullGroupedInvoices: Record<string, typeof safeSavedEntries> = {};
   baseFilteredSavedEntries.forEach((entry) => {
-    let groupKey = entry.customerName || 'بدون اسم زبون';
+    const cName = entry.customerName || 'بدون اسم زبون';
+    const mode = entry.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+    let groupKey = `${cName}__${mode}`;
     if (currentUser?.isAdmin && selectedDelegate === 'الكل') {
       groupKey = `${entry.delegateName || 'مندوب غير محدد'} | الزبون: ${groupKey}`;
     }
@@ -1409,7 +1405,9 @@ export const EntryScreen: React.FC = () => {
 
     // Standardize grouping key for counting (matches fullGroupedInvoices logic)
     const getGroupKey = (entry: SalesEntry) => {
-      let key = entry.customerName || 'بدون اسم زبون';
+      const cName = entry.customerName || 'بدون اسم زبون';
+      const mode = entry.priceMode === 'wholesale' ? 'wholesale' : 'retail';
+      let key = `${cName}__${mode}`;
       if (currentUser?.isAdmin && selectedDelegate === 'الكل') {
         key = `${entry.delegateName || 'مندوب غير محدد'} | الزبون: ${key}`;
       }
@@ -2416,6 +2414,8 @@ export const EntryScreen: React.FC = () => {
                 let customerDisplayName = currentUser?.isAdmin && selectedDelegate === 'الكل'
                   ? (customerName.split(' | الزبون: ').pop() || customerName)
                   : customerName;
+                
+                customerDisplayName = customerDisplayName.replace(/__(wholesale|retail)/g, '').trim();
                 
                 // Remove phone number from display name if present
                 const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
