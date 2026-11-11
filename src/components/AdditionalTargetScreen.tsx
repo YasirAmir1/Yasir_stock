@@ -1829,14 +1829,16 @@ export const AdditionalTargetScreen: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={verifyStorageBuckets}
-            disabled={storageVerification.isChecking}
-            className="px-3.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all self-end md:self-auto"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${storageVerification.isChecking ? 'animate-spin text-blue-500' : 'text-slate-400'}`} />
-            <span>{storageVerification.isChecking ? 'جاري التحقق...' : 'فحص الحاويات'}</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={verifyStorageBuckets}
+              disabled={storageVerification.isChecking}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all self-end md:self-auto"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${storageVerification.isChecking ? 'animate-spin text-blue-500' : 'text-slate-400'}`} />
+              <span>{storageVerification.isChecking ? 'جاري التحقق...' : 'فحص الحاويات'}</span>
+            </button>
+          )}
         </div>
 
         {/* 1.2 Isolated Target Categories Navigation (Segmented Controller) */}
