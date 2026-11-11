@@ -10,6 +10,7 @@ import { formatWithCommas, parseArabicDigits } from '../utils/numberUtils';
 import { showConfirm } from '../utils/dialogService';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas-pro';
+import { uploadExcelToSupabaseStorage } from '../lib/supabaseService';
 import {
   FileSpreadsheet,
   Calendar,
@@ -1855,6 +1856,15 @@ export const Report11Screen: React.FC = () => {
     setUploadFeedback(null);
 
     try {
+      // Archive Excel sheet in Supabase Storage ('sales-bucket' / excel-sales/)
+      try {
+        uploadExcelToSupabaseStorage(file, {
+          uploadedBy: currentUser?.name || 'الأدمن',
+          targetType: 'report11',
+          description: 'شيت أهداف ومبيعات التقرير 11',
+        }).catch((sErr) => console.warn('Supabase storage archive note:', sErr));
+      } catch {}
+
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
 

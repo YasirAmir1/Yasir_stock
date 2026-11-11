@@ -6,6 +6,7 @@ import { isQuotaExceededError, cleanFirestoreData, setGlobalQuotaExceeded, isGlo
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
 import { parseArabicDigits, parseArabicNumber, getInvoiceKey } from '../utils/numberUtils';
+import { playSuccessChimeSound } from '../utils/audioUtils';
 import {
   UserAccount,
   DelegateTarget,
@@ -22,6 +23,15 @@ import {
   UnifiedSalesStats,
   DelegateSalesStatsBreakdown
 } from '../types';
+import {
+  uploadProductImageToSupabaseStorage,
+  uploadExcelToSupabaseStorage,
+  uploadInvoiceImageToSupabaseStorage,
+  fetchProductsFromSupabase,
+  syncProductsToSupabase,
+  upsertSupabaseProduct,
+  SupabaseUploadResult
+} from '../lib/supabaseService';
 
 export const ORDERED_CATEGORY_PRIORITY = [
   'قشطة',
@@ -322,7 +332,7 @@ interface SalesContextType {
   setSelectedDelegate: (delName: string) => void;
   setSelectedDate: (dateStr: string) => void;
   saveSalesEntries: (entries: Omit<SalesEntry, 'id' | 'timestamp'>[]) => void;
-  deleteSalesEntry: (id: string) => void;
+  deleteSalesEntry: (id: string, options?: { suppressToast?: boolean }) => void;
   updateSalesEntry: (id: string, updatedData: Partial<SalesEntry>) => void;
   updateDelegateTarget: (delegateName: string, categoryName: string, targetKg: number) => void;
   batchUpdateDelegateTargets: (
@@ -360,7 +370,7 @@ interface SalesContextType {
   importRoutesFromExcel: (file: File) => Promise<void>;
   updateProduct: (id: string, updatedData: Partial<ProductItem>) => void;
   acknowledgePriceChanges: (productIds?: string[]) => Promise<void>;
-  uploadProductImage: (id: string, file: File) => Promise<string | null>;
+  uploadProductImage: (id: string, file: File, oldImageUrl?: string) => Promise<string | null>;
   addProduct: () => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
@@ -387,6 +397,8 @@ interface SalesContextType {
   calculateUnifiedSalesStats: (targetDate?: string, delegateFilter?: string) => UnifiedSalesStats;
   unifiedSalesStats: UnifiedSalesStats;
   triggerDaily9PMArchivingManually: () => Promise<void>;
+  uploadExcelToSupabase: (file: File, metadata?: any) => Promise<SupabaseUploadResult>;
+  uploadInvoiceImageToSupabase: (file: File | Blob, invoiceId?: string, customerName?: string) => Promise<SupabaseUploadResult>;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -761,6 +773,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               path: String(data.path || '').trim(),
               customerType: data.customerType || 'مفرد',
               position: typeof data.position === 'number' ? data.position : 0,
+              isTemporaryOverride: Boolean(data.isTemporaryOverride || data.is_temporary_override),
+              tempAssignedDay: data.tempAssignedDay || data.assigned_day || '',
+              overrideExpiresAt: Number(data.overrideExpiresAt || data.override_expires_at) || 0,
+              originalPath: data.originalPath || data.path || '',
             } as RouteItem;
           };
 
@@ -1642,18 +1658,103 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const uploadProductImage = async (id: string, file: File): Promise<string | null> => {
+  const uploadProductImage = async (
+    id: string,
+    file: File,
+    oldImageUrl?: string
+  ): Promise<string | null> => {
     try {
-      const storageRef = ref(storage, `products/${id}/${Date.now()}`);
-      const snapshot = await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      await updateProduct(id, { imageUrl: downloadURL });
-      return downloadURL;
+      const existingProduct = productsList.find((p) => p.id === id);
+      const targetOldUrl = oldImageUrl || existingProduct?.imageUrl;
+
+      // 1. Upload to Supabase Storage ('product-images' bucket) with automatic old image deletion
+      let supabaseUrl: string | null = null;
+      try {
+        const supaRes = await uploadProductImageToSupabaseStorage(
+          file,
+          id,
+          existingProduct?.productName,
+          targetOldUrl
+        );
+        if (supaRes.success && supaRes.publicUrl) {
+          supabaseUrl = supaRes.publicUrl;
+        }
+      } catch (sErr) {
+        console.warn('Supabase product image upload notice:', sErr);
+      }
+
+      // 2. Non-blocking Firebase Storage backup with timeout so UI never hangs
+      if (supabaseUrl) {
+        // Run in background without blocking return or sticking UI
+        (async () => {
+          try {
+            const storageRef = ref(storage, `products/${id}/${Date.now()}`);
+            await uploadBytes(storageRef, file);
+          } catch {}
+        })();
+      } else {
+        try {
+          const uploadPromise = (async () => {
+            const storageRef = ref(storage, `products/${id}/${Date.now()}`);
+            const snapshot = await uploadBytes(storageRef, file);
+            return await getDownloadURL(snapshot.ref);
+          })();
+
+          const timeoutPromise = new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 4000)
+          );
+
+          const downloadURL = await Promise.race([uploadPromise, timeoutPromise]);
+          if (downloadURL) {
+            supabaseUrl = downloadURL;
+          }
+        } catch (fErr) {
+          console.warn('Firebase storage notice:', fErr);
+        }
+      }
+
+      if (supabaseUrl) {
+        // 3. Update local state, localStorage, and Firestore
+        await updateProduct(id, { imageUrl: supabaseUrl });
+
+        // 4. Also upsert in Supabase DB products table
+        if (existingProduct) {
+          try {
+            await upsertSupabaseProduct({
+              id,
+              name: existingProduct.productName,
+              price: existingProduct.retailPrice || 0,
+              category: existingProduct.categoryName,
+              image_url: supabaseUrl,
+            });
+          } catch (e) {
+            console.warn('Notice upserting product to Supabase DB:', e);
+          }
+        }
+
+        return supabaseUrl;
+      }
+      return null;
     } catch (err) {
       console.error('Error uploading image to Storage:', err);
       setUserMessage('حدث خطأ أثناء رفع الصورة');
       return null;
     }
+  };
+
+  const uploadExcelToSupabase = async (
+    file: File,
+    metadata?: any
+  ): Promise<SupabaseUploadResult> => {
+    return await uploadExcelToSupabaseStorage(file, metadata);
+  };
+
+  const uploadInvoiceImageToSupabase = async (
+    file: File | Blob,
+    invoiceId?: string,
+    customerName?: string
+  ): Promise<SupabaseUploadResult> => {
+    return await uploadInvoiceImageToSupabaseStorage(file, invoiceId, customerName);
   };
 
   const addProduct = async () => {
@@ -2650,6 +2751,16 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
 
+    // Play subtle audio chime sound & trigger local notification toast
+    playSuccessChimeSound();
+    const custName = newEntriesData[0]?.customerName || 'الزبون';
+    addToast({
+      title: 'تم حفظ الفاتورة بنجاح 🧾✨',
+      message: `زبون: ${custName} • الوزن: ${addedWeight.toFixed(1)} كغم (${newEntriesData.length} أصناف)`,
+      type: 'success',
+      delegateName: activeDelegateName,
+    });
+
     if (!navigator.onLine) {
       const pending = getPendingQueue();
       savePendingQueue([...pending, ...newCommittedEntries, ...updatedEntries]);
@@ -2695,13 +2806,21 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const deleteSalesEntry = async (id: string) => {
-    const entry = allSalesEntries.find(e => e.id === id);
+  const deleteSalesEntry = async (id: string, options?: { suppressToast?: boolean }) => {
+    const entry = allSalesEntries.find(e => e.id === id) || salesEntries.find(e => e.id === id);
     setSalesEntries(prev => prev.filter(e => e.id !== id));
     setAllSalesEntries(prev => prev.filter(e => e.id !== id));
     try {
       await deleteDoc(doc(db, 'sales_entries', id));
       setUserMessage('تم حذف المنتج المسجل بنجاح ✅');
+      if (entry && !options?.suppressToast) {
+        addToast({
+          title: 'تم حذف المنتج من الفاتورة 🗑️',
+          message: `تم إزالة المنتج (${entry.productName}) من فاتورة الزبون (${entry.customerName || 'الزبون'})`,
+          type: 'info',
+          delegateName: entry.delegateName,
+        });
+      }
     } catch (e) {
       console.error('Error deleting entry:', e);
     }
@@ -3920,6 +4039,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         getProductLiveStock,
         report11Targets,
         report11Config,
+        uploadExcelToSupabase,
+        uploadInvoiceImageToSupabase,
       }}
     >
       {children}

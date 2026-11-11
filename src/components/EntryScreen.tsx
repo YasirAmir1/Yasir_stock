@@ -9,6 +9,7 @@ import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X,
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { getFormattedWeekday } from '../utils/dateUtils';
+import { getEffectiveRouteDay } from '../utils/routeUtils';
 import { PullToRefresh } from './PullToRefresh';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
@@ -513,7 +514,7 @@ export const EntryScreen: React.FC = () => {
       if (targetDelegate) {
         if (normalizeArabicText(r.delegateName) !== normalizeArabicText(targetDelegate)) return false;
       }
-      const normPath = normalizeArabicText(r.path || '');
+      const normPath = normalizeArabicText(getEffectiveRouteDay(r) || '');
       return normPath.includes(normToday) || normToday.includes(normPath);
     });
 
@@ -2588,7 +2589,13 @@ export const EntryScreen: React.FC = () => {
                                 subMessage: `سيتم حذف جميع إدخالات فاتورة الزبون (${customerName}) نهائياً (${allEntriesToDelete.length} سجل).`,
                                 confirmButtonText: 'نعم، حذف الفاتورة',
                                 onConfirm: () => {
-                                  allEntriesToDelete.forEach((e) => deleteSalesEntry(e.id));
+                                  allEntriesToDelete.forEach((e) => deleteSalesEntry(e.id, { suppressToast: true }));
+                                  addToast?.({
+                                    title: 'تم حذف الفاتورة بالكامل 🗑️⚠️',
+                                    message: `تم حذف فاتورة الزبون (${customerDisplayName}) بجميع أصنافها (${allEntriesToDelete.length} صنف)`,
+                                    type: 'info',
+                                    delegateName: allEntriesToDelete[0]?.delegateName || '',
+                                  });
                                   setDeleteConfirmation(null);
                                 },
                               });

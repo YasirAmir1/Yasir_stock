@@ -26,6 +26,7 @@ const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').
 const CalculatorModal = lazy(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
 const DelegatePanelModal = lazy(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
 const AccountSwitcherModal = lazy(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
+const SupabaseManagerModal = lazy(() => import('./components/SupabaseManagerModal').then(m => ({ default: m.SupabaseManagerModal })));
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -49,6 +50,7 @@ import {
   Layers,
   RefreshCw,
   AlertTriangle,
+  Database,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -77,6 +79,7 @@ const MainAppContent: React.FC = () => {
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showDelegateModal, setShowDelegateModal] = useState(false);
+  const [showSupabaseModal, setShowSupabaseModal] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -238,6 +241,17 @@ const MainAppContent: React.FC = () => {
                 setActiveTab('entry');
               }
             }}
+          />
+        </Suspense>
+      )}
+
+      {/* Supabase Manager Modal - Lazy Loaded */}
+      {showSupabaseModal && (
+        <Suspense fallback={null}>
+          <SupabaseManagerModal
+            isOpen={showSupabaseModal}
+            onClose={() => setShowSupabaseModal(false)}
+            isDarkMode={isDarkMode}
           />
         </Suspense>
       )}
@@ -456,6 +470,22 @@ const MainAppContent: React.FC = () => {
                 <span className="text-[7.5px] sm:text-[11px] leading-tight font-extrabold">{getFormattedWeekday()}</span>
                 <span className="text-[7.5px] sm:text-[11px] leading-tight font-extrabold" style={{ direction: 'ltr' }}>{new Date().toLocaleDateString('en-GB')}</span>
               </div>
+
+              {/* Supabase Backend & Storage Manager Button */}
+              {(currentUser.isAdmin || currentUser.name === 'الأدمن') && !isSauceUser && (
+                <button
+                  type="button"
+                  onClick={() => setShowSupabaseModal(true)}
+                  className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
+                      : 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border-emerald-300'
+                  }`}
+                  title="إدارة وتكامل Supabase Backend & Storage"
+                >
+                  <Database className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                </button>
+              )}
 
               {/* Admin Button (Placed between Calculator and Theme Toggle - Hidden for Rafat, Data Entry, and mohammedsauce) */}
               {(currentUser.isAdmin || currentUser.name === 'الأدمن') &&

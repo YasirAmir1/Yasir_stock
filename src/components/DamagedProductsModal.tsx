@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DamagedProductItem, ProductItem, RouteItem } from '../types';
 import { X, Camera, ImagePlus, Trash2, Save, AlertTriangle, CheckCircle2, AlertCircle, FileText, Upload } from 'lucide-react';
+import { uploadInvoiceImageToSupabaseStorage } from '../lib/supabaseService';
 
 interface DamagedProductsModalProps {
   isOpen: boolean;
@@ -203,7 +204,21 @@ export const DamagedProductsModal: React.FC<DamagedProductsModalProps> = ({
     setErrorMessage(null);
     try {
       const compressed = await compressImage(file);
-      setInvoiceImage(compressed);
+      // Upload to Supabase Storage ('sales-bucket' / invoice-images/)
+      try {
+        const supaRes = await uploadInvoiceImageToSupabaseStorage(
+          file,
+          `qc_${customerCode || 'cust'}_${Date.now()}`,
+          customerName
+        );
+        if (supaRes.success && supaRes.publicUrl) {
+          setInvoiceImage(supaRes.publicUrl);
+        } else {
+          setInvoiceImage(compressed);
+        }
+      } catch {
+        setInvoiceImage(compressed);
+      }
     } catch (err) {
       console.error('Error compressing invoice image:', err);
       setErrorMessage('حدث خطأ أثناء معالجة صورة الفاتورة.');

@@ -1,0 +1,10 @@
+export {
+  supabase,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  SUPABASE_STORAGE_BUCKET,
+  BUCKET_SALES,
+  BUCKET_INVOICE_IMAGES,
+  BUCKET_PRODUCT_IMAGES,
+  default,
+} from '../supabaseClient';

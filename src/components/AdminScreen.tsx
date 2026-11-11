@@ -33,8 +33,10 @@ import {
   Bell,
   ChevronDown,
   ChevronUp,
-  FileText
+  FileText,
+  Database
 } from 'lucide-react';
+import { SupabaseManagerModal } from './SupabaseManagerModal';
 
 
 interface DebtItem {
@@ -90,6 +92,7 @@ export const AdminScreen: React.FC = () => {
   const [debts, setDebts] = useState<DebtItem[]>([]);
   const [editingDebt, setEditingDebt] = useState<DebtItem | null>(null);
   const [editDebtValues, setEditDebtValues] = useState<Partial<DebtItem>>({});
+  const [showSupabaseModal, setShowSupabaseModal] = useState<boolean>(false);
 
   const handleSaveDailyTask = async () => {
     if (!dailyTaskDelegate || !dailyTaskText.trim()) {
@@ -742,6 +745,44 @@ export const AdminScreen: React.FC = () => {
           </label>
         </div>
       </div>
+
+      {/* Supabase Backend API & Storage Integration Card */}
+      <div className="bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <Database className="w-4 h-4" />
+            </div>
+            <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-emerald-200">
+              ربط وتكامل Supabase Backend & Storage (PostgreSQL & S3):
+            </h3>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300">
+            sales-bucket 🟢
+          </span>
+        </div>
+        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+          ربط وتزامن جداول المنتجات، المندوبين، والمبيعات مع Supabase (عبر <code className="font-mono">.from().select()</code>)، وتخزين شيتات مبيعات الإكسل وصور الفواتير في سحابة Supabase Storage وتوليد الروابط العامة.
+        </p>
+        <div className="flex flex-wrap gap-2.5 pt-1">
+          <button
+            onClick={() => setShowSupabaseModal(true)}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all cursor-pointer"
+          >
+            <Database className="w-4 h-4" />
+            <span>لوحة تحكم Supabase ومساحة التخزين</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Supabase Manager Modal */}
+      {showSupabaseModal && (
+        <SupabaseManagerModal
+          isOpen={showSupabaseModal}
+          onClose={() => setShowSupabaseModal(false)}
+          isDarkMode={isDarkMode}
+        />
+      )}
 
       {/* 9. Data Saver Mode Toggle */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">

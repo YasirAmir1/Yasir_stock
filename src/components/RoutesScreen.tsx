@@ -8,6 +8,7 @@ import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStat
 import { parseArabicDigits } from '../utils/numberUtils';
 import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock, ShieldCheck, RotateCcw, Edit3 } from 'lucide-react';
 import { getFormattedWeekday } from '../utils/dateUtils';
+import { getEffectiveRouteDay, isRouteOverrideActive, shiftCustomerRouteTemporarily, revertCustomerRouteOverride } from '../utils/routeUtils';
 
 
 // Helper for comprehensive Arabic text normalization and digit conversion
@@ -330,6 +331,65 @@ export const RoutesScreen: React.FC = () => {
   // WhatsApp Alert to Delegate Modal state
   const [whatsappModalDebt, setWhatsappModalDebt] = useState<DebtItem | null>(null);
   const [delegatePhoneInput, setDelegatePhoneInput] = useState<string>('');
+
+  // Temporary Route Shift Modal state
+  const [routeToShift, setRouteToShift] = useState<RouteItem | null>(null);
+  const [showShiftModal, setShowShiftModal] = useState<boolean>(false);
+  const [selectedShiftDay, setSelectedShiftDay] = useState<string>('الأحد');
+  const [isShiftingRoute, setIsShiftingRoute] = useState<boolean>(false);
+
+  const handleOpenShiftModal = (route: RouteItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (isDataEntry) return;
+    setRouteToShift(route);
+    setSelectedShiftDay(route.tempAssignedDay || 'الأحد');
+    setShowShiftModal(true);
+  };
+
+  const handleConfirmRouteShift = async () => {
+    if (!routeToShift || !selectedShiftDay) return;
+    setIsShiftingRoute(true);
+    try {
+      const result = await shiftCustomerRouteTemporarily(routeToShift, selectedShiftDay, currentUser?.name);
+      if (result.success) {
+        if (addToast) {
+          addToast({
+            title: 'تحويل المسار المؤقت',
+            message: result.message,
+            type: 'success',
+          });
+        }
+        setShowShiftModal(false);
+        setRouteToShift(null);
+      } else {
+        alert(result.message);
+      }
+    } catch (err: any) {
+      console.error('Error in handleConfirmRouteShift:', err);
+      alert('حدث خطأ أثناء تنفيذ تحويل المسار.');
+    } finally {
+      setIsShiftingRoute(false);
+    }
+  };
+
+  const handleRevertRouteShift = async (route: RouteItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm(`هل أنت متأكد من إلغاء تحويل مسار الزبون (${route.customerName}) وإعادته لمساره الأصلي (${route.originalPath || route.path})؟`)) {
+      return;
+    }
+    try {
+      const result = await revertCustomerRouteOverride(route, currentUser?.name);
+      if (result.success && addToast) {
+        addToast({
+          title: 'إلغاء تحويل المسار',
+          message: result.message,
+          type: 'info',
+        });
+      }
+    } catch (err) {
+      console.error('Error in handleRevertRouteShift:', err);
+    }
+  };
 
   const handleOpenWhatsAppModal = (debt: DebtItem) => {
     setWhatsappModalDebt(debt);
@@ -1226,6 +1286,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           path: String(data.path ?? '').trim(),
           customerType: data.customerType || 'مفرد',
           position: typeof data.position === 'number' ? data.position : 0,
+          isTemporaryOverride: Boolean(data.isTemporaryOverride || data.is_temporary_override),
+          tempAssignedDay: data.tempAssignedDay || data.assigned_day || '',
+          overrideExpiresAt: Number(data.overrideExpiresAt || data.override_expires_at) || 0,
+          originalPath: data.originalPath || data.path || '',
         } as RouteItem);
       });
       setRoutes(loaded);
@@ -1478,7 +1542,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     const daysList = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الخميس'];
     daysList.forEach(day => {
       const normDay = normalizeArabic(day);
-      counts[day] = delegateFiltered.filter(r => normalizeArabic(r.path).includes(normDay)).length;
+      counts[day] = delegateFiltered.filter(r => normalizeArabic(getEffectiveRouteDay(r)).includes(normDay)).length;
     });
 
     return counts;
@@ -1489,12 +1553,12 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     const dayFiltered = routesFilteredByTypeAndSearch.filter(r => {
       if (currentUser?.isAdmin || isDataEntry) {
         if (routeFilterDay) {
-          return normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
+          return normalizeArabic(getEffectiveRouteDay(r)).includes(normalizeArabic(routeFilterDay));
         }
         return true;
       } else {
         const normCurrentDay = normalizeArabic(currentDay);
-        const normPath = normalizeArabic(r.path);
+        const normPath = normalizeArabic(getEffectiveRouteDay(r));
         return normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
       }
     });
@@ -1602,12 +1666,12 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       let dayMatch = true;
       if (currentUser?.isAdmin || isDataEntry) {
         if (routeFilterDay) {
-          dayMatch = normalizeArabic(r.path).includes(normalizeArabic(routeFilterDay));
+          dayMatch = normalizeArabic(getEffectiveRouteDay(r)).includes(normalizeArabic(routeFilterDay));
         }
       } else {
         // For delegate / representative: restricted strictly to today's active route
         const normCurrentDay = normalizeArabic(currentDay);
-        const normPath = normalizeArabic(r.path);
+        const normPath = normalizeArabic(getEffectiveRouteDay(r));
         dayMatch = normPath.includes(normCurrentDay) || normCurrentDay.includes(normPath);
       }
 
@@ -1620,7 +1684,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           normalizeArabic(r.customerCode),
           normalizeArabic(r.customerAddress),
           normalizeArabic(r.customerPhone),
-          normalizeArabic(r.path),
+          normalizeArabic(getEffectiveRouteDay(r)),
           normalizeArabic(r.delegateName),
           normalizeArabic(r.delegateCode),
           normalizeArabic(r.customerType)
@@ -1684,7 +1748,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     const listToDisplay = searchQuery.trim() ? finalRoutes : finalRoutes.slice(0, displayLimit);
     const groups: Record<string, RouteItem[]> = {};
     for (const r of listToDisplay) {
-      const day = r.path || 'غير مصنف';
+      const day = getEffectiveRouteDay(r) || 'غير مصنف';
       if (!groups[day]) groups[day] = [];
       groups[day].push(r);
     }
@@ -2643,7 +2707,46 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                           </div>
                         </td>
                         <td className="px-2 py-1.5 max-w-[130px] sm:max-w-[180px] truncate" title={r.customerAddress}>{r.customerAddress}</td>
-                        <td className="px-1.5 py-1.5 whitespace-nowrap">{r.path}</td>
+                        <td className="px-1.5 py-1.5 whitespace-nowrap">
+                          {isRouteOverrideActive(r) ? (
+                            <div className="flex flex-col items-start gap-0.5">
+                              <span
+                                className="px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40 flex items-center gap-1 shadow-2xs"
+                                title={`مسار مؤقت حتى الساعة 9:00 مساءً (اليوم الأصلي: ${r.originalPath || r.path})`}
+                              >
+                                <Clock className="w-3 h-3 text-amber-500 animate-spin shrink-0" />
+                                <span>مسار مؤقت: {r.tempAssignedDay}</span>
+                              </span>
+                              <div className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold pr-0.5">
+                                <span>الأصلي: {r.originalPath || r.path}</span>
+                                {(currentUser?.isAdmin || currentUser?.name === 'الأدمن') && !isDataEntry && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleRevertRouteShift(r, e)}
+                                    className="text-rose-600 dark:text-rose-400 hover:underline font-black cursor-pointer"
+                                    title="إلغاء التحويل المؤقت وإعادة المسار الأصلي فوراً"
+                                  >
+                                    إلغاء
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span>{r.path}</span>
+                              {(currentUser?.isAdmin || currentUser?.name === 'الأدمن') && !isDataEntry && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenShiftModal(r, e)}
+                                  className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-950/60 text-amber-600 dark:text-amber-400 transition-all cursor-pointer"
+                                  title="تحويل مسار هذا المحل مؤقتاً ليوم آخر حتى 9:00 مساءً"
+                                >
+                                  <Calendar className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-1.5 py-1.5 whitespace-nowrap">{r.customerType}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{r.delegateName}</td>
                       </tr>
@@ -3931,6 +4034,166 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Temporary Customer Route Override Modal */}
+      {showShiftModal && routeToShift && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => {
+            if (!isShiftingRoute) {
+              setShowShiftModal(false);
+              setRouteToShift(null);
+            }
+          }}
+        >
+          <div
+            className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 my-auto ${
+              isDarkMode
+                ? 'bg-slate-900 border-amber-500/30 text-white'
+                : 'bg-white border-amber-600/30 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className={`flex items-center justify-between p-4 sm:p-5 border-b ${
+              isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-amber-50/80 border-amber-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30 shadow-xs">
+                  <Calendar className="w-5 h-5 animate-bounce" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black tracking-tight">
+                    تحويل مسار المحل مؤقتاً (Temporary Route Shift)
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                    إعادة توجيه الزبون لمسار آخر لغاية الساعة 9:00 مساءً اليوم
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isShiftingRoute) {
+                    setShowShiftModal(false);
+                    setRouteToShift(null);
+                  }
+                }}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 space-y-4 text-right">
+              {/* Customer Box */}
+              <div className={`p-3.5 rounded-2xl border ${
+                isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex items-center justify-between font-black text-sm text-slate-900 dark:text-white">
+                  <span>{routeToShift.customerName}</span>
+                  <span className="font-mono text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                    {routeToShift.customerCode}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  📍 {routeToShift.customerAddress} | 👤 المندوب: {routeToShift.delegateName}
+                </p>
+                <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-500">المسار الأصلي الحالي:</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                    {routeToShift.originalPath || routeToShift.path}
+                  </span>
+                </div>
+              </div>
+
+              {/* Day Selection */}
+              <div className="space-y-2">
+                <label className="block text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-amber-500" />
+                  <span>اختر اليوم الجديد لتحويل المسار إليه مؤقتاً:</span>
+                </label>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الخميس'].map((day) => {
+                    const isSelected = selectedShiftDay === day;
+                    const isOriginal = (routeToShift.originalPath || routeToShift.path) === day;
+
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setSelectedShiftDay(day)}
+                        className={`p-3 rounded-2xl border text-xs font-black transition-all cursor-pointer flex flex-col items-center justify-center gap-1 relative ${
+                          isSelected
+                            ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md shadow-amber-500/20 ring-2 ring-amber-400/50'
+                            : isDarkMode
+                            ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                            : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
+                        }`}
+                      >
+                        <span className="text-sm font-extrabold">{day}</span>
+                        {isOriginal && (
+                          <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                            isSelected ? 'bg-slate-900/30 text-slate-950' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                          }`}>
+                            المسار الأصلي
+                          </span>
+                        )}
+                        {isSelected && (
+                          <CheckCircle2 className="w-4 h-4 text-slate-950 absolute top-1.5 left-1.5" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Expiration Banner */}
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-200 text-xs font-bold leading-relaxed flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span>تحديث المسار المؤقت:</span>
+                  <p className="text-[11px] font-normal opacity-90 mt-0.5">
+                    سيظهر الزبون فوراً على شاشة المندوب في يوم (<strong className="font-bold">{selectedShiftDay}</strong>). وينتهي هذا التعيين تلقائياً عند الساعة <strong className="font-bold">9:00 مساءً اليوم</strong> ليعود الزبون لمساره الأصلي دون التأثير على الفواتير المسبقة.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmRouteShift}
+                  disabled={isShiftingRoute}
+                  className="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isShiftingRoute ? (
+                    <span>جاري حفظ تحويل المسار...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>تأكيد تحويل المسار إلى ({selectedShiftDay})</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowShiftModal(false);
+                    setRouteToShift(null);
+                  }}
+                  disabled={isShiftingRoute}
+                  className="px-4 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         </div>

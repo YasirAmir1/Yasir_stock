@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useSales, getCategoryPriorityIndex } from '../context/SalesContext';
 import { useDebounce } from '../hooks/useDebounce';
 import { ProductItem, GiftPromotion } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw } from 'lucide-react';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
@@ -438,6 +438,36 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const [imageUploadBase64, setImageUploadBase64] = useState('');
   const [imageUploadFile, setImageUploadFile] = useState<File | null>(null);
   const [imageUploadError, setImageUploadError] = useState('');
+  const [pendingImageFiles, setPendingImageFiles] = useState<Record<string, { file: File; previewUrl: string }>>({});
+  const [uploadingImageIds, setUploadingImageIds] = useState<Record<string, boolean>>({});
+
+  const updateProductImage = async (productId: string, file: File) => {
+    try {
+      setUploadingImageIds(prev => ({ ...prev, [productId]: true }));
+      const prod = productsList.find(p => p.id === productId);
+      const downloadUrl = await uploadProductImage(productId, file, prod?.imageUrl);
+      if (downloadUrl) {
+        setUserMessage('تم حذف الصورة القديمة وحفظ وتحديث صورة المنتج بنجاح 🖼️✅');
+        setPendingImageFiles(prev => {
+          const next = { ...prev };
+          delete next[productId];
+          return next;
+        });
+        setFailedImageIds(prev => {
+          const next = { ...prev };
+          delete next[productId];
+          return next;
+        });
+      } else {
+        setUserMessage('فشل رفع وتحديث صورة المنتج');
+      }
+    } catch (err) {
+      console.error('Error updating product image:', err);
+      setUserMessage('حدث خطأ أثناء رفع الصورة');
+    } finally {
+      setUploadingImageIds(prev => ({ ...prev, [productId]: false }));
+    }
+  };
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
   const isRafat = currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry' || currentUser?.name === 'رأفت جمال';
@@ -685,7 +715,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       return;
     }
 
-    const downloadURL = await uploadProductImage(prod.id, imageUploadFile);
+    const downloadURL = await uploadProductImage(prod.id, imageUploadFile, prod.imageUrl);
     if (downloadURL) {
       setShowImageUploadModal(false);
       setImageUploadCode('');
@@ -2134,36 +2164,91 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                         </div>
                       ) : (
                         <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEditing(prod);
-                            }}
-                            title="تعديل تفاصيل المنتج"
-                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 transition-all ${
-                              isDarkMode
-                                ? 'bg-slate-800 hover:bg-emerald-950 text-slate-300 hover:text-emerald-300 border border-slate-700'
-                                : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-300'
-                            }`}
-                          >
-                            <Edit3 className="w-3 h-3 text-emerald-500" /> تعديل
-                          </button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-                                deleteProduct(prod.id);
+                          <input
+                            type="file"
+                            id={`card-img-upload-${prod.id}`}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const previewUrl = URL.createObjectURL(file);
+                                setPendingImageFiles(prev => ({ ...prev, [prod.id]: { file, previewUrl } }));
                               }
+                              e.target.value = '';
                             }}
-                            title="حذف المنتج"
-                            className={`p-1 rounded transition-all ${
-                              isDarkMode
-                                ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700'
-                                : 'bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-300'
-                            }`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          />
+                          {pendingImageFiles[prod.id] ? (
+                            <div className="flex items-center gap-1 w-full justify-end">
+                              <button
+                                onClick={() => {
+                                  const pending = pendingImageFiles[prod.id];
+                                  if (pending) {
+                                    updateProductImage(prod.id, pending.file);
+                                  }
+                                }}
+                                disabled={uploadingImageIds[prod.id]}
+                                title="حفظ الصورة الجديدة"
+                                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] rounded shadow transition-all flex items-center gap-1 font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                {uploadingImageIds[prod.id] ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin" /> جاري الحفظ...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3 h-3" /> حفظ
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPendingImageFiles(prev => {
+                                    const next = { ...prev };
+                                    delete next[prod.id];
+                                    return next;
+                                  });
+                                }}
+                                title="إلغاء"
+                                className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] rounded shadow transition-all flex items-center gap-1 font-bold cursor-pointer"
+                              >
+                                <X className="w-3 h-3" /> إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  document.getElementById(`card-img-upload-${prod.id}`)?.click();
+                                }}
+                                title="رفع صورة للمنتج"
+                                className={`p-1 rounded transition-all cursor-pointer ${
+                                  isDarkMode
+                                    ? 'bg-slate-800 hover:bg-cyan-950 text-slate-400 hover:text-cyan-400 border border-slate-700'
+                                    : 'bg-slate-100 hover:bg-cyan-50 text-slate-500 hover:text-cyan-700 border border-slate-300'
+                                }`}
+                              >
+                                <ImagePlus className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (await showConfirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+                                    deleteProduct(prod.id);
+                                  }
+                                }}
+                                title="حذف المنتج"
+                                className={`p-1 rounded transition-all cursor-pointer ${
+                                  isDarkMode
+                                    ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700'
+                                    : 'bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-300'
+                                }`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2224,7 +2309,13 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                     {/* Image Display */}
                     {!isEditing && (
                       <div className="shrink-0 animate-in fade-in zoom-in-95 duration-200">
-                        {prod.imageUrl && !failedImageIds[prod.id] ? (
+                        {pendingImageFiles[prod.id] ? (
+                          <img 
+                            src={pendingImageFiles[prod.id].previewUrl} 
+                            alt={prod.productName} 
+                            className={`${mobileGridCols === '1' ? 'w-[285px] h-[323px]' : 'w-[150px] h-[170px]'} object-contain rounded-md shadow-sm border-2 border-amber-500 bg-white p-1`}
+                          />
+                        ) : prod.imageUrl && !failedImageIds[prod.id] ? (
                           <img 
                             key={prod.imageUpdatedAt || prod.id}
                             src={prod.imageUrl} 

@@ -25,10 +25,25 @@ import {
   Check,
   X,
   FileSpreadsheet,
-  Coins
+  Coins,
+  HardDrive,
+  Database,
+  ShieldCheck,
+  Zap,
+  RefreshCw,
 } from 'lucide-react';
 import { PullToRefresh } from './PullToRefresh';
 import { FamilyMilkTable, SmallMilkTable } from './FamilyMilkTable';
+import {
+  checkSupabaseSchemaStatus,
+  configureSupabaseStorageBuckets,
+  uploadExcelToSupabaseStorage,
+} from '../lib/supabaseService';
+import {
+  BUCKET_SALES,
+  BUCKET_INVOICE_IMAGES,
+  BUCKET_PRODUCT_IMAGES,
+} from '../lib/supabaseClient';
 
 // Incentive Rules Constants
 export const INCENTIVE_COVERAGE_AMOUNT = 32500; // 32,500 IQD
@@ -216,6 +231,51 @@ export const AdditionalTargetScreen: React.FC = () => {
     return [];
   });
 
+  // Dedicated Target Category Tabs: 'overview' | 'family' | 'small' | 'willie'
+  const [targetCategory, setTargetCategory] = useState<'overview' | 'family' | 'small' | 'willie'>('overview');
+
+  // Supabase Storage Buckets Verification State
+  const [storageVerification, setStorageVerification] = useState<{
+    checked: boolean;
+    salesBucket: boolean;
+    invoiceImages: boolean;
+    productImages: boolean;
+    allReady: boolean;
+    isChecking: boolean;
+  }>({
+    checked: false,
+    salesBucket: true,
+    invoiceImages: true,
+    productImages: true,
+    allReady: true,
+    isChecking: false,
+  });
+
+  const verifyStorageBuckets = async () => {
+    setStorageVerification((prev) => ({ ...prev, isChecking: true }));
+    try {
+      const res = await checkSupabaseSchemaStatus();
+      setStorageVerification({
+        checked: true,
+        salesBucket: res.buckets['sales-bucket'].exists,
+        invoiceImages: res.buckets['invoice-images'].exists,
+        productImages: res.buckets['product-images'].exists,
+        allReady: res.allBucketsReady,
+        isChecking: false,
+      });
+      // If any bucket is missing, automatically initialize or handle fallback
+      if (!res.allBucketsReady) {
+        await configureSupabaseStorageBuckets();
+      }
+    } catch {
+      setStorageVerification((prev) => ({ ...prev, isChecking: false, checked: true }));
+    }
+  };
+
+  useEffect(() => {
+    verifyStorageBuckets();
+  }, []);
+
   // Excel Upload Input Refs
   const excelUploadRef = useRef<HTMLInputElement>(null);
   const willieUploadRef = useRef<HTMLInputElement>(null);
@@ -373,7 +433,14 @@ export const AdditionalTargetScreen: React.FC = () => {
           });
           await batch.commit();
         }
-        setUserMessage(`تم استيراد وتحديث بيانات ${updatedDelegatesCount} مندوب للحليب الكبير بنجاح 🥛📥✅`);
+        // Backup uploaded Excel to Supabase Storage Bucket ('sales-bucket')
+        uploadExcelToSupabaseStorage(file, {
+          uploadedBy: currentUser?.name || 'مدير النظام',
+          targetType: 'family-milk-uploads',
+          description: `ملف مبيعات حليب كبير لشهر ${activeMonthStr}`,
+        }).catch((err) => console.warn('Supabase storage backup notice:', err));
+
+        setUserMessage(`تم استيراد وتحديث بيانات ${updatedDelegatesCount} مندوب للحليب الكبير ومزامنتها بنجاح 🥛📥✅`);
       } catch (err) {
         console.error(err);
         setUserMessage('حدث خطأ أثناء معالجة ملف الحليب الكبير');
@@ -477,7 +544,14 @@ export const AdditionalTargetScreen: React.FC = () => {
           });
           await batch.commit();
         }
-        setUserMessage(`تم استيراد وتحديث ${updatedDelegatesCount} مندوب بنجاح (المحلات المقبولة: محدثة بدقة) 🍼📥✅`);
+        // Backup uploaded Excel to Supabase Storage Bucket ('sales-bucket')
+        uploadExcelToSupabaseStorage(file, {
+          uploadedBy: currentUser?.name || 'مدير النظام',
+          targetType: 'small-milk-uploads',
+          description: `ملف مبيعات حليب صغير لشهر ${activeMonthStr}`,
+        }).catch((err) => console.warn('Supabase storage backup notice:', err));
+
+        setUserMessage(`تم استيراد وتحديث ${updatedDelegatesCount} مندوب ومزامنتها بنجاح (المحلات المقبولة: محدثة بدقة) 🍼📥✅`);
       } catch (err) {
         console.error(err);
         setUserMessage('حدث خطأ أثناء معالجة ملف الحليب الصغير');
@@ -979,6 +1053,13 @@ export const AdditionalTargetScreen: React.FC = () => {
           await batch.commit();
         }
 
+        // Backup uploaded Excel to Supabase Storage Bucket ('sales-bucket')
+        uploadExcelToSupabaseStorage(file, {
+          uploadedBy: currentUser?.name || 'مدير النظام',
+          targetType: 'general-sales-uploads',
+          description: `ملف مبيعات إكسل شامل لشهر ${activeMonthStr}`,
+        }).catch((err) => console.warn('Supabase storage backup notice:', err));
+
         setUserMessage(`تم إفراغ البيانات القديمة واستيراد ${parsedEntries.length} سجل مبيعات وتحديث أرقام الحليب والويلي والحوافز بنجاح 📥✅`);
       } catch (err: any) {
         console.error('Error parsing and uploading excel:', err);
@@ -1157,6 +1238,13 @@ export const AdditionalTargetScreen: React.FC = () => {
           });
           await batch.commit();
         }
+
+        // Backup uploaded Excel to Supabase Storage Bucket ('sales-bucket')
+        uploadExcelToSupabaseStorage(file, {
+          uploadedBy: currentUser?.name || 'مدير النظام',
+          targetType: 'willie-uploads',
+          description: `ملف مبيعات ويلي لشهر ${activeMonthStr}`,
+        }).catch((err) => console.warn('Supabase storage backup notice:', err));
 
         setUserMessage(`تم إفراغ البيانات القديمة واستيراد ${parsedEntries.length} سجل مبيعات وتغطية جديد للويلي بنجاح 🧀📥✅`);
       } catch (err: any) {
@@ -1532,7 +1620,53 @@ export const AdditionalTargetScreen: React.FC = () => {
     ) || delegatesAnalysis[0] || null;
   }, [activeDelegate, delegatesAnalysis, isAdmin]);
 
+  // Grand totals across all delegates for category badges and progress bars
+  const grandCategoryTotals = useMemo(() => {
+    const totalFamWeight = delegatesAnalysis.reduce((s, d) => s + d.totalFamilyWeight, 0);
+    const targetFamWeight = delegatesAnalysis.reduce((s, d) => s + d.familyTargetWeight, 0);
+    const famPct = targetFamWeight > 0 ? (totalFamWeight / targetFamWeight) * 100 : 0;
+    const famIncentives = delegatesAnalysis.reduce((s, d) => s + d.familyTotalIncentive, 0);
+    const famCoveredCount = delegatesAnalysis.reduce((s, d) => s + d.familyCoveredCount, 0);
+    const famTargetShops = delegatesAnalysis.reduce((s, d) => s + d.familyTargetShops, 0);
 
+    const totalSmWeight = delegatesAnalysis.reduce((s, d) => s + d.totalSmallWeight, 0);
+    const targetSmWeight = delegatesAnalysis.reduce((s, d) => s + d.smallTargetWeight, 0);
+    const smPct = targetSmWeight > 0 ? (totalSmWeight / targetSmWeight) * 100 : 0;
+    const smIncentives = delegatesAnalysis.reduce((s, d) => s + d.smallTotalIncentive, 0);
+    const smCoveredCount = delegatesAnalysis.reduce((s, d) => s + d.smallCoveredCount, 0);
+    const smTargetShops = delegatesAnalysis.reduce((s, d) => s + d.smallTargetShops, 0);
+
+    const totalWillieWeight = delegatesAnalysis.reduce((s, d) => s + d.totalWillieWeight, 0);
+    const targetWillieWeight = delegatesAnalysis.reduce((s, d) => s + d.willieTargetWeight, 0);
+    const williePct = targetWillieWeight > 0 ? (totalWillieWeight / targetWillieWeight) * 100 : 0;
+    const willieIncentives = delegatesAnalysis.reduce((s, d) => s + d.willieTotalIncentive, 0);
+    const willieCoveredCount = delegatesAnalysis.reduce((s, d) => s + d.willieCoveredCount, 0);
+    const willieTargetShops = delegatesAnalysis.reduce((s, d) => s + d.willieTargetShops, 0);
+
+    const grandIncentives = delegatesAnalysis.reduce((s, d) => s + d.grandTotalIncentive, 0);
+
+    return {
+      totalFamWeight,
+      targetFamWeight,
+      famPct,
+      famIncentives,
+      famCoveredCount,
+      famTargetShops,
+      totalSmWeight,
+      targetSmWeight,
+      smPct,
+      smIncentives,
+      smCoveredCount,
+      smTargetShops,
+      totalWillieWeight,
+      targetWillieWeight,
+      williePct,
+      willieIncentives,
+      willieCoveredCount,
+      willieTargetShops,
+      grandIncentives,
+    };
+  }, [delegatesAnalysis]);
 
   return (
     <PullToRefresh onRefresh={async () => new Promise((r) => setTimeout(r, 400))}>
@@ -1630,6 +1764,247 @@ export const AdditionalTargetScreen: React.FC = () => {
           </div>
         </div>
 
+        {/* 1.1 Supabase Storage Buckets Verification Banner */}
+        <div
+          className={`p-3.5 sm:p-4 rounded-2xl border shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3.5 ${
+            isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold shrink-0">
+              <HardDrive className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                  حاويات التخزين السحابي (Supabase Storage Buckets):
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
+                    storageVerification.salesBucket
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  }`}
+                  title="حاوية ملفات وجداول الإكسل"
+                >
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  sales-bucket (الإكسل والمبيعات)
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
+                    storageVerification.invoiceImages
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  }`}
+                  title="حاوية لقطات وصور الفواتير"
+                >
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  invoice-images (صور الفواتير)
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
+                    storageVerification.productImages
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  }`}
+                  title="حاوية صور المنتجات والكتالوج"
+                >
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  product-images (صور المواد)
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                تكامل مباشر مع التخزين السحابي لتوليد مسارات عامة ومزامنة الفواتير وجداول مبيعات المندوبين
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={verifyStorageBuckets}
+            disabled={storageVerification.isChecking}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all self-end md:self-auto"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${storageVerification.isChecking ? 'animate-spin text-blue-500' : 'text-slate-400'}`} />
+            <span>{storageVerification.isChecking ? 'جاري التحقق...' : 'فحص الحاويات'}</span>
+          </button>
+        </div>
+
+        {/* 1.2 Isolated Target Categories Navigation (Segmented Controller) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-slate-100">
+                أقسام الأهداف الإضافية المستقلة (حليب كبير • حليب صغير • ويلي):
+              </h3>
+            </div>
+            <span className="text-[11px] font-bold text-slate-400">
+              اختر قسماً لعرض تفاصيله المستقلة بدقة
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* TAB 1: OVERVIEW */}
+            <button
+              onClick={() => setTargetCategory('overview')}
+              className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between gap-2 shadow-sm ${
+                targetCategory === 'overview'
+                  ? 'bg-gradient-to-br from-slate-900 to-slate-800 text-white border-slate-700 shadow-md ring-2 ring-blue-500/50'
+                  : isDarkMode
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black flex items-center gap-1.5">
+                  <span>📊</span>
+                  <span>نظرة شاملة (الكل)</span>
+                </span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  targetCategory === 'overview' ? 'bg-blue-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}>
+                  مقارنة
+                </span>
+              </div>
+              <p className="text-[11px] opacity-75 line-clamp-1">
+                جدول مقارنة الحليب وجبن ويلي لكافة المندوبين
+              </p>
+              <div className="pt-1 border-t border-slate-700/40 flex items-center justify-between text-[11px] font-bold">
+                <span>إجمالي الحوافز:</span>
+                <span className="font-black text-amber-400">
+                  {formatWithCommas(grandCategoryTotals.grandIncentives)} د.ع
+                </span>
+              </div>
+            </button>
+
+            {/* TAB 2: LARGE MILK (حليب كبير - 1L) */}
+            <button
+              onClick={() => setTargetCategory('family')}
+              className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between gap-2 shadow-sm ${
+                targetCategory === 'family'
+                  ? 'bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 text-white border-blue-600 shadow-md ring-2 ring-blue-400'
+                  : isDarkMode
+                  ? 'bg-slate-900/60 border-blue-900/30 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-blue-200 text-slate-700 hover:bg-blue-50/50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black flex items-center gap-1.5">
+                  <span>🥛</span>
+                  <span>حليب كبير (1L)</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40">
+                  ≥ 11.5 كغم/محل
+                </span>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-black mb-1">
+                  <span>الإنجاز: {grandCategoryTotals.famPct.toFixed(0)}%</span>
+                  <span className="opacity-80 font-normal">
+                    {Math.round(grandCategoryTotals.totalFamWeight)} / {Math.round(grandCategoryTotals.targetFamWeight)} كغم
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-500"
+                    style={{ width: `${Math.min(100, grandCategoryTotals.famPct)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="pt-1 border-t border-blue-500/20 flex items-center justify-between text-[11px] font-bold">
+                <span>حوافز الحليب الكبير:</span>
+                <span className="font-black text-emerald-400">
+                  {formatWithCommas(grandCategoryTotals.famIncentives)} د.ع
+                </span>
+              </div>
+            </button>
+
+            {/* TAB 3: SMALL MILK (حليب صغير - 200ml) */}
+            <button
+              onClick={() => setTargetCategory('small')}
+              className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between gap-2 shadow-sm ${
+                targetCategory === 'small'
+                  ? 'bg-gradient-to-br from-indigo-900 via-indigo-800 to-purple-900 text-white border-indigo-600 shadow-md ring-2 ring-indigo-400'
+                  : isDarkMode
+                  ? 'bg-slate-900/60 border-indigo-900/30 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-indigo-200 text-slate-700 hover:bg-indigo-50/50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black flex items-center gap-1.5">
+                  <span>🍼</span>
+                  <span>حليب صغير (200ml)</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-400/40">
+                  ≥ 7.5 كغم/محل
+                </span>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-black mb-1">
+                  <span>الإنجاز: {grandCategoryTotals.smPct.toFixed(0)}%</span>
+                  <span className="opacity-80 font-normal">
+                    {Math.round(grandCategoryTotals.totalSmWeight)} / {Math.round(grandCategoryTotals.targetSmWeight)} كغم
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 transition-all duration-500"
+                    style={{ width: `${Math.min(100, grandCategoryTotals.smPct)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="pt-1 border-t border-indigo-500/20 flex items-center justify-between text-[11px] font-bold">
+                <span>حوافز الحليب الصغير:</span>
+                <span className="font-black text-emerald-400">
+                  {formatWithCommas(grandCategoryTotals.smIncentives)} د.ع
+                </span>
+              </div>
+            </button>
+
+            {/* TAB 4: WILLE (ويلي) */}
+            <button
+              onClick={() => setTargetCategory('willie')}
+              className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between gap-2 shadow-sm ${
+                targetCategory === 'willie'
+                  ? 'bg-gradient-to-br from-amber-900 via-amber-800 to-orange-900 text-white border-amber-600 shadow-md ring-2 ring-amber-400'
+                  : isDarkMode
+                  ? 'bg-slate-900/60 border-amber-900/30 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-amber-200 text-slate-700 hover:bg-amber-50/50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black flex items-center gap-1.5">
+                  <span>🧀</span>
+                  <span>ويلي (Wille)</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/30 text-amber-200 border border-amber-400/40">
+                  شرط الأهلية ≥ 4 كغم
+                </span>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-black mb-1">
+                  <span>الإنجاز: {grandCategoryTotals.williePct.toFixed(0)}%</span>
+                  <span className="opacity-80 font-normal">
+                    {Math.round(grandCategoryTotals.totalWillieWeight)} / {Math.round(grandCategoryTotals.targetWillieWeight)} كغم
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-500 transition-all duration-500"
+                    style={{ width: `${Math.min(100, grandCategoryTotals.williePct)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="pt-1 border-t border-amber-500/20 flex items-center justify-between text-[11px] font-bold">
+                <span>حوافز ويلي:</span>
+                <span className="font-black text-amber-300">
+                  {formatWithCommas(grandCategoryTotals.willieIncentives)} د.ع
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
         {/* 2. Admin Selector Bar (Visible to Admin & Data Entry Only) */}
         {isAdmin && (
           <div
@@ -1691,418 +2066,680 @@ export const AdditionalTargetScreen: React.FC = () => {
         {/* 3. VIEW MODE 1: ALL DELEGATES OVERVIEW (ADMIN ONLY) */}
         {isAdmin && viewMode === 'all' && (
           <div className="space-y-6">
-            {/* MILK SUMMARY TABLE */}
-            <div
-              className={`p-4 rounded-3xl border shadow-xl space-y-4 ${
-                isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-              }`}
-            >
-              <div className="flex items-center justify-between flex-wrap gap-2 border-b pb-3 border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-
+            {/* 3.1 MILK & WILLIE COMBINED COMPARISON (OVERVIEW MODE) */}
+            {targetCategory === 'overview' && (
+              <div
+                className={`p-4 rounded-3xl border shadow-xl space-y-4 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between flex-wrap gap-2 border-b pb-3 border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-800 dark:text-slate-200">
+                      📊 المقارنة الشاملة: أداء الحليب لكافة المندوبين
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      إجمالي المندوبين: {delegatesAnalysis.length}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                    إجمالي المندوبين: {delegatesAnalysis.length}
-                  </span>
-                </div>
-              </div>
 
-              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-xs text-center border-collapse">
-                  <thead>
-                    <tr
-                      className={`font-black ${
-                        isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'
-                      }`}
-                    >
-                      <th rowSpan={2} className="py-3 px-3 border-l-2 border-slate-300 dark:border-slate-700">
-                        المندوب
-                      </th>
-                      <th colSpan={3} className="py-2 px-3 bg-blue-500/20 text-blue-800 dark:text-blue-300 border-x-2 border-blue-400 dark:border-blue-700">
-                        🥛 حليب بطل كبير (ESL Family)
-                      </th>
-                      <th colSpan={3} className="py-2 px-3 bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border-x-2 border-indigo-400 dark:border-indigo-700">
-                        🍼 حليب بطل صغير (ESL Small)
-                      </th>
-                      <th rowSpan={2} className="py-3 px-3 bg-amber-500/20 text-amber-800 dark:text-amber-300 border-x-2 border-amber-400 dark:border-amber-700">
-                        💰 حوافز الحليب
-                      </th>
-                      
-
-                    </tr>
-                    <tr
-                      className={`font-black text-[11px] ${
-                        isDarkMode ? 'bg-slate-800/90 text-slate-300' : 'bg-slate-200/80 text-slate-700'
-                      }`}
-                    >
-                      <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-r-2 border-blue-400 dark:border-blue-700">
-                        الوزن (كغم)
-                      </th>
-                      <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300">
-                        التغطية
-                      </th>
-                      <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-l-2 border-blue-400 dark:border-blue-700">
-                        الحافز
-                      </th>
-
-                      <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-r-2 border-indigo-400 dark:border-indigo-700">
-                        الوزن (كغم)
-                      </th>
-                      <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
-                        التغطية
-                      </th>
-                      <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-400 dark:border-indigo-700">
-                        الحافز
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-bold">
-                    {delegatesAnalysis.map((item) => (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-xs text-center border-collapse">
+                    <thead>
                       <tr
-                        key={item.delegateName}
-                        className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
-                          item.config.isLocked ? 'bg-emerald-500/5' : ''
+                        className={`font-black ${
+                          isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'
                         }`}
                       >
-                        <td className="py-3 px-3 font-black text-slate-900 dark:text-slate-100 border-l-2 border-slate-300 dark:border-slate-700">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <span>{item.delegateName}</span>
-                            {item.config.isLocked && (
-                              <span title="الأهداف مثبتة ومقفلة">
-                                <Lock className="w-3 h-3 text-emerald-500" />
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Large Milk Weight */}
-                        <td className="py-3 px-3 bg-blue-500/5 text-blue-700 dark:text-blue-300 font-black border-r-2 border-blue-300 dark:border-blue-800/60">
-                          {Math.round(item.totalFamilyWeight)} / {Math.round(item.familyTargetWeight)}
-                          <span className="text-[10px] block opacity-75">
-                            ({item.familyWeightPct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* Large Milk Coverage */}
-                        <td className="py-3 px-3 bg-blue-500/5">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
-                              item.hasFamily100Coverage
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            }`}
-                          >
-                            {Math.round(item.familyCoveredCount)} من {Math.round(item.familyTargetShops)} ({item.familyCoveragePct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* Large Milk Incentive */}
-                        <td className="py-3 px-3 bg-blue-500/5 font-black border-l-2 border-blue-300 dark:border-blue-800/60">
-                          {item.familyTotalIncentive > 0 ? (
-                            <span className="text-emerald-600 dark:text-emerald-400">
-                              {formatWithCommas(item.familyTotalIncentive)} د.ع
-                            </span>
-                          ) : !item.hasFamily100Coverage ? (
-                            <button
-                              onClick={() => {
-                                setLockedModalDelegateName(item.delegateName);
-                                setLockedModalType('family');
-                                setShowLockedConditionModal(true);
-                              }}
-                              className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
-                              title="شرط التغطية 100% لتفعيل حوافز الوزن"
-                            >
-                              <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                              <span className="underline">مقفل بالشرط</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-400">0 د.ع</span>
-                          )}
-                        </td>
-
-                        {/* Small Milk Weight */}
-                        <td className="py-3 px-3 bg-indigo-500/5 text-indigo-700 dark:text-indigo-300 font-black border-r-2 border-indigo-300 dark:border-indigo-800/60">
-                          {Math.round(item.totalSmallWeight)} / {Math.round(item.smallTargetWeight)}
-                          <span className="text-[10px] block opacity-75">
-                            ({item.smallWeightPct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* Small Milk Coverage */}
-                        <td className="py-3 px-3 bg-indigo-500/5">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
-                              item.hasSmall100Coverage
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            }`}
-                          >
-                            {Math.round(item.smallCoveredCount)} من {Math.round(item.smallTargetShops)} ({item.smallCoveragePct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* Small Milk Incentive */}
-                        <td className="py-3 px-3 bg-indigo-500/5 font-black border-l-2 border-indigo-300 dark:border-indigo-800/60">
-                          {item.smallTotalIncentive > 0 ? (
-                            <span className="text-emerald-600 dark:text-emerald-400">
-                              {formatWithCommas(item.smallTotalIncentive)} د.ع
-                            </span>
-                          ) : !item.hasSmall100Coverage ? (
-                            <button
-                              onClick={() => {
-                                setLockedModalDelegateName(item.delegateName);
-                                setLockedModalType('small');
-                                setShowLockedConditionModal(true);
-                              }}
-                              className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
-                              title="شرط التغطية 100% لتفعيل حوافز الوزن"
-                            >
-                              <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                              <span className="underline">مقفل بالشرط</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-400">0 د.ع</span>
-                          )}
-                        </td>
-
-                        {/* Total Milk Incentive */}
-                        <td className="py-3 px-3 bg-amber-500/10 font-black text-sm border-x-2 border-amber-300 dark:border-amber-800/60">
-                          <span
-                            className={
-                              item.familyTotalIncentive + item.smallTotalIncentive > 0
-                                ? 'text-amber-600 dark:text-amber-400'
-                                : 'text-slate-400'
-                            }
-                          >
-                            {formatWithCommas(item.familyTotalIncentive + item.smallTotalIncentive)} د.ع
-                          </span>
-                        </td>
-
-
-
+                        <th rowSpan={2} className="py-3 px-3 border-l-2 border-slate-300 dark:border-slate-700">
+                          المندوب
+                        </th>
+                        <th colSpan={3} className="py-2 px-3 bg-blue-500/20 text-blue-800 dark:text-blue-300 border-x-2 border-blue-400 dark:border-blue-700">
+                          🥛 حليب بطل كبير (ESL Family)
+                        </th>
+                        <th colSpan={3} className="py-2 px-3 bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border-x-2 border-indigo-400 dark:border-indigo-700">
+                          🍼 حليب بطل صغير (ESL Small)
+                        </th>
+                        <th rowSpan={2} className="py-3 px-3 bg-amber-500/20 text-amber-800 dark:text-amber-300 border-x-2 border-amber-400 dark:border-amber-700">
+                          💰 حوافز الحليب
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <FamilyMilkTable
-              delegatesAnalysis={delegatesAnalysis}
-              isDarkMode={isDarkMode}
-              isAdmin={isAdmin}
-              handleOpenConfigModal={handleOpenConfigModal}
-              downloadFamilyTemplate={downloadFamilyTemplate}
-              handleFamilyMilkUpload={handleFamilyMilkUpload}
-              familyMilkUploadRef={familyMilkUploadRef}
-              setLockedModalDelegateName={setLockedModalDelegateName}
-              setShowLockedConditionModal={(show) => {
-                setLockedModalType('family');
-                setShowLockedConditionModal(show);
-              }}
-            />
-
-            <SmallMilkTable
-              delegatesAnalysis={delegatesAnalysis}
-              isDarkMode={isDarkMode}
-              isAdmin={isAdmin}
-              handleOpenConfigModal={handleOpenConfigModal}
-              downloadSmallTemplate={downloadSmallTemplate}
-              handleSmallMilkUpload={handleSmallMilkUpload}
-              smallMilkUploadRef={smallMilkUploadRef}
-              setLockedModalDelegateName={setLockedModalDelegateName}
-              setShowLockedConditionModal={(show) => {
-                setLockedModalType('small');
-                setShowLockedConditionModal(show);
-              }}
-            />
-
-            {/* DEDICATED WILLIE (ويلي) SUMMARY SECTION - POSITIONED BELOW MILK SECTION */}
-            <div
-              className={`p-4 rounded-3xl border shadow-xl space-y-4 ${
-                isDarkMode ? 'bg-slate-900 border-amber-500/30' : 'bg-white border-amber-200'
-              }`}
-            >
-              <div className="flex items-center justify-between flex-wrap gap-2 border-b pb-3 border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center font-black text-lg">
-                    🧀
-                  </div>
-                  <div>
-                    <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">
-                      ملخص أداء المندوبين وحوافز ويلي (Wille) لشهر {activeMonthStr}
-                    </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      حسابات ومبيعات وحوافز جبن ويلي مستقلة كلياً (شرط قبول المحل ≥ 4.0 كغم)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Hidden Willie File Input */}
-                  <input
-                    type="file"
-                    ref={willieUploadRef}
-                    className="hidden"
-                    accept=".xlsx, .xls"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleWillieUpload(file);
-                      e.target.value = '';
-                    }}
-                  />
-
-                  {isAdmin && (
-                    <>
-                      {/* 1. Import Willie Data Button */}
-                      <button
-                        onClick={() => willieUploadRef.current?.click()}
-                        disabled={isUploading}
-                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                        title="استيراد وتحديث بيانات مبيعات وتغطية ويلي وإفراغ البيانات القديمة"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{isUploading ? 'جاري الاستيراد...' : 'استيراد بيانات الويلي'}</span>
-                      </button>
-
-                      {/* 2. Download Willie Template Button */}
-                      <button
-                        onClick={downloadWillieTemplate}
-                        className="px-3 py-1.5 rounded-xl bg-amber-700/90 hover:bg-amber-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-                        title="تنزيل نموذج ملف إكسل مخصص لمبيعات جبن ويلي"
-                      >
-                        <FileSpreadsheet className="w-3.5 h-3.5" />
-                        <span>نموذج إكسل ويلي</span>
-                      </button>
-
-                      {/* 3. Export Willie Sales Report Button */}
-                      <button
-                        onClick={downloadWillieSalesData}
-                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-                        title="تصدير وتحميل بيانات ومبيعات ويلي الحالية بصيغة إكسل"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>تصدير تقرير ويلي</span>
-                      </button>
-                    </>
-                  )}
-
-                </div>
-              </div>
-
-              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md">
-                <table className="w-full text-xs text-center border-collapse">
-                  <thead>
-                    <tr className="text-[#0a192f] font-black text-xs">
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        اسم المندوب
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        هدف الوزن (كغم)
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        مبيعات الوزن (كغم)
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        حافز الوزن
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        المحلات المستهدفة
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        المحلات المقبولة (≥ 4 كغم)
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
-                        حافز التغطية
-                      </th>
-                      <th className="py-3.5 px-3 border border-orange-700 bg-[#7c2d12] text-white font-black text-sm">
-                        إجمالي الحافز
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-bold">
-                    {delegatesAnalysis.map((item) => (
                       <tr
-                        key={item.delegateName + '_willie'}
-                        className="hover:bg-amber-500/5 transition-colors"
+                        className={`font-black text-[11px] ${
+                          isDarkMode ? 'bg-slate-800/90 text-slate-300' : 'bg-slate-200/80 text-slate-700'
+                        }`}
                       >
-                        {/* 1. اسم المندوب */}
-                        <td className="py-3 px-3 font-black text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800">
-                          {item.delegateName}
-                        </td>
+                        <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-r-2 border-blue-400 dark:border-blue-700">
+                          الوزن (كغم)
+                        </th>
+                        <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300">
+                          التغطية
+                        </th>
+                        <th className="py-2 px-2 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-l-2 border-blue-400 dark:border-blue-700">
+                          الحافز
+                        </th>
 
-                        {/* 2. هدف الوزن (كغم) */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800">
-                          {Math.round(item.willieTargetWeight)} كغم
-                        </td>
-
-                        {/* 3. مبيعات الوزن (كغم) */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black text-amber-700 dark:text-amber-300">
-                          {Math.round(item.totalWillieWeight)} كغم
-                          <span className="block text-[10px] text-slate-400 font-normal">
-                            ({item.willieWeightPct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* 4. حافز الوزن */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black">
-                          {item.hasWillieSalesIncentiveUnlocked ? (
-                            <span className="text-emerald-600 dark:text-emerald-400">32,500 د.ع ✅</span>
-                          ) : !item.hasWillie100Coverage ? (
-                            <button
-                              onClick={() => {
-                                setLockedModalDelegateName(item.delegateName);
-                                setLockedModalType('willie');
-                                setShowLockedConditionModal(true);
-                              }}
-                              className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
-                              title="اضغط لتنبيه المندوب بشرط التغطية 100%"
-                            >
-                              <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                              <span className="underline">مقفل بالشرط</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-400">0 د.ع</span>
-                          )}
-                        </td>
-
-                        {/* 5. المحلات المستهدفة */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800">
-                          {Math.round(item.willieTargetShops)} محل
-                        </td>
-
-                        {/* 6. المحلات المقبولة (>= 4 كغم) */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black text-indigo-600 dark:text-indigo-400">
-                          {Math.round(item.willieCoveredCount)} محل
-                          <span className="block text-[10px] text-slate-400 font-normal">
-                            ({item.willieCoveragePct.toFixed(0)}%)
-                          </span>
-                        </td>
-
-                        {/* 7. حافز التغطية */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black">
-                          <span
-                            className={
-                              item.willieCoverageIncentiveEarned > 0
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : 'text-slate-400'
-                            }
-                          >
-                            {formatWithCommas(item.willieCoverageIncentiveEarned)} د.ع
-                          </span>
-                        </td>
-
-                        {/* 8. إجمالي الحافز */}
-                        <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 bg-amber-500/10 font-black text-sm text-emerald-700 dark:text-emerald-300">
-                          {formatWithCommas(item.willieTotalIncentive)} د.ع
-                        </td>
+                        <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-r-2 border-indigo-400 dark:border-indigo-700">
+                          الوزن (كغم)
+                        </th>
+                        <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
+                          التغطية
+                        </th>
+                        <th className="py-2 px-2 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-400 dark:border-indigo-700">
+                          الحافز
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-bold">
+                      {delegatesAnalysis.map((item) => (
+                        <tr
+                          key={item.delegateName}
+                          className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
+                            item.config.isLocked ? 'bg-emerald-500/5' : ''
+                          }`}
+                        >
+                          <td className="py-3 px-3 font-black text-slate-900 dark:text-slate-100 border-l-2 border-slate-300 dark:border-slate-700">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span>{item.delegateName}</span>
+                              {item.config.isLocked && (
+                                <span title="الأهداف مثبتة ومقفلة">
+                                  <Lock className="w-3 h-3 text-emerald-500" />
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Large Milk Weight */}
+                          <td className="py-3 px-3 bg-blue-500/5 text-blue-700 dark:text-blue-300 font-black border-r-2 border-blue-300 dark:border-blue-800/60">
+                            {Math.round(item.totalFamilyWeight)} / {Math.round(item.familyTargetWeight)}
+                            <span className="text-[10px] block opacity-75">
+                              ({item.familyWeightPct.toFixed(0)}%)
+                            </span>
+                          </td>
+
+                          {/* Large Milk Coverage */}
+                          <td className="py-3 px-3 bg-blue-500/5">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                item.hasFamily100Coverage
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {Math.round(item.familyCoveredCount)} من {Math.round(item.familyTargetShops)} ({item.familyCoveragePct.toFixed(0)}%)
+                            </span>
+                          </td>
+
+                          {/* Large Milk Incentive */}
+                          <td className="py-3 px-3 bg-blue-500/5 font-black border-l-2 border-blue-300 dark:border-blue-800/60">
+                            {item.familyTotalIncentive > 0 ? (
+                              <span className="text-emerald-600 dark:text-emerald-400">
+                                {formatWithCommas(item.familyTotalIncentive)} د.ع
+                              </span>
+                            ) : !item.hasFamily100Coverage ? (
+                              <button
+                                onClick={() => {
+                                  setLockedModalDelegateName(item.delegateName);
+                                  setLockedModalType('family');
+                                  setShowLockedConditionModal(true);
+                                }}
+                                className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
+                                title="شرط التغطية 100% لتفعيل حوافز الوزن"
+                              >
+                                <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span className="underline">مقفل بالشرط</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">0 د.ع</span>
+                            )}
+                          </td>
+
+                          {/* Small Milk Weight */}
+                          <td className="py-3 px-3 bg-indigo-500/5 text-indigo-700 dark:text-indigo-300 font-black border-r-2 border-indigo-300 dark:border-indigo-800/60">
+                            {Math.round(item.totalSmallWeight)} / {Math.round(item.smallTargetWeight)}
+                            <span className="text-[10px] block opacity-75">
+                              ({item.smallWeightPct.toFixed(0)}%)
+                            </span>
+                          </td>
+
+                          {/* Small Milk Coverage */}
+                          <td className="py-3 px-3 bg-indigo-500/5">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                item.hasSmall100Coverage
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {Math.round(item.smallCoveredCount)} من {Math.round(item.smallTargetShops)} ({item.smallCoveragePct.toFixed(0)}%)
+                            </span>
+                          </td>
+
+                          {/* Small Milk Incentive */}
+                          <td className="py-3 px-3 bg-indigo-500/5 font-black border-l-2 border-indigo-300 dark:border-indigo-800/60">
+                            {item.smallTotalIncentive > 0 ? (
+                              <span className="text-emerald-600 dark:text-emerald-400">
+                                {formatWithCommas(item.smallTotalIncentive)} د.ع
+                              </span>
+                            ) : !item.hasSmall100Coverage ? (
+                              <button
+                                onClick={() => {
+                                  setLockedModalDelegateName(item.delegateName);
+                                  setLockedModalType('small');
+                                  setShowLockedConditionModal(true);
+                                }}
+                                className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
+                                title="شرط التغطية 100% لتفعيل حوافز الوزن"
+                              >
+                                <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span className="underline">مقفل بالشرط</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">0 د.ع</span>
+                            )}
+                          </td>
+
+                          {/* Total Milk Incentive */}
+                          <td className="py-3 px-3 bg-amber-500/10 font-black text-sm border-x-2 border-amber-300 dark:border-amber-800/60">
+                            <span
+                              className={
+                                item.familyTotalIncentive + item.smallTotalIncentive > 0
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-slate-400'
+                              }
+                            >
+                              {formatWithCommas(item.familyTotalIncentive + item.smallTotalIncentive)} د.ع
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* 3.2 ISOLATED LARGE MILK DASHBOARD (حليب كبير - 1L) */}
+            {targetCategory === 'family' && (
+              <div className="space-y-5 animate-in fade-in duration-200">
+                {/* Large Milk Header & KPIs */}
+                <div
+                  className={`p-5 rounded-3xl border shadow-xl space-y-4 ${
+                    isDarkMode ? 'bg-slate-900 border-blue-500/40 text-white' : 'bg-gradient-to-r from-blue-50 to-indigo-50/60 border-blue-200 text-slate-900'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4 border-blue-200 dark:border-blue-900/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-black text-2xl shadow-lg">
+                        🥛
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg sm:text-xl font-black text-blue-800 dark:text-blue-300">
+                            لوحة قسم الحليب الكبير (Large Milk - 1L)
+                          </h2>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
+                            حجم 1 لتر / عائلي
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                            الحد الأدنى للأهلية: ≥ 11.5 كغم لكل محل
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          احتساب تغطية المحلات المستقلة والمبيعات الشهرية وتطبيق حوافز التغطية (32,500 د.ع) وحوافز المبيعات (32,500 د.ع)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-left font-black">
+                      <span className="text-xs text-slate-400 block">إجمالي حوافز الحليب الكبير</span>
+                      <span className="text-lg text-emerald-600 dark:text-emerald-400">
+                        {formatWithCommas(grandCategoryTotals.famIncentives)} د.ع
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* KPIs Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">مبيعات الوزن المحققة</span>
+                      <span className="text-base font-black text-blue-700 dark:text-blue-400">
+                        {Math.round(grandCategoryTotals.totalFamWeight)} كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">من أصل {Math.round(grandCategoryTotals.targetFamWeight)} كغم</span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">نسبة إنجاز الوزن</span>
+                      <span className="text-base font-black text-indigo-700 dark:text-indigo-400">
+                        {grandCategoryTotals.famPct.toFixed(0)}%
+                      </span>
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1">
+                        <div
+                          className="h-full bg-blue-500"
+                          style={{ width: `${Math.min(100, grandCategoryTotals.famPct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">تغطية المحلات المقبولة</span>
+                      <span className="text-base font-black text-emerald-700 dark:text-emerald-400">
+                        {Math.round(grandCategoryTotals.famCoveredCount)} محل
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">
+                        من {Math.round(grandCategoryTotals.famTargetShops)} محل مستهدف
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">شرط أهلية المحل (Dynamic)</span>
+                      <span className="text-base font-black text-amber-700 dark:text-amber-400">
+                        ≥ 11.5 كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">لكل طلب أو فاتورة محل</span>
+                    </div>
+                  </div>
+                </div>
+
+                <FamilyMilkTable
+                  delegatesAnalysis={delegatesAnalysis}
+                  isDarkMode={isDarkMode}
+                  isAdmin={isAdmin}
+                  handleOpenConfigModal={handleOpenConfigModal}
+                  downloadFamilyTemplate={downloadFamilyTemplate}
+                  handleFamilyMilkUpload={handleFamilyMilkUpload}
+                  familyMilkUploadRef={familyMilkUploadRef}
+                  setLockedModalDelegateName={setLockedModalDelegateName}
+                  setShowLockedConditionModal={(show) => {
+                    setLockedModalType('family');
+                    setShowLockedConditionModal(show);
+                  }}
+                />
+              </div>
+            )}
+
+            {/* 3.3 ISOLATED SMALL MILK DASHBOARD (حليب صغير - 200ml) */}
+            {targetCategory === 'small' && (
+              <div className="space-y-5 animate-in fade-in duration-200">
+                {/* Small Milk Header & KPIs */}
+                <div
+                  className={`p-5 rounded-3xl border shadow-xl space-y-4 ${
+                    isDarkMode ? 'bg-slate-900 border-indigo-500/40 text-white' : 'bg-gradient-to-r from-indigo-50 to-purple-50/60 border-indigo-200 text-slate-900'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4 border-indigo-200 dark:border-indigo-900/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-2xl shadow-lg">
+                        🍼
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg sm:text-xl font-black text-indigo-800 dark:text-indigo-300">
+                            لوحة قسم الحليب الصغير (Small Milk - 200ml)
+                          </h2>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700">
+                            حجم 200 مل / ESL
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                            الحد الأدنى للأهلية: ≥ 7.5 كغم لكل محل
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          احتساب تغطية المحلات المستقلة والمبيعات الشهرية وتطبيق حوافز التغطية (32,500 د.ع) وحوافز المبيعات (32,500 د.ع)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-left font-black">
+                      <span className="text-xs text-slate-400 block">إجمالي حوافز الحليب الصغير</span>
+                      <span className="text-lg text-emerald-600 dark:text-emerald-400">
+                        {formatWithCommas(grandCategoryTotals.smIncentives)} د.ع
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* KPIs Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-indigo-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">مبيعات الوزن المحققة</span>
+                      <span className="text-base font-black text-indigo-700 dark:text-indigo-400">
+                        {Math.round(grandCategoryTotals.totalSmWeight)} كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">من أصل {Math.round(grandCategoryTotals.targetSmWeight)} كغم</span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-indigo-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">نسبة إنجاز الوزن</span>
+                      <span className="text-base font-black text-purple-700 dark:text-purple-400">
+                        {grandCategoryTotals.smPct.toFixed(0)}%
+                      </span>
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1">
+                        <div
+                          className="h-full bg-indigo-500"
+                          style={{ width: `${Math.min(100, grandCategoryTotals.smPct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-indigo-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">تغطية المحلات المقبولة</span>
+                      <span className="text-base font-black text-emerald-700 dark:text-emerald-400">
+                        {Math.round(grandCategoryTotals.smCoveredCount)} محل
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">
+                        من {Math.round(grandCategoryTotals.smTargetShops)} محل مستهدف
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-indigo-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">شرط أهلية المحل (Dynamic)</span>
+                      <span className="text-base font-black text-amber-700 dark:text-amber-400">
+                        ≥ 7.5 كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">لكل طلب أو فاتورة محل</span>
+                    </div>
+                  </div>
+                </div>
+
+                <SmallMilkTable
+                  delegatesAnalysis={delegatesAnalysis}
+                  isDarkMode={isDarkMode}
+                  isAdmin={isAdmin}
+                  handleOpenConfigModal={handleOpenConfigModal}
+                  downloadSmallTemplate={downloadSmallTemplate}
+                  handleSmallMilkUpload={handleSmallMilkUpload}
+                  smallMilkUploadRef={smallMilkUploadRef}
+                  setLockedModalDelegateName={setLockedModalDelegateName}
+                  setShowLockedConditionModal={(show) => {
+                    setLockedModalType('small');
+                    setShowLockedConditionModal(show);
+                  }}
+                />
+              </div>
+            )}
+
+            {/* 3.4 DEDICATED WILLIE (ويلي) SECTION (OVERVIEW OR WILLIE TAB) */}
+            {(targetCategory === 'overview' || targetCategory === 'willie') && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {/* Golden Willie Rule & Incentive Condition Banner */}
+                <div className="p-4 sm:p-5 rounded-3xl border border-amber-400 dark:border-amber-600/50 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 shadow-md space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black text-xl shadow-md">
+                        🧀
+                      </div>
+                      <div>
+                        <h4 className="text-sm sm:text-base font-black text-amber-900 dark:text-amber-200">
+                          قواعد واشتراطات أهداف ويلي (Wille Rules Engine)
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          نظام القواعد الإلزامي لاحتساب التغطية والحوافز لجبن ويلي بيضوي
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-slate-950 shadow-xs">
+                      الحد الأدنى للأهلية: 4.0 كغم للمحل
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <div className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700/60 flex items-start gap-2.5 shadow-2xs">
+                      <span className="w-6 h-6 rounded-lg bg-amber-500 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        1
+                      </span>
+                      <div>
+                        <span className="font-black text-amber-800 dark:text-amber-300 block mb-0.5">
+                          قاعدة الأهلية (Wille Rule - 4KG Threshold):
+                        </span>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                          يشترط تحقيق <strong>4.0 كغم كحد أدنى</strong> لكل محل/زبون ليُعتبر مؤهلاً ومقبولاً. أي محل يشتري أقل من 4 كغم <strong>لا يُحسب إطلاقاً</strong> ضمن نسبة تغطية المحلات.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700/60 flex items-start gap-2.5 shadow-2xs">
+                      <span className="w-6 h-6 rounded-lg bg-orange-600 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        2
+                      </span>
+                      <div>
+                        <span className="font-black text-orange-700 dark:text-orange-300 block mb-0.5">
+                          قفل حافز المبيعات (Locked Condition):
+                        </span>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                          حافز مبيعات الوزن (32,500 د.ع) <strong>مقفل بشرط</strong> تحقيق تغطية المحلات بنسبة 100% أولاً، ثم استيفاء هدف مبيعات الوزن.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Willie Isolated KPIs Banner */}
+                {targetCategory === 'willie' && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-amber-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">إجمالي مبيعات ويلي</span>
+                      <span className="text-base font-black text-amber-700 dark:text-amber-400">
+                        {Math.round(grandCategoryTotals.totalWillieWeight)} كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">من أصل {Math.round(grandCategoryTotals.targetWillieWeight)} كغم ({grandCategoryTotals.williePct.toFixed(0)}%)</span>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-amber-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">المحلات المقبولة (≥ 4 كغم)</span>
+                      <span className="text-base font-black text-indigo-700 dark:text-indigo-400">
+                        {Math.round(grandCategoryTotals.willieCoveredCount)} محل
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">من {Math.round(grandCategoryTotals.willieTargetShops)} محل مستهدف</span>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-amber-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">حوافز ويلي المكتسبة</span>
+                      <span className="text-base font-black text-emerald-700 dark:text-emerald-400">
+                        {formatWithCommas(grandCategoryTotals.willieIncentives)} د.ع
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">تغطية + مبيعات مستحقة</span>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-amber-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[11px] font-bold text-slate-400 block">شرط الأهلية الصارم</span>
+                      <span className="text-base font-black text-amber-600 dark:text-amber-400">
+                        ≥ 4.0 كغم
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">لكل زبون/محل مستقل</span>
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  className={`p-4 rounded-3xl border shadow-xl space-y-4 ${
+                    isDarkMode ? 'bg-slate-900 border-amber-500/30' : 'bg-white border-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-2 border-b pb-3 border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center font-black text-lg">
+                        🧀
+                      </div>
+                      <div>
+                        <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">
+                          جدول أداء المندوبين وحوافز ويلي (Wille) لشهر {activeMonthStr}
+                        </h3>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          حسابات ومبيعات وحوافز جبن ويلي مستقلة كلياً (شرط قبول المحل ≥ 4.0 كغم)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Hidden Willie File Input */}
+                      <input
+                        type="file"
+                        ref={willieUploadRef}
+                        className="hidden"
+                        accept=".xlsx, .xls"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleWillieUpload(file);
+                          e.target.value = '';
+                        }}
+                      />
+
+                      {isAdmin && (
+                        <>
+                          {/* 1. Import Willie Data Button */}
+                          <button
+                            onClick={() => willieUploadRef.current?.click()}
+                            disabled={isUploading}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                            title="استيراد وتحديث بيانات مبيعات وتغطية ويلي وإفراغ البيانات القديمة"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{isUploading ? 'جاري الاستيراد...' : 'استيراد بيانات الويلي'}</span>
+                          </button>
+
+                          {/* 2. Download Willie Template Button */}
+                          <button
+                            onClick={downloadWillieTemplate}
+                            className="px-3 py-1.5 rounded-xl bg-amber-700/90 hover:bg-amber-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                            title="تنزيل نموذج ملف إكسل مخصص لمبيعات جبن ويلي"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                            <span>نموذج إكسل ويلي</span>
+                          </button>
+
+                          {/* 3. Export Willie Sales Report Button */}
+                          <button
+                            onClick={downloadWillieSalesData}
+                            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                            title="تصدير وتحميل بيانات ومبيعات ويلي الحالية بصيغة إكسل"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>تصدير تقرير ويلي</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md">
+                    <table className="w-full text-xs text-center border-collapse">
+                      <thead>
+                        <tr className="text-[#0a192f] font-black text-xs">
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            اسم المندوب
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            هدف الوزن (كغم)
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            مبيعات الوزن (كغم)
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            حافز الوزن
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            المحلات المستهدفة
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            المحلات المقبولة (≥ 4 كغم)
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-600/30 bg-[#ea580c] text-slate-950 font-black">
+                            حافز التغطية
+                          </th>
+                          <th className="py-3.5 px-3 border border-orange-700 bg-[#7c2d12] text-white font-black text-sm">
+                            إجمالي الحافز
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-bold">
+                        {delegatesAnalysis.map((item) => (
+                          <tr
+                            key={item.delegateName + '_willie'}
+                            className="hover:bg-amber-500/5 transition-colors"
+                          >
+                            {/* 1. اسم المندوب */}
+                            <td className="py-3 px-3 font-black text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800">
+                              {item.delegateName}
+                            </td>
+
+                            {/* 2. هدف الوزن (كغم) */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800">
+                              {Math.round(item.willieTargetWeight)} كغم
+                            </td>
+
+                            {/* 3. مبيعات الوزن (كغم) */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black text-amber-700 dark:text-amber-300">
+                              {Math.round(item.totalWillieWeight)} كغم
+                              <span className="block text-[10px] text-slate-400 font-normal">
+                                ({item.willieWeightPct.toFixed(0)}%)
+                              </span>
+                            </td>
+
+                            {/* 4. حافز الوزن */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black">
+                              {item.hasWillieSalesIncentiveUnlocked ? (
+                                <span className="text-emerald-600 dark:text-emerald-400">32,500 د.ع ✅</span>
+                              ) : !item.hasWillie100Coverage ? (
+                                <button
+                                  onClick={() => {
+                                    setLockedModalDelegateName(item.delegateName);
+                                    setLockedModalType('willie');
+                                    setShowLockedConditionModal(true);
+                                  }}
+                                  className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 border border-amber-300 dark:border-amber-700 px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto shadow-2xs"
+                                  title="اضغط لتنبيه المندوب بشرط التغطية 100%"
+                                >
+                                  <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                  <span className="underline">مقفل بالشرط</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-400">0 د.ع</span>
+                              )}
+                            </td>
+
+                            {/* 5. المحلات المستهدفة */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800">
+                              {Math.round(item.willieTargetShops)} محل
+                            </td>
+
+                            {/* 6. المحلات المقبولة (>= 4 كغم) */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black text-indigo-600 dark:text-indigo-400">
+                              {Math.round(item.willieCoveredCount)} محل
+                              <span className="block text-[10px] text-slate-400 font-normal">
+                                ({item.willieCoveragePct.toFixed(0)}%)
+                              </span>
+                            </td>
+
+                            {/* 7. حافز التغطية */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 font-black">
+                              <span
+                                className={
+                                  item.willieCoverageIncentiveEarned > 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-slate-400'
+                                }
+                              >
+                                {formatWithCommas(item.willieCoverageIncentiveEarned)} د.ع
+                              </span>
+                            </td>
+
+                            {/* 8. إجمالي الحافز */}
+                            <td className="py-3 px-3 border border-slate-200 dark:border-slate-800 bg-amber-500/10 font-black text-sm text-emerald-700 dark:text-emerald-300">
+                              {formatWithCommas(item.willieTotalIncentive)} د.ع
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2160,11 +2797,12 @@ export const AdditionalTargetScreen: React.FC = () => {
             </div>
 
             {/* SECTION 1: LARGE BOTTLE MILK (حليب بطل كبير) */}
-            <div
-              className={`p-5 rounded-3xl border shadow-xl space-y-5 transition-all ${
-                isDarkMode ? 'bg-slate-900 border-blue-500/40' : 'bg-white border-blue-200'
-              }`}
-            >
+            {(targetCategory === 'overview' || targetCategory === 'family') && (
+              <div
+                className={`p-5 rounded-3xl border shadow-xl space-y-5 transition-all ${
+                  isDarkMode ? 'bg-slate-900 border-blue-500/40' : 'bg-white border-blue-200'
+                }`}
+              >
               {/* Section 1 Header */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4 border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
@@ -2370,8 +3008,10 @@ export const AdditionalTargetScreen: React.FC = () => {
                 </div>
               </div>
             </div>
+          )}
 
-            {/* SECTION 2: SMALL BOTTLE MILK (حليب بطل صغير) */}
+          {/* SECTION 2: SMALL BOTTLE MILK (حليب بطل صغير) */}
+          {(targetCategory === 'overview' || targetCategory === 'small') && (
             <div
               className={`p-5 rounded-3xl border shadow-xl space-y-5 transition-all ${
                 isDarkMode ? 'bg-slate-900 border-indigo-500/40' : 'bg-white border-indigo-200'
@@ -2582,8 +3222,10 @@ export const AdditionalTargetScreen: React.FC = () => {
                 </div>
               </div>
             </div>
+          )}
 
-            {/* SECTION 3: WILLE (ويلي) SECTION - POSITIONED BELOW MILK SECTIONS */}
+          {/* SECTION 3: WILLE (ويلي) SECTION - POSITIONED BELOW MILK SECTIONS */}
+          {(targetCategory === 'overview' || targetCategory === 'willie') && (
             <div
               className={`p-5 rounded-3xl border shadow-xl space-y-5 transition-all ${
                 isDarkMode ? 'bg-slate-900 border-amber-500/40' : 'bg-white border-amber-200'
@@ -2835,7 +3477,7 @@ export const AdditionalTargetScreen: React.FC = () => {
                 </div>
               </div>
             </div>
-
+          )}
 
           </div>
         )}

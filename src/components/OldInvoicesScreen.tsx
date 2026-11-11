@@ -817,6 +817,14 @@ export const OldInvoicesScreen: React.FC = () => {
       await batch.commit();
 
       setArchivedEntries(prev => prev.filter(e => !inv.entries.some(ie => ie.id === e.id)));
+      if (addToast) {
+        addToast({
+          title: 'تم حذف الفاتورة بالكامل 🗑️⚠️',
+          message: `تم حذف الفاتورة القديمة للزبون (${inv.customerName}) بجميع أصنافها (${inv.entries.length} صنف)`,
+          type: 'info',
+          delegateName: inv.entries[0]?.delegateName || '',
+        });
+      }
       alert(`تم حذف الفاتورة القديمة للزبون (${inv.customerName}) بنجاح.`);
     } catch (err) {
       console.error('Error deleting old invoice:', err);
