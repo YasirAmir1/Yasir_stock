@@ -1776,20 +1776,24 @@ export const AdditionalTargetScreen: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-black text-slate-800 dark:text-slate-200">
-                  حاويات التخزين السحابي (Supabase Storage Buckets):
-                </span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
-                    storageVerification.salesBucket
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                  }`}
-                  title="حاوية ملفات وجداول الإكسل"
-                >
-                  <Check className="w-3 h-3 text-emerald-500" />
-                  sales-bucket (الإكسل والمبيعات)
-                </span>
+                {isAdmin && (
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                    حاويات التخزين السحابي (Supabase Storage Buckets):
+                  </span>
+                )}
+                {isAdmin && (
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
+                      storageVerification.salesBucket
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                    }`}
+                    title="حاوية ملفات وجداول الإكسل"
+                  >
+                    <Check className="w-3 h-3 text-emerald-500" />
+                    sales-bucket (الإكسل والمبيعات)
+                  </span>
+                )}
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 ${
                     storageVerification.invoiceImages
