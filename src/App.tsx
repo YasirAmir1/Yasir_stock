@@ -5,28 +5,66 @@ import { ToastContainer } from './components/ToastContainer';
 import { AppLogo } from './components/AppLogo';
 import { ScrollToTopButton } from './components/ScrollToTopButton';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
+import { BroadcastAlertsListener } from './components/BroadcastAlertsListener';
 import { UnreadBadge } from './components/UnreadBadge';
 import { BottomNav } from './components/BottomNav';
 import { GlobalDialogModal } from './components/GlobalDialogModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { ScreenErrorBoundary } from './components/ScreenErrorBoundary';
 
-// Code-split heavy screens using React.lazy for optimized initial bundle size & faster FCP
-const EntryScreen = lazy(() => import('./components/EntryScreen').then(m => ({ default: m.EntryScreen })));
-const Report11Screen = lazy(() => import('./components/Report11Screen').then(m => ({ default: m.Report11Screen })));
-const AdditionalTargetScreen = lazy(() => import('./components/AdditionalTargetScreen').then(m => ({ default: m.AdditionalTargetScreen })));
-const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
-const ProductsScreen = lazy(() => import('./components/ProductsScreen').then(m => ({ default: m.ProductsScreen })));
-const RoutesScreen = lazy(() => import('./components/RoutesScreen').then(m => ({ default: m.RoutesScreen })));
-const OldInvoicesScreen = lazy(() => import('./components/OldInvoicesScreen').then(m => ({ default: m.OldInvoicesScreen })));
-const ReturnsScreen = lazy(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
-const QCScreen = lazy(() => import('./components/QCScreen').then(m => ({ default: m.QCScreen })));
-const ItemTrackingScreen = lazy(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
+// Resilient code-splitting with auto-retry and chunk recovery
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  componentImport: () => Promise<{ default: T }>,
+  retries = 3,
+  delayMs = 400
+): React.LazyExoticComponent<T> {
+  return lazy(() =>
+    new Promise<{ default: T }>((resolve, reject) => {
+      const attempt = (remaining: number) => {
+        componentImport()
+          .then(resolve)
+          .catch((error) => {
+            console.warn(`[Module Loader] Dynamic import failed (${remaining} attempts left):`, error);
+            if (remaining > 0) {
+              setTimeout(() => attempt(remaining - 1), delayMs);
+            } else {
+              // Try an automatic reload once if chunk became stale
+              try {
+                const reloadKey = 'chunk_reload_lock';
+                const lastReload = sessionStorage.getItem(reloadKey);
+                const now = Date.now();
+                if (!lastReload || now - parseInt(lastReload, 10) > 12000) {
+                  sessionStorage.setItem(reloadKey, String(now));
+                  window.location.reload();
+                  return;
+                }
+              } catch {}
+              reject(error);
+            }
+          });
+      };
+      attempt(retries);
+    })
+  );
+}
+
+// Code-split heavy screens using lazyWithRetry
+const EntryScreen = lazyWithRetry(() => import('./components/EntryScreen').then(m => ({ default: m.EntryScreen })));
+const Report11Screen = lazyWithRetry(() => import('./components/Report11Screen').then(m => ({ default: m.Report11Screen })));
+const AdditionalTargetScreen = lazyWithRetry(() => import('./components/AdditionalTargetScreen').then(m => ({ default: m.AdditionalTargetScreen })));
+const AdminScreen = lazyWithRetry(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
+const ProductsScreen = lazyWithRetry(() => import('./components/ProductsScreen').then(m => ({ default: m.ProductsScreen })));
+const RoutesScreen = lazyWithRetry(() => import('./components/RoutesScreen').then(m => ({ default: m.RoutesScreen })));
+const OldInvoicesScreen = lazyWithRetry(() => import('./components/OldInvoicesScreen').then(m => ({ default: m.OldInvoicesScreen })));
+const ReturnsScreen = lazyWithRetry(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
+const QCScreen = lazyWithRetry(() => import('./components/QCScreen').then(m => ({ default: m.QCScreen })));
+const ItemTrackingScreen = lazyWithRetry(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
 
 // Code-split heavy on-demand modals and widgets
-const CalculatorModal = lazy(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
-const DelegatePanelModal = lazy(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
-const AccountSwitcherModal = lazy(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
-const SupabaseManagerModal = lazy(() => import('./components/SupabaseManagerModal').then(m => ({ default: m.SupabaseManagerModal })));
+const CalculatorModal = lazyWithRetry(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
+const DelegatePanelModal = lazyWithRetry(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
+const AccountSwitcherModal = lazyWithRetry(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
+const SupabaseManagerModal = lazyWithRetry(() => import('./components/SupabaseManagerModal').then(m => ({ default: m.SupabaseManagerModal })));
 import './utils/dialogService';
 import { getFormattedWeekday } from './utils/dateUtils';
 import {
@@ -74,6 +112,8 @@ const MainAppContent: React.FC = () => {
     isDataRefreshing,
     isNetworkDelayed,
     isFirestoreQuotaExceeded,
+    isPowerSavingMode,
+    powerSavingSyncConfig,
   } = useSales();
   const [isLoading, setIsLoading] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -173,6 +213,21 @@ const MainAppContent: React.FC = () => {
           <span>🔄 جاري مزامنة ({pendingSyncCount}) من المدخلات المعلقة مع قاعدة البيانات...</span>
         </div>
       )}
+      {/* Battery Saver Reduced Sync Banner (Admin Only) */}
+      {currentUser?.isAdmin && isPowerSavingMode && powerSavingSyncConfig?.reduceSyncFrequencyOnPowerSave && (
+        <div className="bg-teal-900/90 text-teal-100 border-b border-teal-500/30 px-3 py-1 text-center font-bold text-[10px] sm:text-xs flex items-center justify-center gap-1.5 shadow-xs z-40">
+          <span>🔋</span>
+          <span>
+            وضع توفير بطارية الأجهزة اللوحية نشط — المزامنة التلقائية مخفضة إلى{' '}
+            <span className="font-black text-amber-300">
+              {powerSavingSyncConfig.powerSaveSyncIntervalMinutes === 0
+                ? 'عند الحفظ فقط'
+                : `كل ${powerSavingSyncConfig.powerSaveSyncIntervalMinutes} دقيقة`}
+            </span>{' '}
+            للحفاظ على شحن التابلت طوال فترة العمل الميداني.
+          </span>
+        </div>
+      )}
       {/* Firestore Quota Exceeded Notification Banner */}
       {isFirestoreQuotaExceeded && (
         <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-3 sm:px-4 py-2 text-center text-xs sm:text-sm font-bold shadow-lg z-50 border-b border-amber-300/30 flex flex-col md:flex-row items-center justify-center gap-1.5 sm:gap-3">
@@ -204,56 +259,65 @@ const MainAppContent: React.FC = () => {
       {/* Toast Notifications Overlay */}
       <ToastContainer />
       <DelegateAlertsListener />
+      <BroadcastAlertsListener />
 
       {/* Scroll to Top Floating Button */}
       <ScrollToTopButton />
 
       {/* Calculator Modal - Lazy Loaded */}
       {showCalculatorModal && (
-        <Suspense fallback={null}>
-          <CalculatorModal
-            isOpen={showCalculatorModal}
-            onClose={() => setShowCalculatorModal(false)}
-          />
-        </Suspense>
+        <ScreenErrorBoundary fallbackTitle="تعذر فتح الحاسبة">
+          <Suspense fallback={null}>
+            <CalculatorModal
+              isOpen={showCalculatorModal}
+              onClose={() => setShowCalculatorModal(false)}
+            />
+          </Suspense>
+        </ScreenErrorBoundary>
       )}
 
       {/* Delegate Modal - Lazy Loaded */}
       {showDelegateModal && (
-        <Suspense fallback={null}>
-          <DelegatePanelModal
-            onClose={() => setShowDelegateModal(false)}
-            isDarkMode={isDarkMode}
-          />
-        </Suspense>
+        <ScreenErrorBoundary fallbackTitle="تعذر فتح لوحة الإشعارات">
+          <Suspense fallback={null}>
+            <DelegatePanelModal
+              onClose={() => setShowDelegateModal(false)}
+              isDarkMode={isDarkMode}
+            />
+          </Suspense>
+        </ScreenErrorBoundary>
       )}
 
       {/* Account Switcher Modal - Lazy Loaded */}
       {showAccountModal && (
-        <Suspense fallback={null}>
-          <AccountSwitcherModal
-            isOpen={showAccountModal}
-            onClose={() => setShowAccountModal(false)}
-            onAccountSelect={(isAdmin: boolean) => {
-              if (isAdmin) {
-                setActiveTab('admin');
-              } else {
-                setActiveTab('entry');
-              }
-            }}
-          />
-        </Suspense>
+        <ScreenErrorBoundary fallbackTitle="تعذر فتح شاشة تبديل الحساب">
+          <Suspense fallback={null}>
+            <AccountSwitcherModal
+              isOpen={showAccountModal}
+              onClose={() => setShowAccountModal(false)}
+              onAccountSelect={(isAdmin: boolean) => {
+                if (isAdmin) {
+                  setActiveTab('admin');
+                } else {
+                  setActiveTab('entry');
+                }
+              }}
+            />
+          </Suspense>
+        </ScreenErrorBoundary>
       )}
 
       {/* Supabase Manager Modal - Lazy Loaded */}
       {showSupabaseModal && (
-        <Suspense fallback={null}>
-          <SupabaseManagerModal
-            isOpen={showSupabaseModal}
-            onClose={() => setShowSupabaseModal(false)}
-            isDarkMode={isDarkMode}
-          />
-        </Suspense>
+        <ScreenErrorBoundary fallbackTitle="تعذر فتح إدارة السحابة">
+          <Suspense fallback={null}>
+            <SupabaseManagerModal
+              isOpen={showSupabaseModal}
+              onClose={() => setShowSupabaseModal(false)}
+              isDarkMode={isDarkMode}
+            />
+          </Suspense>
+        </ScreenErrorBoundary>
       )}
 
       {/* Top Header Bar & Navigation Tabs - Pinned / Sticky on Laptop view */}
@@ -838,44 +902,46 @@ const MainAppContent: React.FC = () => {
 
       {/* Main Screen Body - Strict Protection */}
       <main className="flex-1 pb-20 sm:pb-12 pt-2">
-        <Suspense fallback={
-          <div className="flex items-center justify-center py-24">
-            <div className="relative w-16 h-16 flex items-center justify-center animate-pulse">
-              <div className="absolute w-16 h-16 border-[6px] border-slate-200 rounded-full"></div>
-              <div className="absolute w-16 h-16 border-[6px] border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
+        <ScreenErrorBoundary resetKey={activeTab}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-24">
+              <div className="relative w-16 h-16 flex items-center justify-center animate-pulse">
+                <div className="absolute w-16 h-16 border-[6px] border-slate-200 rounded-full"></div>
+                <div className="absolute w-16 h-16 border-[6px] border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
+              </div>
             </div>
-          </div>
-        }>
-          {isSauceUser ? (
-            <>
-              {activeTab === 'item_tracking' ? (
-                <ItemTrackingScreen />
-              ) : (
-                <ProductsScreen />
-              )}
-            </>
-          ) : (
-            <>
-              {activeTab === 'entry' && <EntryScreen />}
-              {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
-              {activeTab === 'routes' && <RoutesScreen />}
-
-              {activeTab === 'report_11' && <Report11Screen />}
-              {activeTab === 'additional_target' && !isSauceUser && <AdditionalTargetScreen />}
-              {activeTab === 'products' && <ProductsScreen />}
-              {activeTab === 'returns' && <ReturnsScreen />}
-              {activeTab === 'qc' && <QCScreen />}
-              {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
-              {activeTab === 'admin' && (
-                currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
-                  <AdminScreen />
+          }>
+            {isSauceUser ? (
+              <>
+                {activeTab === 'item_tracking' ? (
+                  <ItemTrackingScreen />
                 ) : (
-                  <EntryScreen />
-                )
-              )}
-            </>
-          )}
-        </Suspense>
+                  <ProductsScreen />
+                )}
+              </>
+            ) : (
+              <>
+                {activeTab === 'entry' && <EntryScreen />}
+                {activeTab === 'old_invoices' && currentUser?.isAdmin && <OldInvoicesScreen />}
+                {activeTab === 'routes' && <RoutesScreen />}
+
+                {activeTab === 'report_11' && <Report11Screen />}
+                {activeTab === 'additional_target' && !isSauceUser && <AdditionalTargetScreen />}
+                {activeTab === 'products' && <ProductsScreen />}
+                {activeTab === 'returns' && <ReturnsScreen />}
+                {activeTab === 'qc' && <QCScreen />}
+                {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
+                {activeTab === 'admin' && (
+                  currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
+                    <AdminScreen />
+                  ) : (
+                    <EntryScreen />
+                  )
+                )}
+              </>
+            )}
+          </Suspense>
+        </ScreenErrorBoundary>
       </main>
 
       {/* Bottom Navigation (Mobile Only) */}

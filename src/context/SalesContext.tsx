@@ -21,7 +21,8 @@ import {
   InventoryLogRecord,
   RestockedProductItem,
   UnifiedSalesStats,
-  DelegateSalesStatsBreakdown
+  DelegateSalesStatsBreakdown,
+  PowerSavingSyncConfig
 } from '../types';
 import {
   uploadProductImageToSupabaseStorage,
@@ -323,6 +324,10 @@ interface SalesContextType {
   syncFailureAlert: boolean;
   isPowerSavingMode: boolean;
   isFirestoreQuotaExceeded: boolean;
+  powerSavingSyncConfig: PowerSavingSyncConfig;
+  updatePowerSavingSyncConfig: (config: Partial<PowerSavingSyncConfig>) => Promise<void>;
+  batteryLevel: number | null;
+  isBatteryCharging: boolean | null;
   toggleDarkMode: () => void;
   togglePowerSavingMode: () => void;
   setUserMessage: (msg: string | null) => void;
@@ -415,6 +420,27 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return false;
     }
   });
+
+  const DEFAULT_POWER_SAVING_SYNC_CONFIG: PowerSavingSyncConfig = {
+    reduceSyncFrequencyOnPowerSave: true,
+    powerSaveSyncIntervalMinutes: 30, // 30 mins default when power saver is on
+    normalSyncIntervalMinutes: 5,     // 5 mins default in normal mode
+    autoEnableOnLowBattery: true,
+    lowBatteryThresholdPercent: 20,
+  };
+
+  const [powerSavingSyncConfig, setPowerSavingSyncConfig] = useState<PowerSavingSyncConfig>(() => {
+    try {
+      const saved = localStorage.getItem('power_saving_sync_config');
+      if (saved) {
+        return { ...DEFAULT_POWER_SAVING_SYNC_CONFIG, ...JSON.parse(saved) };
+      }
+    } catch {}
+    return DEFAULT_POWER_SAVING_SYNC_CONFIG;
+  });
+
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+  const [isBatteryCharging, setIsBatteryCharging] = useState<boolean | null>(null);
 
   const [currentUser, setCurrentUser] = useState<UserAccount>(() => {
     const saved = localStorage.getItem('app_current_user');
@@ -2258,15 +2284,125 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  // 5-minute periodic background polling / data refresh
+  // Battery status API integration for tablets (Chromium/Android/Edge)
   useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
+      (navigator as any).getBattery?.().then((battery: any) => {
+        const updateBatteryInfo = () => {
+          const level = Math.round(battery.level * 100);
+          setBatteryLevel(level);
+          setIsBatteryCharging(battery.charging);
+
+          // If autoEnableOnLowBattery is true and tablet is unplugged and battery <= threshold
+          if (
+            powerSavingSyncConfig.autoEnableOnLowBattery &&
+            !battery.charging &&
+            level <= (powerSavingSyncConfig.lowBatteryThresholdPercent || 20)
+          ) {
+            setIsPowerSavingMode(true);
+            try {
+              localStorage.setItem('is_data_saver_mode', 'true');
+            } catch {}
+          }
+        };
+
+        updateBatteryInfo();
+        battery.addEventListener('levelchange', updateBatteryInfo);
+        battery.addEventListener('chargingchange', updateBatteryInfo);
+      }).catch(() => {});
+    }
+  }, [powerSavingSyncConfig.autoEnableOnLowBattery, powerSavingSyncConfig.lowBatteryThresholdPercent]);
+
+  // Synchronize power saving sync settings across all tablets in real-time via Firestore
+  useEffect(() => {
+    if (isFirestoreQuotaExceeded || isGlobalQuotaExceeded()) return;
+
+    const unsub = safeOnSnapshot(
+      doc(db, 'app_settings', 'power_saving_sync_config'),
+      (snapshot: any) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as Partial<PowerSavingSyncConfig>;
+          if (data) {
+            setPowerSavingSyncConfig(prev => {
+              const merged = { ...prev, ...data };
+              try {
+                localStorage.setItem('power_saving_sync_config', JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
+          }
+        }
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'power_saving_sync_config');
+      },
+      'power_saving_sync_config'
+    );
+
+    return () => {
+      try { unsub(); } catch {}
+    };
+  }, [isFirestoreQuotaExceeded]);
+
+  const updatePowerSavingSyncConfig = async (newConfig: Partial<PowerSavingSyncConfig>) => {
+    const updated: PowerSavingSyncConfig = {
+      ...powerSavingSyncConfig,
+      ...newConfig,
+      updatedAt: Date.now(),
+      updatedBy: currentUser.name || 'الادمن',
+    };
+
+    setPowerSavingSyncConfig(updated);
+    try {
+      localStorage.setItem('power_saving_sync_config', JSON.stringify(updated));
+    } catch {}
+
+    if (!isFirestoreQuotaExceeded && navigator.onLine) {
+      try {
+        await setDoc(doc(db, 'app_settings', 'power_saving_sync_config'), updated, { merge: true });
+        setUserMessage('تم حفظ وتعميم إعدادات توفير بطارية أجهزة المندوبين بنجاح 🔋⚡');
+      } catch (err) {
+        console.error('Failed to save power_saving_sync_config to Firestore:', err);
+        setUserMessage('تم حفظ الإعدادات محلياً على هذا الجهاز 💾');
+      }
+    } else {
+      setUserMessage('تم حفظ الإعدادات محلياً 💾');
+    }
+  };
+
+  // Adaptive background data sync and polling interval based on power saving mode & tablet battery settings
+  useEffect(() => {
+    if (!navigator.onLine) return;
+
+    let intervalMs: number | null = null;
+    const isPowerSaveActive = isPowerSavingMode;
+
+    if (isPowerSaveActive && powerSavingSyncConfig.reduceSyncFrequencyOnPowerSave) {
+      const minutes = powerSavingSyncConfig.powerSaveSyncIntervalMinutes;
+      if (minutes > 0) {
+        intervalMs = minutes * 60 * 1000;
+      } else {
+        // 0 = On-action only (disable background periodic polling completely to maximize battery life)
+        intervalMs = null;
+      }
+    } else {
+      // Normal mode sync interval (default 5 minutes)
+      const minutes = powerSavingSyncConfig.normalSyncIntervalMinutes || 5;
+      intervalMs = minutes * 60 * 1000;
+    }
+
+    if (intervalMs === null) {
+      return;
+    }
+
     const pollingInterval = setInterval(() => {
-      if (navigator.onLine && !isPowerSavingMode) {
+      if (navigator.onLine) {
         syncPendingEntries();
       }
-    }, 5 * 60 * 1000);
+    }, intervalMs);
+
     return () => clearInterval(pollingInterval);
-  }, [isPowerSavingMode]);
+  }, [isPowerSavingMode, powerSavingSyncConfig]);
 
   // Lazy-load historical invoices & archive datasets (T+1800ms) with non-blocking chunking & indexed scoping
   useEffect(() => {
@@ -3978,6 +4114,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         pendingSyncCount,
         isPowerSavingMode,
         isFirestoreQuotaExceeded,
+        powerSavingSyncConfig,
+        updatePowerSavingSyncConfig,
+        batteryLevel,
+        isBatteryCharging,
         syncFailureAlert,
         toggleDarkMode,
         togglePowerSavingMode,

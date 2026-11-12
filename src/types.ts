@@ -388,3 +388,25 @@ export interface MonthlyDelegateReturn {
   createdAt?: number;
   updatedAt?: number;
 }
+
+export interface PowerSavingSyncConfig {
+  reduceSyncFrequencyOnPowerSave: boolean; // تقليل تكرار المزامنة التلقائية عند تفعيل وضع توفير الطاقة
+  powerSaveSyncIntervalMinutes: number;   // فاصل المزامنة بالدقائق في وضع توفير الطاقة (15, 30, 60, 0 = عند الإجراء فقط)
+  normalSyncIntervalMinutes: number;      // فاصل المزامنة بالدقائق في الوضع العادي (افتراضياً 5 دقائق)
+  autoEnableOnLowBattery: boolean;        // تفعيل وضع توفير الطاقة تلقائياً عند انخفاض البطارية
+  lowBatteryThresholdPercent: number;     // نسبة البطارية للتفعيل التلقائي (مثلاً 20%)
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface BroadcastAlert {
+  id: string;
+  message: string;
+  sender_id: string;
+  created_at: string; // ISO string
+  expires_at: string; // ISO string (today at 23:59:59)
+  acknowledged?: boolean;
+}
+
+
+

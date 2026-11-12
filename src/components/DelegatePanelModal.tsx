@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Bell, FileText, Info, Trash2, Edit2, Volume2, VolumeX } from 'lucide-react';
+import { X, Bell, FileText, Info, Trash2, Edit2, Volume2, VolumeX, Radio } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc, deleteDoc, updateDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { isNotificationSoundEnabled, setNotificationSoundEnabled, testNotificationSound } from '../utils/soundAlert';
+import { AdminBroadcastModal } from './AdminBroadcastModal';
 
 interface DelegatePanelModalProps {
   onClose: () => void;
@@ -82,6 +83,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [completedTasks, setCompletedTasks] = useState<Record<number, boolean>>({});
   const [completionTimes, setCompletionTimes] = useState<Record<number, number>>({});
   const [sortConfig, setSortConfig] = useState<{ key: keyof RouteItem; direction: 'asc' | 'desc' } | null>(null);
+  const [showBroadcastModal, setShowBroadcastModal] = useState<boolean>(false);
 
   const filteredRoutes = routes.filter(r => 
     (routeFilterDelegate ? r.delegateName.trim() === routeFilterDelegate.trim() : true) && 
@@ -502,6 +504,17 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 min-w-0">
           {activeTab === 'alerts' && (
             <div className="space-y-4 sm:space-y-5">
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcastModal(true)}
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer active:scale-98"
+                >
+                  <Radio className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
+                  <span>إرسال إشعارات عامة للمندوبين (Broadcast to Representatives) 📢</span>
+                </button>
+              )}
+
               <div className={`p-3 sm:p-4 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                 <h3 className="font-bold mb-2 text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2">
                   <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500" />
@@ -898,6 +911,14 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
           )}
         </div>
       </div>
+
+      {/* Admin Broadcast Modal */}
+      <AdminBroadcastModal
+        isOpen={showBroadcastModal}
+        onClose={() => setShowBroadcastModal(false)}
+        isDarkMode={isDarkMode}
+      />
     </div>
   );
 };
+

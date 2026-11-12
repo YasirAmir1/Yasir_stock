@@ -144,3 +144,56 @@ export async function playNotificationSound(force = false): Promise<boolean> {
 export async function testNotificationSound(): Promise<boolean> {
   return playNotificationSound(true);
 }
+
+/**
+ * Triggers sensory feedback for high-priority broadcast alerts:
+ * 1. Device vibration pattern: [200, 100, 200]
+ * 2. High-priority beep and chime tone via Web Audio API
+ */
+export async function playBroadcastAlertToneAndVibrate(): Promise<void> {
+  // Device vibration pattern: [200, 100, 200] ms
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([200, 100, 200]);
+    } catch {
+      // Ignore vibration error on unsupported platforms
+    }
+  }
+
+  // Dual-tone urgent alert chime
+  try {
+    const ctx = getAudioContext();
+    if (ctx) {
+      if (ctx.state === 'suspended') {
+        await ctx.resume().catch(() => {});
+      }
+      const now = ctx.currentTime;
+
+      // Two consecutive alert pulses
+      const pulses = [
+        { freq: 880, start: 0, dur: 0.18, vol: 0.35 },    // A5
+        { freq: 1174.66, start: 0.22, dur: 0.35, vol: 0.4 } // D6
+      ];
+
+      pulses.forEach(p => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(p.freq, now + p.start);
+        gain.gain.setValueAtTime(0, now + p.start);
+        gain.gain.linearRampToValueAtTime(p.vol, now + p.start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + p.start + p.dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + p.start);
+        osc.stop(now + p.start + p.dur);
+      });
+    }
+  } catch (e) {
+    console.warn('Audio tone failed:', e);
+  }
+
+  // Also trigger full chime
+  await playNotificationSound(true);
+}
+

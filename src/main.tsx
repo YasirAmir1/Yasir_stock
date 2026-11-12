@@ -49,6 +49,18 @@ if (typeof window !== 'undefined') {
       return;
     }
   });
+
+  // Handle Vite dynamic import chunk loading errors gracefully
+  window.addEventListener('vite:preloadError', (event) => {
+    console.warn('[Vite] Chunk preload error detected:', event);
+    const reloadKey = 'vite_chunk_preload_reload';
+    const lastReload = sessionStorage.getItem(reloadKey);
+    const now = Date.now();
+    if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+      sessionStorage.setItem(reloadKey, String(now));
+      window.location.reload();
+    }
+  });
 }
 
 if ('serviceWorker' in navigator) {

@@ -34,7 +34,14 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
-  Database
+  Database,
+  Battery,
+  BatteryCharging,
+  Zap,
+  Tablet,
+  SlidersHorizontal,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { SupabaseManagerModal } from './SupabaseManagerModal';
 
@@ -87,12 +94,49 @@ export const AdminScreen: React.FC = () => {
     selectedDate,
     isPowerSavingMode,
     togglePowerSavingMode,
+    powerSavingSyncConfig,
+    updatePowerSavingSyncConfig,
+    batteryLevel,
+    isBatteryCharging,
   } = useSales();
 
   const [debts, setDebts] = useState<DebtItem[]>([]);
   const [editingDebt, setEditingDebt] = useState<DebtItem | null>(null);
   const [editDebtValues, setEditDebtValues] = useState<Partial<DebtItem>>({});
   const [showSupabaseModal, setShowSupabaseModal] = useState<boolean>(false);
+
+  // --- Tablet Power Saving & Sync Frequency Settings State (Admin Only) ---
+  const [reduceSyncFreq, setReduceSyncFreq] = useState<boolean>(
+    powerSavingSyncConfig?.reduceSyncFrequencyOnPowerSave ?? true
+  );
+  const [syncIntervalMins, setSyncIntervalMins] = useState<number>(
+    powerSavingSyncConfig?.powerSaveSyncIntervalMinutes ?? 30
+  );
+  const [autoLowBattery, setAutoLowBattery] = useState<boolean>(
+    powerSavingSyncConfig?.autoEnableOnLowBattery ?? true
+  );
+  const [isSavingPowerConfig, setIsSavingPowerConfig] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (powerSavingSyncConfig) {
+      setReduceSyncFreq(powerSavingSyncConfig.reduceSyncFrequencyOnPowerSave);
+      setSyncIntervalMins(powerSavingSyncConfig.powerSaveSyncIntervalMinutes);
+      setAutoLowBattery(powerSavingSyncConfig.autoEnableOnLowBattery);
+    }
+  }, [powerSavingSyncConfig]);
+
+  const handleSavePowerSavingSyncConfig = async () => {
+    setIsSavingPowerConfig(true);
+    try {
+      await updatePowerSavingSyncConfig({
+        reduceSyncFrequencyOnPowerSave: reduceSyncFreq,
+        powerSaveSyncIntervalMinutes: syncIntervalMins,
+        autoEnableOnLowBattery: autoLowBattery,
+      });
+    } finally {
+      setIsSavingPowerConfig(false);
+    }
+  };
 
   const handleSaveDailyTask = async () => {
     if (!dailyTaskDelegate || !dailyTaskText.trim()) {
@@ -784,33 +828,290 @@ export const AdminScreen: React.FC = () => {
         />
       )}
 
-      {/* 9. Data Saver Mode Toggle */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
-        <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-          <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
-            <Shield className="w-4 h-4" />
+      {/* 9. Data Saver Mode & Tablet Battery Sync Frequency Settings (Admin Only) */}
+      {currentUser?.isAdmin && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-5 shadow-sm dark:shadow-md transition-colors">
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <BatteryCharging className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-emerald-200 flex items-center gap-2">
+                  <span>9. إعدادات توفير الطاقة ومزامنة بطارية الأجهزة اللوحية (Tablet Battery & Sync)</span>
+                </h3>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                  إدارة معدل المزامنة التلقائية للأجهزة اللوحية المستخدمة من قبل المندوبين
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10px] font-black">
+              خاص بالادمن فقط 🔒
+            </span>
           </div>
-          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-emerald-200">
-            9. وضع توفير البيانات (Data Saver Mode):
-          </h3>
+
+          {/* Quick Toggle for Power Saving Mode on this device */}
+          <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950/80 p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Zap className={`w-4 h-4 ${isPowerSavingMode ? 'text-amber-500' : 'text-slate-400'}`} />
+              <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                حالة وضع توفير الطاقة للجهاز الحالي:{' '}
+                <span className={isPowerSavingMode ? 'text-amber-500 font-black' : 'text-slate-500 font-bold'}>
+                  {isPowerSavingMode ? 'مفعل (نشط 🔋)' : 'معطل (طبيعي ⚡)'}
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={togglePowerSavingMode}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs ${
+                isPowerSavingMode
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+            >
+              {isPowerSavingMode ? 'إيقاف وضع توفير الطاقة' : 'تفعيل وضع توفير الطاقة'}
+            </button>
+          </div>
+
+          {/* Dedicated Field Tablets Battery Saver & Reduced Sync Frequency Settings */}
+          <div className="bg-gradient-to-br from-emerald-50/50 via-slate-50 to-teal-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-5 rounded-2xl border-2 border-emerald-500/30 dark:border-emerald-600/30 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Tablet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                    تقليل تكرار مزامنة البيانات التلقائية عند تفعيل وضع توفير الطاقة
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                  خيار موجه للحفاظ على عمر البطارية للأجهزة اللوحية (Tablets) المستخدمة من قبل المندوبين أثناء العمل الميداني. يقوم هذا الخيار بإطالة الفترات الزمنية بين عمليات الاتصال التلقائية بالسحابة، مما يمنع استنزاف بطارية التابلت ويوفر استهلاك البيانات أثناء الجولات والزيارات الميدانية.
+                </p>
+              </div>
+
+              {/* Master Switch for reducing sync frequency */}
+              <button
+                type="button"
+                onClick={() => setReduceSyncFreq(!reduceSyncFreq)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  reduceSyncFreq ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
+                }`}
+                title="تبديل تفعيل تقليل تكرار المزامنة"
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    reduceSyncFreq ? '-translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Sync Interval Options (Visible when enabled) */}
+            {reduceSyncFreq ? (
+              <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>تحديد معدل تكرار المزامنة التلقائية في وضع توفير الطاقة:</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                    (المعدل الافتراضي الطبيعي: كل 5 دقائق)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {/* 15 Minutes */}
+                  <button
+                    type="button"
+                    onClick={() => setSyncIntervalMins(15)}
+                    className={`p-3 rounded-xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between ${
+                      syncIntervalMins === 15
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-black text-xs text-slate-900 dark:text-white">كل 15 دقيقة</span>
+                      {syncIntervalMins === 15 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      توفير معتدل - مزامنة منتظمة
+                    </span>
+                  </button>
+
+                  {/* 30 Minutes (Recommended) */}
+                  <button
+                    type="button"
+                    onClick={() => setSyncIntervalMins(30)}
+                    className={`p-3 rounded-xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+                      syncIntervalMins === 30
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 shadow-xs ring-1 ring-emerald-400'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1">
+                        <span className="font-black text-xs text-slate-900 dark:text-white">كل 30 دقيقة</span>
+                      </div>
+                      {syncIntervalMins === 30 ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-1 rounded">
+                          موصى به للأجهزة اللوحية
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      توفير عالي - يضاعف صمود البطارية
+                    </span>
+                  </button>
+
+                  {/* 60 Minutes */}
+                  <button
+                    type="button"
+                    onClick={() => setSyncIntervalMins(60)}
+                    className={`p-3 rounded-xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between ${
+                      syncIntervalMins === 60
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-black text-xs text-slate-900 dark:text-white">كل ساعة (60 دقيقة)</span>
+                      {syncIntervalMins === 60 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      أقصى توفير للطاقة للأيام الشاقة
+                    </span>
+                  </button>
+
+                  {/* On Action / Save Only (0 Minutes) */}
+                  <button
+                    type="button"
+                    onClick={() => setSyncIntervalMins(0)}
+                    className={`p-3 rounded-xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between ${
+                      syncIntervalMins === 0
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-black text-xs text-slate-900 dark:text-white">عند الحفظ فقط (يدوي)</span>
+                      {syncIntervalMins === 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      إيقاف الاستعلام التلقائي تماماً
+                    </span>
+                  </button>
+                </div>
+
+                {/* Smart Tablet Battery Integration & Auto Trigger */}
+                <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Battery className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-xs font-black text-slate-900 dark:text-white">
+                        قراءة شحن بطارية الجهاز الحالي:
+                      </span>
+                    </div>
+                    {batteryLevel !== null ? (
+                      <div className="flex items-center gap-2 text-xs font-bold">
+                        <span
+                          className={`font-black ${
+                            batteryLevel > 50
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : batteryLevel > 20
+                              ? 'text-amber-500'
+                              : 'text-red-500'
+                          }`}
+                        >
+                          {batteryLevel}%
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {isBatteryCharging ? '(متصل بالشاحن ⚡)' : '(يعمل على البطارية 🔋)'}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        (متاح على الأجهزة اللوحية ومتصفحات Chrome/Android)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Battery level progress bar if available */}
+                  {batteryLevel !== null && (
+                    <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          batteryLevel > 50
+                            ? 'bg-emerald-500'
+                            : batteryLevel > 20
+                            ? 'bg-amber-500'
+                            : 'bg-red-500 animate-pulse'
+                        }`}
+                        style={{ width: `${batteryLevel}%` }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Auto-enable option on low battery */}
+                  <label className="flex items-center gap-2 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={autoLowBattery}
+                      onChange={(e) => setAutoLowBattery(e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-slate-700 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      تفعيل وضع توفير الطاقة تلقائياً عند انخفاض شحن بطارية التابلت إلى 20% فأقل
+                    </span>
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl text-center text-xs text-slate-500 dark:text-slate-400 font-bold">
+                ⚠️ تقليل تكرار المزامنة متوقف حالياً. ستعمل الأجهزة اللوحية بالمزامنة الاعتيادية المتقاربة (كل 5 دقائق).
+              </div>
+            )}
+
+            {/* Active Status Summary Banner */}
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-slate-700 dark:text-slate-200 text-[11px]">
+                📌 <span className="font-black">السياسة النشطة حالياً:</span>{' '}
+                {isPowerSavingMode && reduceSyncFreq
+                  ? syncIntervalMins === 0
+                    ? 'المزامنة عند الحفظ فقط (صفر استهلاك خلفي للبطارية 🔋)'
+                    : `المزامنة التلقائية كل ${syncIntervalMins} دقيقة في وضع توفير الطاقة 🔋`
+                  : 'المزامنة التلقائية كل 5 دقائق (الوضع الطبيعي ⚡)'}
+              </span>
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-black">
+                {reduceSyncFreq ? 'مفعل للمندوبين ✅' : 'معطل ❌'}
+              </span>
+            </div>
+
+            {/* Save & Broadcast Button */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleSavePowerSavingSyncConfig}
+                disabled={isSavingPowerConfig}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSavingPowerConfig ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>جاري حفظ وتعميم الإعداد...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>حفظ وتعميم الإعداد على جميع تابلت المندوبين ☁️</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-          تفعيل وضع توفير الطاقة لتقليل استهلاك موارد الجهاز والإنترنت للمندوبين (يقوم بتقليل مزامنة الخلفية التلقائية وتحديثات الصور غير الضرورية).
-        </p>
-        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950/80 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
-            حالة وضع توفير الطاقة: <span className={isPowerSavingMode ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-slate-500 font-bold'}>{isPowerSavingMode ? 'مفعل (نشط)' : 'معطل'}</span>
-          </span>
-          <button
-            onClick={togglePowerSavingMode}
-            className={`px-4 py-2 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs ${
-              isPowerSavingMode ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-            }`}
-          >
-            {isPowerSavingMode ? 'إيقاف وضع توفير الطاقة' : 'تفعيل وضع توفير الطاقة'}
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Admin Note Section */}
       <CollapsibleCard title="إدارة ملاحظات المندوبين" icon={<Bell className="w-5 h-5 text-amber-500 dark:text-amber-300" />}>
