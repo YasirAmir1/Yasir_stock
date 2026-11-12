@@ -202,6 +202,20 @@
         "targetWeightKg": { "type": "number" }
       },
       "required": ["delegateName", "customerCode", "productCode", "targetWeightKg"]
+    },
+    "delegate_custom_lock_time": {
+      "title": "Delegate Custom Lock Time",
+      "description": "Custom sales deadline time set by Admin for a specific delegate for today",
+      "type": "object",
+      "properties": {
+        "delegate": { "type": "string" },
+        "date": { "type": "string" },
+        "customTime": { "type": "string" },
+        "active": { "type": "boolean" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["delegate", "date", "customTime"]
     }
   },
   "firestore": {
@@ -304,6 +318,14 @@
     "/additional_target_willie_uploaded_sales/{entryId}": {
       "schema": "uploaded_willie_sales_entry",
       "description": "Willie cheese sales data uploaded from Excel",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/delegate_custom_lock_times/{delegateName}": {
+      "schema": "delegate_custom_lock_time",
+      "description": "Per-delegate custom lock deadlines set by Admin",
       "allow": {
         "read": "true",
         "write": "true"

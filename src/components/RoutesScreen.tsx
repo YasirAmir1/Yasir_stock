@@ -11,7 +11,22 @@ import { getFormattedWeekday } from '../utils/dateUtils';
 import { getEffectiveRouteDay, isRouteOverrideActive, shiftCustomerRouteTemporarily, revertCustomerRouteOverride } from '../utils/routeUtils';
 
 
-// Helper for comprehensive Arabic text normalization and digit conversion
+// Helper to format HH:MM into 12-hour Arabic format (e.g. 11:30 م)
+const formatTo12HourArabic = (timeStr?: string): string => {
+  if (!timeStr) return '';
+  try {
+    const [hStr, mStr] = timeStr.split(':');
+    let h = parseInt(hStr, 10);
+    const m = mStr || '00';
+    if (isNaN(h)) return timeStr;
+    const ampm = h >= 12 ? 'م' : 'ص';
+    h = h % 12;
+    h = h ? h : 12;
+    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+  } catch {
+    return timeStr || '';
+  }
+};
 const normalizeArabic = (text: any): string => {
   if (text === null || text === undefined) return '';
   return String(text)
@@ -492,20 +507,48 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
   // Configurable auto-lock closing time (default 21:00 / 9:00 PM) & real-time clock tick
   const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
+  const [delegateCustomTimes, setDelegateCustomTimes] = useState<Record<string, { customTime: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }>>({});
   const [timeTick, setTimeTick] = useState<number>(Date.now());
 
   useEffect(() => {
     const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
       (docSnap: any) => {
-        if (docSnap.exists() && docSnap.data()?.time) {
-          setTargetAutoLockTime(docSnap.data().time);
+        if (docSnap.exists() && (docSnap.data()?.time || docSnap.data()?.targetTime)) {
+          setTargetAutoLockTime(docSnap.data().time || docSnap.data().targetTime);
         }
       },
       (err: any) => {
         logFirestoreErrorGracefully(err, 'auto_lock_time in RoutesScreen');
       },
       'RoutesScreen-auto-lock'
+    );
+    return () => unsub();
+  }, []);
+
+  // Real-time listener for per-delegate custom lock timers
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'delegate_custom_lock_times'), where('date', '==', today));
+    const unsub = safeOnSnapshot(
+      q,
+      (snap: any) => {
+        const customMap: Record<string, { customTime: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }> = {};
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data && data.delegate && data.active !== false) {
+            customMap[data.delegate] = {
+              customTime: data.customTime || '',
+              durationMinutes: Number(data.durationMinutes) || 0,
+              expireAtTimestamp: Number(data.expireAtTimestamp) || 0,
+              active: true,
+            };
+          }
+        });
+        setDelegateCustomTimes(customMap);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'delegate_custom_lock_times_routes'),
+      'RoutesScreen-custom-lock-times'
     );
     return () => unsub();
   }, []);
@@ -3650,6 +3693,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
             {(() => {
               const cCode = String(actionModalRoute.customerCode ?? '').trim();
+              const delName = actionModalRoute.delegateName || currentUser?.name || currentUser?.delegateName || '';
+              const normDel = normalizeArabic(delName);
+              const customTimerInfo = delegateCustomTimes[delName] || delegateCustomTimes[normDel];
+
               const hasDebt = customerDebtsSet.has(cCode);
               const isUnlockedForOrder = Boolean(
                 unlockedCustomerCodes[cCode] ||
@@ -3657,11 +3704,61 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 unlockedCustomerCodes[actionModalRoute.customerName]
               );
               const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
-              const isSalesCompleted = Boolean(
-                completedDelegates[actionModalRoute.delegateName || ''] ||
+
+              let isSalesClosedByTime = Boolean(baghdadStatus?.isPastClosing);
+              let isSalesCompleted = Boolean(
+                completedDelegates[delName] ||
+                completedDelegates[normDel] ||
                 isDelegateCompletedToday(actionModalRoute.delegateName, actionModalRoute.delegateCode)
               );
-              const isSalesClosedByTime = Boolean(baghdadStatus?.isPastClosing);
+
+              let hasActiveCustomExtension = false;
+              let customLockTimeFormatted = '';
+
+              if (customTimerInfo && customTimerInfo.active) {
+                if (customTimerInfo.expireAtTimestamp) {
+                  const nowMs = Date.now();
+                  if (nowMs < customTimerInfo.expireAtTimestamp) {
+                    isSalesClosedByTime = false;
+                    isSalesCompleted = false;
+                    hasActiveCustomExtension = true;
+                    const remainingMs = customTimerInfo.expireAtTimestamp - nowMs;
+                    const remainingMins = Math.max(1, Math.ceil(remainingMs / (60 * 1000)));
+                    customLockTimeFormatted = `${remainingMins} دقيقة (${formatTo12HourArabic(customTimerInfo.customTime)})`;
+                  } else {
+                    isSalesClosedByTime = true;
+                  }
+                } else if (customTimerInfo.customTime) {
+                  const now = new Date();
+                  const timeFormatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Baghdad',
+                    hour12: false,
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    second: 'numeric',
+                  });
+                  const parts = timeFormatter.formatToParts(now);
+                  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+                  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+                  const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+                  const currentSeconds = hour * 3600 + minute * 60 + second;
+
+                  const [hStr, mStr] = customTimerInfo.customTime.split(':');
+                  const targetHours = parseInt(hStr || '21', 10);
+                  const targetMinutes = parseInt(mStr || '00', 10);
+                  const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+                  if (currentSeconds < targetSeconds) {
+                    isSalesClosedByTime = false;
+                    isSalesCompleted = false;
+                    hasActiveCustomExtension = true;
+                    customLockTimeFormatted = formatTo12HourArabic(customTimerInfo.customTime);
+                  } else {
+                    isSalesClosedByTime = true;
+                  }
+                }
+              }
+
               const isDebtLocked = hasDebt && !isUnlockedForOrder;
 
               let disabledReason = '';
@@ -3670,13 +3767,27 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               } else if (isSalesCompleted) {
                 disabledReason = 'تم إكمال مبيعات اليوم لهذا المندوب';
               } else if (isSalesClosedByTime) {
-                disabledReason = 'انتهى وقت المبيعات الرسمية لهذا اليوم';
+                disabledReason = 'انتهى وقت المبيعات المتاحة لهذا اليوم';
               }
 
               const isNewOrderDisabled = !isPrivilegedUser && Boolean(disabledReason);
 
               return (
                 <div className="space-y-3 pt-1">
+                  {/* Custom Extension Info Badge inside Shop Action Modal */}
+                  {hasActiveCustomExtension && !isSalesClosedByTime && (
+                    <div className="w-full p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-300 text-xs font-black flex items-center justify-between gap-2 shadow-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>مفتوح وإنشاء الفواتير متاح حتى:</span>
+                      </div>
+                      <span className="font-mono text-xs bg-amber-200/80 dark:bg-amber-900 px-2 py-0.5 rounded-md border border-amber-400/50 text-amber-950 dark:text-amber-200 font-black">
+                        {customLockTimeFormatted}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Create Invoice Button - Rendered while sales are open and time has not expired! */}
                   {(!isPrivilegedUser && (isSalesCompleted || isSalesClosedByTime)) ? null : (
                     <button
                       type="button"

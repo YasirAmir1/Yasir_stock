@@ -4,9 +4,25 @@ import { db } from '../lib/firebase';
 import { collection, doc, query, setDoc, where, writeBatch, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { formatWithCommas } from '../utils/numberUtils';
-import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X } from 'lucide-react';
+import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X, User } from 'lucide-react';
 import { REPORT_11_CATEGORIES, isMatchingReport11Category, calculateRemainingWorkingDaysInMonth } from './Report11Screen';
 import { Report11Config } from '../types';
+
+export const formatTo12HourArabic = (timeStr?: string): string => {
+  if (!timeStr) return '';
+  try {
+    const [hStr, mStr] = timeStr.split(':');
+    let h = parseInt(hStr, 10);
+    const m = mStr || '00';
+    if (isNaN(h)) return timeStr;
+    const ampm = h >= 12 ? 'م' : 'ص';
+    h = h % 12;
+    h = h ? h : 12;
+    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+  } catch {
+    return timeStr || '';
+  }
+};
 
 export const DailySalesCompletionBar: React.FC = () => {
   const {
@@ -30,6 +46,8 @@ export const DailySalesCompletionBar: React.FC = () => {
     Boolean(currentUser?.name && currentUser.name.includes('رأفت')) ||
     Boolean(currentUser?.delegateName && currentUser.delegateName.includes('رأفت'));
 
+  const canManageActivation = Boolean(currentUser?.isAdmin || currentUser?.role === 'dataEntry' || isRafat);
+
   const [completedDelegates, setCompletedDelegates] = useState<Record<string, boolean>>({});
   const [completedDelegatesList, setCompletedDelegatesList] = useState<Array<{ delegate: string; completedAt: string; systemType?: string }>>([]);
   const [isCompletedLoaded, setIsCompletedLoaded] = useState(false);
@@ -48,7 +66,39 @@ export const DailySalesCompletionBar: React.FC = () => {
   // Activation Modal State
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [selectedActivationDelegates, setSelectedActivationDelegates] = useState<Record<string, boolean>>({});
+  const [selectedDelegateCustomTimes, setSelectedDelegateCustomTimes] = useState<Record<string, string>>({});
+  const [selectedDelegateMinutes, setSelectedDelegateMinutes] = useState<Record<string, number | string>>({});
+  const [delegateCustomTimes, setDelegateCustomTimes] = useState<Record<string, { customTime?: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }>>({});
   const [savingStatusMap, setSavingStatusMap] = useState<Record<string, boolean>>({});
+
+  // Real-time listener for per-delegate custom lock timers (delegate_custom_lock_times)
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'delegate_custom_lock_times'), where('date', '==', today));
+    const unsub = safeOnSnapshot(
+      q,
+      (snap: any) => {
+        const customMap: Record<string, { customTime?: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }> = {};
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data && data.delegate && data.active !== false) {
+            customMap[data.delegate] = {
+              customTime: data.customTime || '',
+              durationMinutes: Number(data.durationMinutes) || 0,
+              expireAtTimestamp: Number(data.expireAtTimestamp) || 0,
+              active: true,
+            };
+          }
+        });
+        setDelegateCustomTimes(customMap);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'delegate_custom_lock_times');
+      },
+      'CompletionBar-custom-lock-times'
+    );
+    return () => unsub();
+  }, []);
 
   // Monthly targets for low achievement warnings and Report 11 daily targets sync
   const [monthlyItemTargets, setMonthlyItemTargets] = useState<Array<{ categoryName: string; delegateName: string; monthlyTarget: number; monthlySales: number }>>(() => {
@@ -196,58 +246,98 @@ export const DailySalesCompletionBar: React.FC = () => {
     }
   }, [targetAutoLockTime]);
 
-  // Countdown timer calculation to targetAutoLockTime (Asia/Baghdad)
+  // Countdown timer calculation (Asia/Baghdad) - accounts for per-delegate custom lock timers & expireAtTimestamp
   useEffect(() => {
     const calculateCountdown = () => {
       try {
-        const now = new Date();
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: 'Asia/Baghdad',
-          hour12: false,
-          hour: 'numeric',
-          minute: 'numeric',
-          second: 'numeric',
-        });
-        const parts = formatter.formatToParts(now);
-        const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
-        const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
-        const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+        const nowMs = Date.now();
+        const activeCustomInfo = activeDelegateName ? delegateCustomTimes[activeDelegateName] : null;
 
-        const currentSeconds = hour * 3600 + minute * 60 + second;
+        if (activeCustomInfo && activeCustomInfo.active && activeCustomInfo.expireAtTimestamp) {
+          const diffSeconds = Math.floor((activeCustomInfo.expireAtTimestamp - nowMs) / 1000);
+          setSecondsRemaining(diffSeconds);
 
-        const [hStr, mStr] = targetAutoLockTime.split(':');
-        const targetHours = parseInt(hStr || '15', 10);
-        const targetMinutes = parseInt(mStr || '00', 10);
-        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+          if (diffSeconds <= 0) {
+            setIsPastTargetTime(true);
+            setCountdownText('00:00:00');
 
-        const diff = targetSeconds - currentSeconds;
-        setSecondsRemaining(diff);
-
-        if (diff <= 0) {
-          setIsPastTargetTime(true);
-          setCountdownText('00:00:00');
-
-          // Trigger automatic completion only once if not completed yet and Firestore status is loaded
-          if (
-            isCompletedLoaded &&
-            activeDelegateName &&
-            !completedDelegates[activeDelegateName]
-          ) {
-            const today = new Date().toISOString().split('T')[0];
-            const alertKey = `daily_auto_completion_alert_${today}_${activeDelegateName}`;
-            if (!localStorage.getItem(alertKey)) {
-              localStorage.setItem(alertKey, 'true');
-              triggerAutoCompletion(activeDelegateName);
+            // Trigger automatic completion button click for active delegate when countdown hits 0!
+            if (isCompletedLoaded && activeDelegateName && !completedDelegates[activeDelegateName]) {
+              const today = new Date().toISOString().split('T')[0];
+              const alertKey = `daily_custom_auto_complete_${today}_${activeDelegateName}`;
+              if (!localStorage.getItem(alertKey)) {
+                localStorage.setItem(alertKey, 'true');
+                triggerAutoCompletion(activeDelegateName);
+              }
             }
+          } else {
+            setIsPastTargetTime(false);
+            const h = Math.floor(diffSeconds / 3600);
+            const m = Math.floor((diffSeconds % 3600) / 60);
+            const s = diffSeconds % 60;
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            setCountdownText(`${pad(h)}:${pad(m)}:${pad(s)}`);
           }
         } else {
-          setIsPastTargetTime(false);
-          const h = Math.floor(diff / 3600);
-          const m = Math.floor((diff % 3600) / 60);
-          const s = diff % 60;
-          const pad = (n: number) => n.toString().padStart(2, '0');
-          setCountdownText(`${pad(h)}:${pad(m)}:${pad(s)}`);
+          // Standard auto lock time calculation
+          const now = new Date();
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Baghdad',
+            hour12: false,
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+          });
+          const parts = formatter.formatToParts(now);
+          const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+          const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+          const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+
+          const currentSeconds = hour * 3600 + minute * 60 + second;
+
+          const [hStr, mStr] = targetAutoLockTime.split(':');
+          const targetHours = parseInt(hStr || '21', 10);
+          const targetMinutes = parseInt(mStr || '00', 10);
+          const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+          const diff = targetSeconds - currentSeconds;
+          setSecondsRemaining(diff);
+
+          if (diff <= 0) {
+            setIsPastTargetTime(true);
+            setCountdownText('00:00:00');
+
+            if (isCompletedLoaded) {
+              const today = new Date().toISOString().split('T')[0];
+              const alertKey = `daily_auto_completion_alert_all_${today}`;
+              if (!localStorage.getItem(alertKey)) {
+                localStorage.setItem(alertKey, 'true');
+                triggerAutoCompletionAll();
+              }
+            }
+          } else {
+            setIsPastTargetTime(false);
+            const h = Math.floor(diff / 3600);
+            const m = Math.floor((diff % 3600) / 60);
+            const s = diff % 60;
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            setCountdownText(`${pad(h)}:${pad(m)}:${pad(s)}`);
+          }
         }
+
+        // Automatically trigger completion button for ANY delegate whose custom timer has expired!
+        Object.entries(delegateCustomTimes).forEach(([del, info]) => {
+          if (info && info.active && info.expireAtTimestamp && Date.now() >= info.expireAtTimestamp) {
+            if (isCompletedLoaded && !completedDelegates[del]) {
+              const today = new Date().toISOString().split('T')[0];
+              const alertKey = `daily_custom_auto_complete_${today}_${del}`;
+              if (!localStorage.getItem(alertKey)) {
+                localStorage.setItem(alertKey, 'true');
+                triggerAutoCompletion(del);
+              }
+            }
+          }
+        });
       } catch (err) {
         console.error('Error calculating countdown:', err);
       }
@@ -256,7 +346,7 @@ export const DailySalesCompletionBar: React.FC = () => {
     calculateCountdown();
     const interval = setInterval(calculateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [activeDelegateName, completedDelegates, isCompletedLoaded, targetAutoLockTime]);
+  }, [activeDelegateName, completedDelegates, isCompletedLoaded, targetAutoLockTime, delegatesList, delegateCustomTimes]);
 
   // Today's summary totals for active delegate
   const { totalWeight, totalPrice } = useMemo(() => {
@@ -280,6 +370,73 @@ export const DailySalesCompletionBar: React.FC = () => {
     }, 0);
     return { totalWeight: weight, totalPrice: price };
   }, [salesEntries, activeDelegateName, productsList, currentUser]);
+
+  // Auto completion trigger for ALL delegates when sales closing time expires
+  const triggerAutoCompletionAll = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const standardDelegates = ['بكر بدران', 'فيصل فؤاد', 'خلدون جمال', 'محمد جاسم', 'ناجي خلف', 'صباح فرحان'];
+      const allDelegatesToComplete = new Set<string>([
+        ...delegatesList.filter(d => d && d !== 'الكل' && d !== 'الأدمن' && !d.includes('شرقاط')),
+        ...standardDelegates
+      ]);
+
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+      const parts = formatter.formatToParts(now);
+      const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+      const currentSeconds = hour * 3600 + minute * 60 + second;
+
+      const batch = writeBatch(db);
+      let count = 0;
+      allDelegatesToComplete.forEach((delName) => {
+        // Skip delegates who have an active custom deadline that hasn't expired yet!
+        const customInfo = delegateCustomTimes[delName];
+        if (customInfo && customInfo.active && customInfo.customTime) {
+          const [hStr, mStr] = customInfo.customTime.split(':');
+          const targetHours = parseInt(hStr || '21', 10);
+          const targetMinutes = parseInt(mStr || '00', 10);
+          const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+          if (currentSeconds < targetSeconds) {
+            return; // Sales remain open for this delegate!
+          }
+        }
+
+        if (!completedDelegates[delName]) {
+          const docRef = doc(db, 'daily_sales_completion', delName);
+          batch.set(docRef, {
+            delegate: delName,
+            date: today,
+            completedAt: new Date().toISOString(),
+            autoCompleted: true,
+            systemType: 'APP',
+          }, { merge: true });
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        addToast({
+          message: `تم إكمال وإغلاق مبيعات اليوم لجميع المندوبين تلقائياً بحلول وقت الإغلاق ✅`,
+          type: 'info',
+          title: 'إكمال تلقائي لجميع المندوبين',
+          percentage: 100,
+        });
+        setUserMessage(`تم إكمال مبيعات اليوم تلقائياً لجميع المندوبين بحلول توقيت الإغلاق ✅`);
+      }
+    } catch (err) {
+      console.error('Error in auto-completion all delegates:', err);
+    }
+  };
 
   // Auto completion trigger at 3:00 PM
   const triggerAutoCompletion = async (delegateName: string) => {
@@ -321,13 +478,13 @@ export const DailySalesCompletionBar: React.FC = () => {
       }
 
       addToast({
-        message: `تم إغلاق وإكمال مبيعات اليوم للمندوب (${delegateName}) تلقائياً بحلول الساعة 3:00 م ✅`,
+        message: `تم إغلاق وإكمال مبيعات اليوم للمندوب (${delegateName}) تلقائياً بحلول وقت الإغلاق ✅`,
         type: 'info',
         delegateName,
-        title: 'إغلاق تلقائي 3:00 م',
+        title: 'إغلاق تلقائي',
         percentage: 0,
       });
-      setUserMessage(`تم إكمال مبيعات اليوم تلقائياً للمندوب (${delegateName}) بحلول الساعة 3:00 م ✅`);
+      setUserMessage(`تم إكمال مبيعات اليوم تلقائياً للمندوب (${delegateName}) بحلول توقيت الإغلاق ✅`);
     } catch (err) {
       console.error('Error in auto-completion:', err);
     }
@@ -415,37 +572,94 @@ export const DailySalesCompletionBar: React.FC = () => {
     }
   };
 
-  // Activation modal handlers
+  // Activation modal handlers with custom per-delegate timers
   const handleOpenActivationModal = () => {
-    const initial: Record<string, boolean> = {};
+    const initialCompletion: Record<string, boolean> = {};
+    const initialCustomTimes: Record<string, string> = {};
+    const initialMinutes: Record<string, number | string> = {};
     delegatesList.forEach(del => {
-      initial[del] = !!completedDelegates[del];
+      initialCompletion[del] = !!completedDelegates[del];
+      const timerInfo = delegateCustomTimes[del];
+      initialCustomTimes[del] = timerInfo?.customTime || '';
+      if (timerInfo?.expireAtTimestamp && timerInfo.expireAtTimestamp > Date.now()) {
+        const remainingMins = Math.ceil((timerInfo.expireAtTimestamp - Date.now()) / (60 * 1000));
+        initialMinutes[del] = remainingMins > 0 ? remainingMins : '';
+      } else {
+        initialMinutes[del] = timerInfo?.durationMinutes || '';
+      }
     });
-    setSelectedActivationDelegates(initial);
+    setSelectedActivationDelegates(initialCompletion);
+    setSelectedDelegateCustomTimes(initialCustomTimes);
+    setSelectedDelegateMinutes(initialMinutes);
     setShowActivationModal(true);
   };
 
   const handleSaveActivation = async () => {
     const today = new Date().toISOString().split('T')[0];
+    const nowMs = Date.now();
     try {
       for (const del of delegatesList) {
-        const docRef = doc(db, 'daily_sales_completion', del);
+        const completionRef = doc(db, 'daily_sales_completion', del);
+        const customTimerRef = doc(db, 'delegate_custom_lock_times', del);
+        const minsInput = selectedDelegateMinutes[del];
+        const minutesVal = typeof minsInput === 'number' ? minsInput : parseInt(String(minsInput || ''), 10);
+        const customTimeVal = (selectedDelegateCustomTimes[del] || '').trim();
+
+        // 1. Per-delegate countdown timer save / delete
+        if (!isNaN(minutesVal) && minutesVal > 0) {
+          const expireAtTimestamp = nowMs + Math.round(minutesVal * 60 * 1000);
+          const expDate = new Date(expireAtTimestamp);
+          const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+          await setDoc(customTimerRef, {
+            delegate: del,
+            date: today,
+            durationMinutes: minutesVal,
+            expireAtTimestamp: expireAtTimestamp,
+            customTime: computed12h,
+            active: true,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser?.name || 'الأدمن',
+          }, { merge: true });
+        } else if (customTimeVal) {
+          await setDoc(customTimerRef, {
+            delegate: del,
+            date: today,
+            customTime: customTimeVal,
+            active: true,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser?.name || 'الأدمن',
+          }, { merge: true });
+        } else {
+          await deleteDoc(customTimerRef);
+        }
+
+        // 2. Sales completion status save / delete
         if (selectedActivationDelegates[del]) {
-          await setDoc(docRef, {
+          await setDoc(completionRef, {
             delegate: del,
             date: today,
             completedAt: new Date().toISOString(),
             systemType: 'APP',
           }, { merge: true });
         } else {
-          await deleteDoc(docRef);
+          // If un-checked (open sales), delete completion record so sales and invoice entry open!
+          await deleteDoc(completionRef);
         }
       }
-      setUserMessage('تم تحديث حالة تفعيل مبيعات المندوبين بنجاح ✅');
+
+      addToast({
+        message: 'تم حفظ حالة تفعيل المبيعات ومؤقتات المندوبين بنجاح ✅',
+        type: 'success',
+        title: 'تحديث المبيعات والمؤقتات',
+        percentage: 100,
+        delegateName: currentUser?.name || 'الأدمن',
+      });
+      setUserMessage('تم تحديث حالة تفعيل مبيعات ومؤقتات المندوبين بنجاح ✅');
       setShowActivationModal(false);
     } catch (err) {
-      console.error("Error updating activation:", err);
-      setUserMessage('حدث خطأ أثناء حفظ حالة التفعيل.');
+      console.error("Error updating activation & custom timers:", err);
+      setUserMessage('حدث خطأ أثناء حفظ حالة التفعيل والمؤقتات.');
     }
   };
 
@@ -759,58 +973,169 @@ export const DailySalesCompletionBar: React.FC = () => {
         </div>
       )}
 
-      {/* Activation Modal (إدارة وتفعيل مبيعات المندوبين) */}
-      {showActivationModal && (
+      {/* Activation Modal (إدارة وتفعيل مبيعات ومؤقتات المندوبين) - Crisp White Theme */}
+      {showActivationModal && canManageActivation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
-          <div className={`w-full max-w-md rounded-2xl p-5 shadow-2xl border space-y-4 ${
-            isDarkMode ? 'bg-slate-900 border-amber-500/40 text-white' : 'bg-white border-amber-200 text-slate-900'
-          }`}>
-            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
-              <h3 className="text-base font-black flex items-center gap-2 text-amber-400">
-                <span>⚙️ إدارة وتفعيل مبيعات المندوبين</span>
+          <div className="w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl bg-white border-2 border-slate-200 text-slate-900 space-y-4 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 shrink-0">
+              <h3 className="text-base font-black flex items-center gap-2 text-amber-600">
+                <span>⚙️ إدارة وتفعيل مبيعات ومؤقتات المندوبين</span>
               </h3>
-              <button onClick={() => setShowActivationModal(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+              <button onClick={() => setShowActivationModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs font-bold text-slate-400">
-              تفعيل أو إلغاء تفعيل إتمام مبيعات اليوم للمندوبين يدوياً:
+            <p className="text-xs font-bold text-slate-600 shrink-0 leading-relaxed">
+              يمكن للأدمن تحديد مؤقت خاص لانتهاء المبيعات لأي مندوب، وتمرير فتح المبيعات وإدخال الفواتير حتى التوقيت المحدد:
             </p>
 
-            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-              {delegatesList.map(del => (
-                <label key={del} className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
-                  selectedActivationDelegates[del]
-                    ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
-                    : 'bg-slate-800/40 border-slate-700 text-slate-300'
-                }`}>
-                  <span className="font-black text-xs">{del}</span>
-                  <input
-                    type="checkbox"
-                    checked={!!selectedActivationDelegates[del]}
-                    onChange={(e) => setSelectedActivationDelegates({
-                      ...selectedActivationDelegates,
-                      [del]: e.target.checked
-                    })}
-                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
-                  />
-                </label>
-              ))}
+            {/* Delegates List */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 pl-1">
+              {delegatesList.map(del => {
+                const customTime = selectedDelegateCustomTimes[del] || '';
+                const isCompleted = !!selectedActivationDelegates[del];
+                return (
+                  <div
+                    key={del}
+                    className={`p-3.5 rounded-2xl border-2 space-y-2.5 transition-all shadow-xs ${
+                      isCompleted
+                        ? 'bg-emerald-50/90 border-emerald-300'
+                        : customTime
+                        ? 'bg-amber-50/90 border-amber-300'
+                        : 'bg-white border-slate-200 hover:border-amber-300'
+                    }`}
+                  >
+                    {/* Header Row: Delegate Name & Completion Toggle */}
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="font-black text-sm text-slate-900">{del}</span>
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <span className={`text-[11px] font-black ${isCompleted ? 'text-emerald-700' : 'text-slate-600'}`}>
+                          {isCompleted ? 'المبيعات مكتملة ✓' : 'المبيعات مفتوحة 🔓'}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={isCompleted}
+                          onChange={(e) => setSelectedActivationDelegates({
+                            ...selectedActivationDelegates,
+                            [del]: e.target.checked
+                          })}
+                          className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                        />
+                      </label>
+                    </div>
+
+                    {/* Custom Timer Input & Presets */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                        <span className="flex items-center gap-1 text-amber-800">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>مؤقت تنازلي بالدقائق لانتهاء مبيعات المندوب:</span>
+                        </span>
+                        {customTime ? (
+                          <span className="text-amber-900 font-mono font-black bg-amber-100/90 px-2.5 py-0.5 rounded-lg border border-amber-300 flex items-center gap-1">
+                            <span>ينتهي:</span>
+                            <span className="text-amber-950 font-black">{formatTo12HourArabic(customTime)}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[10px]">
+                            التوقيت العام ({formattedTargetTime})
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Number of minutes input */}
+                        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-300 focus-within:border-amber-500">
+                          <input
+                            type="number"
+                            min="1"
+                            max="1440"
+                            placeholder="مثال: 40"
+                            value={selectedDelegateMinutes[del] ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSelectedDelegateMinutes(prev => ({ ...prev, [del]: val }));
+                              if (val && Number(val) > 0) {
+                                const expMs = Date.now() + Number(val) * 60 * 1000;
+                                const expDate = new Date(expMs);
+                                const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed12h }));
+                                setSelectedActivationDelegates(prev => ({ ...prev, [del]: false }));
+                              } else if (!val) {
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: '' }));
+                              }
+                            }}
+                            className="w-20 p-1.5 text-sm font-black font-mono text-center focus:outline-none bg-transparent text-slate-900"
+                          />
+                          <span className="pl-2 text-xs font-black text-slate-600">دقيقة</span>
+                        </div>
+
+                        {/* Quick Presets for minutes */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {[15, 20, 30, 40, 60].map(mins => (
+                            <button
+                              key={mins}
+                              type="button"
+                              onClick={() => {
+                                setSelectedDelegateMinutes(prev => ({ ...prev, [del]: mins }));
+                                const expMs = Date.now() + mins * 60 * 1000;
+                                const expDate = new Date(expMs);
+                                const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed12h }));
+                                setSelectedActivationDelegates(prev => ({ ...prev, [del]: false }));
+                              }}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-black font-mono border transition-all cursor-pointer ${
+                                Number(selectedDelegateMinutes[del]) === mins
+                                  ? 'bg-amber-500 text-slate-950 border-2 border-amber-600 shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                              }`}
+                            >
+                              +{mins} د
+                            </button>
+                          ))}
+
+                          {(selectedDelegateMinutes[del] || customTime) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDelegateMinutes(prev => ({ ...prev, [del]: '' }));
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: '' }));
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-black bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 transition-colors cursor-pointer"
+                              title="إلغاء المؤقت التنازلي وتطبيق التوقيت العام"
+                            >
+                              إلغاء المؤقت
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="flex gap-2 pt-2 border-t border-slate-700/50">
+            {/* Bottom Actions */}
+            <div className="flex gap-2 pt-3 border-t border-slate-200 shrink-0">
               <button
+                type="button"
                 onClick={() => setShowActivationModal(false)}
-                className="flex-1 py-2 rounded-xl font-black text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl font-black text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
               >
                 إلغاء
               </button>
               <button
+                type="button"
                 onClick={handleSaveActivation}
-                className="flex-1 py-2 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-md transition-all active:scale-95 cursor-pointer border border-amber-600"
               >
-                حفظ التغيرات
+                حفظ التغيرات والمؤقتات
               </button>
             </div>
           </div>
@@ -1009,8 +1334,8 @@ export const DailySalesCompletionBar: React.FC = () => {
           </div>
         </div>
 
-        {/* 📊 Admin Completed Delegates Priority Table */}
-        {currentUser?.isAdmin && (isPastTargetTime ? priorityTableDelegates.length > 0 : completedDelegatesList.length > 0) && (
+        {/* 📊 Admin & Data Entry Completed Delegates Priority Table */}
+        {canManageActivation && (isPastTargetTime ? priorityTableDelegates.length > 0 : completedDelegatesList.length > 0) && (
           <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl p-2.5 sm:p-4 text-white shadow-xl space-y-3 w-full animate-in fade-in duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -1027,9 +1352,9 @@ export const DailySalesCompletionBar: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenActivationModal}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 border border-amber-600"
               >
-                <span>⚙️ إدارة وتفعيل المبيعات</span>
+                <span>⚙️ إدارة وتفعيل مبيعات ومؤقتات المندوبين</span>
               </button>
             </div>
             <div className="overflow-x-auto w-full">

@@ -647,12 +647,103 @@ export const Report11Screen: React.FC = () => {
 
   // Completed delegates state from daily_sales_completion
   const [completedDelegatesMap, setCompletedDelegatesMap] = useState<Record<string, boolean>>({});
+  const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
+  const [isPastClosingTime, setIsPastClosingTime] = useState<boolean>(false);
+  const [delegateCustomTimes, setDelegateCustomTimes] = useState<Record<string, { customTime: string; active: boolean }>>({});
+
+  // Real-time listener for per-delegate custom lock timers
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const qCustom = query(collection(db, 'delegate_custom_lock_times'), where('date', '==', todayStr));
+    const unsubCustom = safeOnSnapshot(
+      qCustom,
+      (snap: any) => {
+        const customMap: Record<string, { customTime: string; active: boolean }> = {};
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data && data.delegate && data.active !== false) {
+            customMap[data.delegate] = {
+              customTime: data.customTime || '',
+              active: true,
+            };
+          }
+        });
+        setDelegateCustomTimes(customMap);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'delegate_custom_lock_times_report11'),
+      'Report11Screen-custom-lock-times'
+    );
+    return () => unsubCustom();
+  }, []);
+
+  // Check Baghdad closing time
+  useEffect(() => {
+    const checkClosingTime = () => {
+      try {
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Baghdad',
+          hour12: false,
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+        });
+        const parts = formatter.formatToParts(now);
+        const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+        const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+        const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+        const currentSeconds = hour * 3600 + minute * 60 + second;
+
+        const [hStr, mStr] = targetAutoLockTime.split(':');
+        const targetHours = parseInt(hStr || '21', 10);
+        const targetMinutes = parseInt(mStr || '00', 10);
+        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+        setIsPastClosingTime(currentSeconds >= targetSeconds);
+      } catch (err) {
+        console.error('Error checking closing time in Report11Screen:', err);
+      }
+    };
+    checkClosingTime();
+    const interval = setInterval(checkClosingTime, 10000);
+    return () => clearInterval(interval);
+  }, [targetAutoLockTime]);
 
   const isDelegateCompleted = useCallback((name: string): boolean => {
     if (!name) return false;
     const norm = normalizeArabic(name);
+
+    // Check if delegate has an active custom timer extension
+    const customInfo = delegateCustomTimes[name] || delegateCustomTimes[norm];
+    if (customInfo && customInfo.active && customInfo.customTime) {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+      const parts = formatter.formatToParts(now);
+      const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+      const currentSeconds = hour * 3600 + minute * 60 + second;
+
+      const [hStr, mStr] = customInfo.customTime.split(':');
+      const targetHours = parseInt(hStr || '21', 10);
+      const targetMinutes = parseInt(mStr || '00', 10);
+      const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+      // If current time hasn't passed custom time yet, sales remain open!
+      if (currentSeconds < targetSeconds) {
+        return Boolean(completedDelegatesMap[norm] || completedDelegatesMap[name.trim()]);
+      }
+    }
+
+    if (isPastClosingTime) return true;
     return Boolean(completedDelegatesMap[norm] || completedDelegatesMap[name.trim()]);
-  }, [completedDelegatesMap]);
+  }, [completedDelegatesMap, isPastClosingTime, delegateCustomTimes]);
 
   // List of active delegates to present (excluding system/admin names and شرقاط)
   const delegateNamesList = useMemo(() => {
@@ -874,6 +965,17 @@ export const Report11Screen: React.FC = () => {
       'Report11Screen-completion'
     );
 
+    const unsubAutoLockTime = safeOnSnapshot(
+      doc(db, 'settings', 'auto_lock_time'),
+      (docSnap: any) => {
+        if (docSnap.exists() && docSnap.data()?.time) {
+          setTargetAutoLockTime(docSnap.data().time);
+        }
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'auto_lock_time'),
+      'Report11Screen-auto-lock'
+    );
+
     return () => {
       unsubTargets();
       unsubConfig();
@@ -882,6 +984,7 @@ export const Report11Screen: React.FC = () => {
       unsubSpec();
       unsubSpecName();
       unsubCompletion();
+      unsubAutoLockTime();
     };
   }, []);
 

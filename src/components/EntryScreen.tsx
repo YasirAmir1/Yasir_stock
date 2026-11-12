@@ -135,12 +135,14 @@ export const EntryScreen: React.FC = () => {
   const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
   const [isPastClosing, setIsPastClosing] = useState<boolean>(false);
 
+  const [delegateCustomTimes, setDelegateCustomTimes] = useState<Record<string, { customTime: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }>>({});
+
   useEffect(() => {
     const unsub = safeOnSnapshot(
       doc(db, 'settings', 'auto_lock_time'),
       (snap: any) => {
-        if (snap.exists() && snap.data()?.targetTime) {
-          setTargetAutoLockTime(snap.data().targetTime);
+        if (snap.exists() && (snap.data()?.time || snap.data()?.targetTime)) {
+          setTargetAutoLockTime(snap.data().time || snap.data().targetTime);
         }
       },
       (err: any) => console.error('Error listening to auto_lock_time in EntryScreen:', err),
@@ -149,9 +151,44 @@ export const EntryScreen: React.FC = () => {
     return () => unsub();
   }, []);
 
+  // Real-time listener for per-delegate custom lock timers
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, 'delegate_custom_lock_times'), where('date', '==', today));
+    const unsub = safeOnSnapshot(
+      q,
+      (snap: any) => {
+        const customMap: Record<string, { customTime: string; durationMinutes?: number; expireAtTimestamp?: number; active: boolean }> = {};
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data && data.delegate && data.active !== false) {
+            customMap[data.delegate] = {
+              customTime: data.customTime || '',
+              durationMinutes: Number(data.durationMinutes) || 0,
+              expireAtTimestamp: Number(data.expireAtTimestamp) || 0,
+              active: true,
+            };
+          }
+        });
+        setDelegateCustomTimes(customMap);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'delegate_custom_lock_times_entry'),
+      'EntryScreen-custom-lock-times'
+    );
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     const checkClosing = () => {
       try {
+        const delName = currentUser?.name || currentUser?.delegateName || '';
+        const customInfo = delName ? delegateCustomTimes[delName] : null;
+
+        if (customInfo && customInfo.active && customInfo.expireAtTimestamp) {
+          setIsPastClosing(Date.now() >= customInfo.expireAtTimestamp);
+          return;
+        }
+
         const now = new Date();
         const timeFormatter = new Intl.DateTimeFormat('en-US', {
           timeZone: 'Asia/Baghdad',
@@ -166,8 +203,12 @@ export const EntryScreen: React.FC = () => {
         const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
         const currentSeconds = hour * 3600 + minute * 60 + second;
 
-        const [hStr, mStr] = targetAutoLockTime.split(':');
-        const targetHours = parseInt(hStr || '15', 10);
+        const effectiveLockTime = (customInfo && customInfo.active && customInfo.customTime)
+          ? customInfo.customTime
+          : targetAutoLockTime;
+
+        const [hStr, mStr] = effectiveLockTime.split(':');
+        const targetHours = parseInt(hStr || '21', 10);
         const targetMinutes = parseInt(mStr || '00', 10);
         const targetSeconds = targetHours * 3600 + targetMinutes * 60;
 
@@ -177,9 +218,9 @@ export const EntryScreen: React.FC = () => {
       }
     };
     checkClosing();
-    const timer = setInterval(checkClosing, 5000);
+    const timer = setInterval(checkClosing, 1000);
     return () => clearInterval(timer);
-  }, [targetAutoLockTime]);
+  }, [targetAutoLockTime, delegateCustomTimes, currentUser]);
 
   useEffect(() => {
     if (isGlobalQuotaExceeded()) return;
@@ -2084,7 +2125,7 @@ export const EntryScreen: React.FC = () => {
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
-              {TARGET_CATEGORIES.map((cat) => {
+              {TARGET_CATEGORIES.filter(cat => cat !== 'مربى' && cat !== 'منتجات بروتين' && cat !== 'منتج جديد').map((cat) => {
                 const { actual, target } = categorySalesSummary[cat] || { actual: 0, target: 0 };
                 const isAchieved = target > 0 && actual >= target;
                 
