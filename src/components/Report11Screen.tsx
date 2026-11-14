@@ -544,11 +544,14 @@ export const Report11Screen: React.FC = () => {
     calculateUnifiedSalesStats,
     isDarkMode,
     setUserMessage,
+    addToast,
     refreshAllData
   } = useSales();
 
   const printRef = useRef<HTMLDivElement>(null);
   const allSalesTableRef = useRef<HTMLDivElement>(null);
+  const totalDelegatesSummaryRef = useRef<HTMLDivElement>(null);
+  const [isSendingTotalDelegatesWhatsApp, setIsSendingTotalDelegatesWhatsApp] = useState(false);
 
   const handleExportAllSalesTableJpeg = async () => {
     if (!allSalesTableRef.current) return;
@@ -615,6 +618,153 @@ export const Report11Screen: React.FC = () => {
     currentUser?.role === 'admin' ||
     currentUser?.name === 'الأدمن'
   );
+  const isStrictAdmin = Boolean(isAdmin && !isDataEntry && !isRafatJamal);
+
+  // Send "جدول التقرير الكلي لجميع المندوبين (اليوم الحالي)" as an image to WhatsApp (Strict Admin Only)
+  const handleSendTotalDelegatesImageWhatsApp = async () => {
+    if (!isStrictAdmin || !totalDelegatesSummaryRef.current || isSendingTotalDelegatesWhatsApp) return;
+
+    setIsSendingTotalDelegatesWhatsApp(true);
+    setUserMessage('جاري التقاط صورة التقرير الحالية لإرسالها إلى واتساب... 📸');
+
+    try {
+      const targetEl = totalDelegatesSummaryRef.current;
+
+      // Allow UI loading state to paint & fonts to settle
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 60)));
+      if (typeof document !== 'undefined' && document.fonts?.ready) {
+        await Promise.race([
+          document.fonts.ready,
+          new Promise((resolve) => setTimeout(resolve, 350)),
+        ]);
+      }
+
+      const captureWidth = Math.max(targetEl.scrollWidth, 900);
+      const canvas = await html2canvas(targetEl, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+        logging: false,
+        windowWidth: captureWidth,
+        onclone: (_clonedDoc, clonedEl) => {
+          // Hide action buttons marked data-no-capture so the image looks clean
+          clonedEl.querySelectorAll('[data-no-capture="true"]').forEach((node) => {
+            (node as HTMLElement).style.display = 'none';
+          });
+
+          // Ensure full table width renders without mobile horizontal clipping
+          clonedEl.style.width = `${captureWidth}px`;
+          clonedEl.style.minWidth = `${captureWidth}px`;
+          clonedEl.style.maxWidth = 'none';
+
+          clonedEl.querySelectorAll('.overflow-x-auto').forEach((wrapper) => {
+            (wrapper as HTMLElement).style.overflow = 'visible';
+          });
+
+          // Stabilize animated warning icons during capture
+          clonedEl.querySelectorAll('.animate-bounce').forEach((iconEl) => {
+            (iconEl as HTMLElement).style.animation = 'none';
+            (iconEl as HTMLElement).style.transform = 'none';
+          });
+        },
+      });
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      );
+
+      if (!blob) {
+        throw new Error('Failed to generate report image blob');
+      }
+
+      const fileName = `جدول_التقرير_الكلي_للمندوبين_${todayDateString}.png`;
+      const caption = `📊 جدول التقرير الكلي لجميع المندوبين (اليوم الحالي) - ${todayDateString}`;
+
+      // 1. Try native OS share sheet with image file (Mobile WhatsApp direct image attach)
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        const canShareFiles = navigator.canShare ? navigator.canShare({ files: [file] }) : false;
+
+        if (canShareFiles) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'جدول التقرير الكلي لجميع المندوبين',
+              text: caption,
+            });
+            setUserMessage('تم إرسال صورة التقرير إلى واتساب بنجاح ✅📲');
+            addToast?.({
+              title: 'تمت المشاركة',
+              message: 'تم إرسال صورة جدول التقرير الكلي لجميع المندوبين بنجاح ✅',
+              type: 'success',
+              percentage: 100,
+              delegateName: currentUser?.name || 'الأدمن',
+            });
+            return;
+          } catch (shareErr: any) {
+            if (shareErr?.name === 'AbortError') {
+              setUserMessage('تم إلغاء المشاركة.');
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. Desktop / Fallback: Copy image to clipboard + Download PNG + Open WhatsApp
+      let copiedToClipboard = false;
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof window !== 'undefined' && 'ClipboardItem' in window) {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          copiedToClipboard = true;
+        } catch {
+          copiedToClipboard = false;
+        }
+      }
+
+      const downloadUrl = URL.createObjectURL(blob);
+      const dlLink = document.createElement('a');
+      dlLink.href = downloadUrl;
+      dlLink.download = fileName;
+      document.body.appendChild(dlLink);
+      dlLink.click();
+      document.body.removeChild(dlLink);
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000);
+
+      const waLink = document.createElement('a');
+      waLink.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(caption)}`;
+      waLink.target = '_blank';
+      waLink.rel = 'noopener noreferrer';
+      document.body.appendChild(waLink);
+      waLink.click();
+      document.body.removeChild(waLink);
+
+      const feedbackMsg = copiedToClipboard
+        ? 'تم نسخ صورة التقرير للحافظة وتنزيلها وفتح واتساب — يمكنك لصق الصورة مباشرة (Ctrl+V) وإرسالها 🖼️📲'
+        : 'تم تنزيل صورة التقرير وفتح واتساب — يمكنك إرفاق الصورة المنزّلة وإرسالها مباشرة 🖼️📲';
+
+      setUserMessage(feedbackMsg);
+      addToast?.({
+        title: 'صورة التقرير جاهزة للواتساب',
+        message: feedbackMsg,
+        type: 'success',
+        percentage: 100,
+        delegateName: currentUser?.name || 'الأدمن',
+      });
+    } catch (err) {
+      console.error('Error capturing total delegates summary as image:', err);
+      setUserMessage('حدث خطأ أثناء تحويل التقرير إلى صورة.');
+      addToast?.({
+        title: 'خطأ في تجهيز الصورة',
+        message: 'تعذر تحويل جدول التقرير إلى صورة، يرجى المحاولة مرة أخرى.',
+        type: 'info',
+        percentage: 0,
+        delegateName: currentUser?.name || 'الأدمن',
+      });
+    } finally {
+      setIsSendingTotalDelegatesWhatsApp(false);
+    }
+  };
 
   // Comprehensive report view tab & collapse state
   const [comprehensiveViewTab, setComprehensiveViewTab] = useState<'all' | 'retail' | 'wholesale' | 'three_tables'>('all');
@@ -3472,19 +3622,37 @@ export const Report11Screen: React.FC = () => {
         )}
       </div>
       {/* 📋 2. جدول التقرير الكلي لجميع المندوبين (اليوم الحالي) */}
-      <div className={`p-4 sm:p-5 rounded-2xl border shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-slate-900 border-emerald-500/30' : 'bg-white border-emerald-200'
-      }`}>
+      <div
+        ref={totalDelegatesSummaryRef}
+        className={`p-4 sm:p-5 rounded-2xl border shadow-xl space-y-4 ${
+          isDarkMode ? 'bg-slate-900 border-emerald-500/30' : 'bg-white border-emerald-200'
+        }`}
+      >
         {/* Aggregated Delegate Comparison Table (جدول التقرير الكلي لجميع المندوبين لليوم الحالي) */}
         <div className="pt-2">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
             <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <Users className="w-4 h-4 text-emerald-500" />
               <span>جدول التقرير الكلي لجميع المندوبين (اليوم الحالي)</span>
             </h4>
-            <span className="text-[11px] text-slate-400">
-              {delegateDailySummaryList.length} مندوبين
-            </span>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="text-[11px] text-slate-400">
+                {delegateDailySummaryList.length} مندوبين
+              </span>
+              {isStrictAdmin && (
+                <button
+                  type="button"
+                  data-no-capture="true"
+                  disabled={isSendingTotalDelegatesWhatsApp}
+                  onClick={handleSendTotalDelegatesImageWhatsApp}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-black shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  title="إرسال التقرير الحالي بصورته الحالية إلى واتساب"
+                >
+                  <MessageCircle className="w-4 h-4 shrink-0" />
+                  <span>{isSendingTotalDelegatesWhatsApp ? 'جاري تجهيز الصورة...' : 'إرسال للواتساب (صورة)'}</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
