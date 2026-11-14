@@ -788,8 +788,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const data = d.data();
             if (!data) return null;
             return {
-              id: d.id,
               ...data,
+              id: d.id,
               customerName: String(data.customerName || '').trim(),
               customerCode: String(data.customerCode || '').trim(),
               customerAddress: String(data.customerAddress || '').trim(),
@@ -1558,7 +1558,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let insBatch = writeBatch(db);
         let insCount = 0;
         for (const item of parsedRoutes) {
-          const docRef = doc(collection(db, 'routes'));
+          const docRef = doc(db, 'routes', item.id);
           insBatch.set(docRef, cleanFirestoreData(item));
           insCount++;
           if (insCount === 400) {
@@ -3801,7 +3801,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const routesSnap = await getDocs(collection(db, 'routes'));
       const loadedRoutes: RouteItem[] = [];
       routesSnap.forEach((docSnap) => {
-        loadedRoutes.push({ id: docSnap.id, ...docSnap.data() } as RouteItem);
+        loadedRoutes.push({ ...docSnap.data(), id: docSnap.id } as RouteItem);
       });
       if (loadedRoutes.length > 0) {
         setRoutes(loadedRoutes);

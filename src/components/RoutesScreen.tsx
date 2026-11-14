@@ -1318,8 +1318,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       snap.forEach((d: any) => {
         const data = d.data();
         loaded.push({
-          id: d.id,
           ...data,
+          id: d.id,
           customerName: String(data.customerName ?? '').trim(),
           customerCode: String(data.customerCode ?? '').trim(),
           customerAddress: String(data.customerAddress ?? '').trim(),

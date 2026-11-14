@@ -1,6 +1,46 @@
 import { RouteItem } from '../types';
-import { doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where, DocumentReference } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { cleanFirestoreData } from '../lib/firestoreUtils';
+
+/**
+ * Resolve the actual Firestore DocumentReference for a route item, handling
+ * legacy Excel imports where the stored `id` field differed from the Firestore document ID.
+ */
+const resolveRouteDocRef = async (route: RouteItem): Promise<{ ref: DocumentReference; exists: boolean }> => {
+  const directRef = doc(db, 'routes', route.id);
+  const directSnap = await getDoc(directRef);
+  if (directSnap.exists()) {
+    return { ref: directRef, exists: true };
+  }
+
+  // Fallback 1: look up documents whose stored `id` field equals route.id
+  if (route.id) {
+    const byFieldIdSnap = await getDocs(query(collection(db, 'routes'), where('id', '==', route.id), limit(1)));
+    if (!byFieldIdSnap.empty) {
+      return { ref: byFieldIdSnap.docs[0].ref, exists: true };
+    }
+  }
+
+  // Fallback 2: look up by customerCode + customerName/delegate
+  if (route.customerCode) {
+    const byCodeSnap = await getDocs(query(collection(db, 'routes'), where('customerCode', '==', route.customerCode)));
+    if (!byCodeSnap.empty) {
+      const matched =
+        byCodeSnap.docs.find((d) => {
+          const data = d.data();
+          const sameName = String(data.customerName || '').trim() === String(route.customerName || '').trim();
+          const sameDel =
+            !route.delegateCode ||
+            String(data.delegateCode || '').trim() === String(route.delegateCode || '').trim();
+          return sameName && sameDel;
+        }) || byCodeSnap.docs[0];
+      return { ref: matched.ref, exists: true };
+    }
+  }
+
+  return { ref: directRef, exists: false };
+};
 
 /**
  * Check if a route temporary override is currently active and not expired
@@ -59,8 +99,12 @@ export const shiftCustomerRouteTemporarily = async (
       updatedBy: adminName || 'الأدمن',
     };
 
-    const routeRef = doc(db, 'routes', route.id);
-    await updateDoc(routeRef, payload);
+    const { ref, exists } = await resolveRouteDocRef(route);
+    if (exists) {
+      await updateDoc(ref, { ...payload, id: ref.id });
+    } else {
+      await setDoc(ref, cleanFirestoreData({ ...route, ...payload, id: ref.id }), { merge: true });
+    }
 
     return {
       success: true,
@@ -95,8 +139,12 @@ export const revertCustomerRouteOverride = async (
       updatedBy: adminName || 'الأدمن',
     };
 
-    const routeRef = doc(db, 'routes', route.id);
-    await updateDoc(routeRef, payload);
+    const { ref, exists } = await resolveRouteDocRef(route);
+    if (exists) {
+      await updateDoc(ref, { ...payload, id: ref.id });
+    } else {
+      await setDoc(ref, cleanFirestoreData({ ...route, ...payload, id: ref.id }), { merge: true });
+    }
 
     return {
       success: true,
