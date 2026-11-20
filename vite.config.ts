@@ -5,81 +5,85 @@ import path from 'path';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     tailwindcss(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
-      manifest: {
-        id: '/',
-        name: 'Sales App',
-        short_name: 'Sales',
-        description: 'Sales application for managing products, invoices, and delegates.',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
-        display: 'standalone',
-        start_url: '/',
-        scope: '/',
-        icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-        ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
+    ...(command === 'build'
+      ? [
+          VitePWA({
+            registerType: 'autoUpdate',
+            includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+            manifest: {
+              id: '/',
+              name: 'Sales App',
+              short_name: 'Sales',
+              description: 'Sales application for managing products, invoices, and delegates.',
+              theme_color: '#ffffff',
+              background_color: '#ffffff',
+              display: 'standalone',
+              start_url: '/',
+              scope: '/',
+              icons: [
+                {
+                  src: '/pwa-192x192.png',
+                  sizes: '192x192',
+                  type: 'image/png',
+                  purpose: 'any',
+                },
+                {
+                  src: '/pwa-512x512.png',
+                  sizes: '512x512',
+                  type: 'image/png',
+                  purpose: 'any',
+                },
+                {
+                  src: '/pwa-maskable-512x512.png',
+                  sizes: '512x512',
+                  type: 'image/png',
+                  purpose: 'maskable',
+                },
+              ],
             },
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'gstatic-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
+            workbox: {
+              globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+              runtimeCaching: [
+                {
+                  urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+                  handler: 'CacheFirst',
+                  options: {
+                    cacheName: 'google-fonts-cache',
+                    expiration: {
+                      maxEntries: 10,
+                      maxAgeSeconds: 60 * 60 * 24 * 365,
+                    },
+                    cacheableResponse: {
+                      statuses: [0, 200],
+                    },
+                  },
+                },
+                {
+                  urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+                  handler: 'CacheFirst',
+                  options: {
+                    cacheName: 'gstatic-fonts-cache',
+                    expiration: {
+                      maxEntries: 10,
+                      maxAgeSeconds: 60 * 60 * 24 * 365,
+                    },
+                    cacheableResponse: {
+                      statuses: [0, 200],
+                    },
+                  },
+                },
+              ],
             },
-          },
-        ],
-      },
-      devOptions: {
-        enabled: false,
-      },
-    }),
+            devOptions: {
+              enabled: false,
+            },
+          }),
+        ]
+      : []),
   ],
   resolve: {
     dedupe: ['react', 'react-dom'],
@@ -98,14 +102,16 @@ export default defineConfig({
       'react/jsx-runtime',
       'react/jsx-dev-runtime',
       'lucide-react',
-      'xlsx',
-      'html2canvas',
-      'html2canvas-pro',
-      'jspdf',
-      'jspdf-autotable',
       'clsx',
       'tailwind-merge',
-      'motion'
+      'xlsx',
+      'leaflet',
+      'firebase/app',
+      'firebase/firestore',
+      'firebase/storage',
+      '@supabase/supabase-js',
+      'jspdf',
+      'html2canvas-pro',
     ],
   },
   build: {
@@ -137,5 +143,14 @@ export default defineConfig({
     port: 3000,
     hmr: false,
     ws: false,
+    allowedHosts: true,
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/App.tsx',
+        './src/components/EntryScreen.tsx',
+        './src/components/RoutesScreen.tsx',
+      ],
+    },
   },
-});
+}));

@@ -370,3 +370,5 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
     </div>
   );
 };
+
+export default CalculatorModal;

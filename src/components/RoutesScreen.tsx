@@ -1,25 +1,62 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSales, getFixedDelegatePhone } from '../context/SalesContext';
 import { db } from '../lib/firebase';
-import { logFirestoreErrorGracefully, isGlobalQuotaExceeded } from '../lib/firestoreUtils';
-import { collection, query, where, updateDoc, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, cleanFirestoreData } from '../lib/firestoreUtils';
+import { collection, query, where, updateDoc, doc, writeBatch, getDocs, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { safeOnSnapshot } from '../lib/firestoreUtils';
-import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus, CustomerInfoNote, CUSTOMER_INFO_OPTIONS } from '../types';
+import { RouteItem, DebtItem, SalesEntry, DamagedProductItem, DamagedProductStatus, CustomerInfoNote, CUSTOMER_INFO_OPTIONS, ShopLocationRecord, NewCustomerDefinition, UnsuccessfulVisit, EndOfDayUnvisitedShop, DailyUnvisitedSnapshot } from '../types';
 import { parseArabicDigits } from '../utils/numberUtils';
-import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock, ShieldCheck, RotateCcw, Edit3 } from 'lucide-react';
-import { getFormattedWeekday } from '../utils/dateUtils';
+import { CheckCircle2, Circle, AlertCircle, AlertTriangle, ArrowUp, Upload, CheckSquare, Square, ShoppingBag, MapPin, Phone, User, CreditCard, Save, Search, X, FileSpreadsheet, Download, Calendar, Users, XCircle, ChevronDown, ChevronUp, Clock, Pause, Play, MessageCircle, FileText, Trash2, Send, PlusCircle, Lock, ShieldCheck, RotateCcw, Edit3, Navigation, Loader2, ExternalLink, Crosshair, Copy, Check, Store } from 'lucide-react';
+import { getFormattedWeekday, formatEnglishDate, formatEnglishDateTime } from '../utils/dateUtils';
 import { getEffectiveRouteDay, isRouteOverrideActive, shiftCustomerRouteTemporarily, revertCustomerRouteOverride } from '../utils/routeUtils';
+import { SaladinFleetMap } from './SaladinFleetMap';
+import { EndOfDayRouteReport } from './EndOfDayRouteReport';
+import { NewCustomerDefinitionModal } from './NewCustomerDefinitionModal';
+import { NewCustomerDefinitionsSection } from './NewCustomerDefinitionsSection';
+import { CustomerVisitModal } from './CustomerVisitModal';
+import { UnsuccessfulVisitModal } from './UnsuccessfulVisitModal';
+import { UnsuccessfulVisitsSection } from './UnsuccessfulVisitsSection';
+import {
+  isFieldRepresentativeUser,
+  parseCoordinate,
+  parseShopLocationString,
+  formatShopLocationString,
+  saveCustomerCoordinates,
+  bulkUpdateRouteLocations,
+  getRepTrackingId,
+  GPS_STATUS_EVENT,
+  GPS_RETRY_REQUEST_EVENT,
+  GpsTrackingStatus,
+  getLastKnownGpsTrackingStatus,
+  calculateHaversineDistanceMeters,
+  cacheShopCoordinatesLocally,
+  getCachedShopCoordinates,
+  resolveRouteCoordinatesWithCache,
+  REP_COORDS_EVENT,
+  RepLiveCoords,
+  getLastKnownRepCoords,
+  dispatchRepLiveCoords,
+  OPEN_SHOP_ACTION_MODAL_EVENT,
+  consumePendingShopActionRoute,
+  isShortOrExternalMapsUrl,
+  resolveShopLocationInput,
+  resolveShopLocationInputsBatch,
+} from '../lib/fleetTrackingService';
 
 
-// Helper to format HH:MM into 12-hour Arabic format (e.g. 11:30 م)
+// Helper to format HH:MM into 12-hour English format (e.g. 11:30 PM)
 const formatTo12HourArabic = (timeStr?: string): string => {
   if (!timeStr) return '';
   try {
-    const [hStr, mStr] = timeStr.split(':');
+    const [hStr, mRaw] = timeStr.split(':');
     let h = parseInt(hStr, 10);
-    const m = mStr || '00';
+    const m = (mRaw || '00').trim().split(' ')[0].padStart(2, '0');
     if (isNaN(h)) return timeStr;
-    const ampm = h >= 12 ? 'م' : 'ص';
+    const isPM = timeStr.toUpperCase().includes('PM') || timeStr.includes('م');
+    const isAM = timeStr.toUpperCase().includes('AM') || timeStr.includes('ص');
+    if (isPM && h < 12) h += 12;
+    if (isAM && h === 12) h = 0;
+    const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12;
     h = h ? h : 12;
     return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
@@ -45,6 +82,7 @@ const normalizeArabic = (text: any): string => {
     // Remove tatweel (kashida)
     .replace(/ـ/g, '')
     // Collapse multiple whitespace
+    .replace(/\s+/g, ' ');
 };
 
 // Helper to format debt amounts without decimal numbers: 1,000.4 -> 1,000
@@ -77,7 +115,7 @@ const isHiddenDelegateForFilter = (name: any): boolean => {
 
 export const RoutesScreen: React.FC = () => {
   const salesContext = useSales();
-  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, setSelectedDelegate, salesEntries, allSalesEntries, addToast } = salesContext;
+  const { currentUser, delegatesList = [], delegateAccounts = [], isDarkMode, setPrefilledEntryData, setShowQuickAdd, setActiveTab, setSelectedDelegate, salesEntries, allSalesEntries, addToast, geofenceRadiusMeters = 100 } = salesContext;
   const productsList = salesContext.productsList || [];
 
   // Data Entry account check
@@ -95,6 +133,11 @@ export const RoutesScreen: React.FC = () => {
   const canViewMonthlyReports = Boolean(
     (currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
   );
+  const isAdminUser = Boolean(
+    (currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن') &&
+      currentUser?.role !== 'delegate'
+  );
+  const isStrictAdmin = Boolean(isAdminUser && !isDataEntry);
 
   const effectiveDelegateCode = useMemo(() => {
     if (currentUser?.delegateCode) return String(currentUser.delegateCode).trim();
@@ -136,15 +179,51 @@ export const RoutesScreen: React.FC = () => {
   const [availableOptions, setAvailableOptions] = useState<string[]>(CUSTOMER_INFO_OPTIONS);
   const [newOptionInput, setNewOptionInput] = useState<string>('');
   const [actionModalRoute, setActionModalRoute] = useState<RouteItem | null>(null);
-  const [actionModalStep, setActionModalStep] = useState<'choice' | 'other_info' | null>(null);
+  const [actionModalStep, setActionModalStep] = useState<'choice' | 'other_info' | 'shop_location' | null>(null);
   const [selectedOption, setSelectedOption] = useState<string>(CUSTOMER_INFO_OPTIONS[0]);
   const [otherInfoNotesInput, setOtherInfoNotesInput] = useState<string>('');
   const [isSubmittingNote, setIsSubmittingNote] = useState<boolean>(false);
   const [notesSearchQuery, setNotesSearchQuery] = useState<string>('');
   const [notesActionFilter, setNotesActionFilter] = useState<'all' | 'pending' | 'action_taken'>('all');
+  const [notesVisibleLimit, setNotesVisibleLimit] = useState<number>(10);
+  const [notesDelegateFilter, setNotesDelegateFilter] = useState<string>('');
   const [actionModalNote, setActionModalNote] = useState<CustomerInfoNote | null>(null);
   const [actionDetailsInput, setActionDetailsInput] = useState<string>('');
   const [isSubmittingAdminAction, setIsSubmittingAdminAction] = useState<boolean>(false);
+
+  // Representative one-time Shop Location state & Firestore listener
+  const [savedShopLocations, setSavedShopLocations] = useState<ShopLocationRecord[]>([]);
+  const [shopLocationsSearchQuery, setShopLocationsSearchQuery] = useState<string>('');
+  const [shopLocationsDelegateFilter, setShopLocationsDelegateFilter] = useState<string>('');
+  const [capturedLatLng, setCapturedLatLng] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
+  const [isCapturingGps, setIsCapturingGps] = useState<boolean>(false);
+  const [gpsCaptureError, setGpsCaptureError] = useState<string | null>(null);
+  const [manualCoordInput, setManualCoordInput] = useState<string>('');
+  const [isSavingShopLocationOnce, setIsSavingShopLocationOnce] = useState<boolean>(false);
+  const [isResolvingMapsUrl, setIsResolvingMapsUrl] = useState<boolean>(false);
+  const [confirmDeleteShopLocId, setConfirmDeleteShopLocId] = useState<string | null>(null);
+  const [editingSavedLocationRecord, setEditingSavedLocationRecord] = useState<ShopLocationRecord | null>(null);
+  const [copiedCoordKey, setCopiedCoordKey] = useState<string | null>(null);
+
+  // New Customer Definition (تعريف جديد) modal & submissions state
+  const [showNewCustomerDefModal, setShowNewCustomerDefModal] = useState<boolean>(false);
+  const [newCustomerDefinitions, setNewCustomerDefinitions] = useState<NewCustomerDefinition[]>([]);
+
+  // Unsuccessful Visits (زيارات غير ناجحة) state & modals
+  const [unsuccessfulVisits, setUnsuccessfulVisits] = useState<UnsuccessfulVisit[]>([]);
+  const [customerVisitModalRoute, setCustomerVisitModalRoute] = useState<RouteItem | null>(null);
+  const [unsuccessfulVisitTargetRoute, setUnsuccessfulVisitTargetRoute] = useState<RouteItem | null>(null);
+
+  // End-of-day Unvisited (Red) Shops snapshots (Admin-only section)
+  const [dailyUnvisitedSnapshots, setDailyUnvisitedSnapshots] = useState<DailyUnvisitedSnapshot[]>([]);
+  const lastSyncedUnvisitedSigRef = useRef<string>('');
+
+  const handleCopyCoords = (key: string, coordsText: string) => {
+    if (!coordsText) return;
+    navigator.clipboard?.writeText(coordsText).catch(() => {});
+    setCopiedCoordKey(key);
+    window.setTimeout(() => setCopiedCoordKey((prev) => (prev === key ? null : prev)), 1800);
+  };
 
   // Firestore real-time listener for preset customer info options
   useEffect(() => {
@@ -183,6 +262,178 @@ export const RoutesScreen: React.FC = () => {
     );
     return () => unsubNotes();
   }, []);
+
+  useEffect(() => {
+    const unsubShopLocs = safeOnSnapshot(
+      collection(db, 'rep_shop_locations'),
+      (snap: any) => {
+        const loaded: ShopLocationRecord[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data && Number.isFinite(Number(data.latitude)) && Number.isFinite(Number(data.longitude))) {
+            loaded.push({ ...data, id: d.id } as ShopLocationRecord);
+          }
+        });
+        loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setSavedShopLocations(loaded);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'rep_shop_locations in RoutesScreen');
+      },
+      'RoutesScreen-rep-shop-locations'
+    );
+    return () => unsubShopLocs();
+  }, []);
+
+  useEffect(() => {
+    const unsubNewDefs = safeOnSnapshot(
+      collection(db, 'new_customer_definitions'),
+      (snap: any) => {
+        const loaded: NewCustomerDefinition[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) loaded.push({ ...data, id: d.id } as NewCustomerDefinition);
+        });
+        loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setNewCustomerDefinitions(loaded);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'new_customer_definitions in RoutesScreen');
+      },
+      'RoutesScreen-new-customer-defs'
+    );
+    return () => unsubNewDefs();
+  }, []);
+
+  // Firestore real-time listener for unsuccessful visits
+  useEffect(() => {
+    const unsubVisits = safeOnSnapshot(
+      collection(db, 'unsuccessful_visits'),
+      (snap: any) => {
+        const loaded: UnsuccessfulVisit[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) loaded.push({ ...data, id: d.id } as UnsuccessfulVisit);
+        });
+        loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setUnsuccessfulVisits(loaded);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'unsuccessful_visits in RoutesScreen');
+      },
+      'RoutesScreen-unsuccessful-visits'
+    );
+    return () => unsubVisits();
+  }, []);
+
+  // Firestore real-time listener for End-of-Day Unvisited (Red) Shops snapshots (Admin only)
+  useEffect(() => {
+    if (!isStrictAdmin) {
+      setDailyUnvisitedSnapshots([]);
+      return;
+    }
+    const unsubUnvisited = safeOnSnapshot(
+      collection(db, 'daily_unvisited_shops'),
+      (snap: any) => {
+        const loaded: DailyUnvisitedSnapshot[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) {
+            loaded.push({
+              ...data,
+              id: d.id,
+              dateString: data.dateString || d.id,
+              shops: Array.isArray(data.shops) ? data.shops : [],
+              dismissedShopIds: Array.isArray(data.dismissedShopIds) ? data.dismissedShopIds : [],
+            } as DailyUnvisitedSnapshot);
+          }
+        });
+        loaded.sort((a, b) => (b.dateString || '').localeCompare(a.dateString || ''));
+        setDailyUnvisitedSnapshots(loaded);
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'daily_unvisited_shops in RoutesScreen');
+      },
+      'RoutesScreen-daily-unvisited-shops'
+    );
+    return () => unsubUnvisited();
+  }, [isStrictAdmin]);
+
+  const handleDeleteUnsuccessfulVisit = async (visitId: string) => {
+    if (!visitId) return;
+    try {
+      await deleteDoc(doc(db, 'unsuccessful_visits', visitId));
+      setUnsuccessfulVisits((prev) => prev.filter((v) => v.id !== visitId));
+      try {
+        const localKey = 'unsuccessful_visits_backup';
+        const cached = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updated = cached.filter((c: any) => c.id !== visitId);
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      } catch {}
+      addToast?.({
+        title: 'تم مسح السجل بنجاح',
+        message: 'تم حذف تقرير الزيارة غير الناجحة بنجاح.',
+        type: 'success',
+      });
+    } catch (err: any) {
+      logFirestoreErrorGracefully(err, 'handleDeleteUnsuccessfulVisit');
+      addToast?.({
+        title: 'تعذر الحذف',
+        message: 'حدث خطأ أثناء محاولة حذف السجل، يرجى المحاولة لاحقاً.',
+        type: 'reminder',
+      });
+    }
+  };
+
+  const unsuccessfulVisitsTodayKeys = useMemo(() => {
+    const codeSet = new Set<string>();
+    const nameDelegateSet = new Set<string>();
+    const todayFormatted = formatEnglishDate(new Date());
+
+    const getBaghdadDateKey = (ts: number): string => {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Baghdad',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(new Date(ts));
+        const y = parts.find((p) => p.type === 'year')?.value || '';
+        const m = parts.find((p) => p.type === 'month')?.value || '';
+        const d = parts.find((p) => p.type === 'day')?.value || '';
+        return y && m && d ? `${y}-${m}-${d}` : '';
+      } catch {
+        return '';
+      }
+    };
+
+    const todayBaghdadKey = getBaghdadDateKey(Date.now());
+
+    unsuccessfulVisits.forEach((v) => {
+      const isToday =
+        (v.date && v.date === todayFormatted) ||
+        (v.timestamp && getBaghdadDateKey(v.timestamp) === todayBaghdadKey) ||
+        (v.createdAt && getBaghdadDateKey(new Date(v.createdAt).getTime()) === todayBaghdadKey);
+
+      if (!isToday) return;
+
+      const cCode = String(v.customerCode || '').trim();
+      if (cCode) codeSet.add(cCode);
+      if (v.customerName) {
+        nameDelegateSet.add(`${normalizeArabic(v.customerName)}::${normalizeArabic(v.delegateName)}`);
+      }
+    });
+
+    return { codeSet, nameDelegateSet };
+  }, [unsuccessfulVisits]);
+
+  const isRouteUnsuccessfulToday = (r: RouteItem): boolean => {
+    const cCode = String(r.customerCode || '').trim();
+    if (cCode && unsuccessfulVisitsTodayKeys.codeSet.has(cCode)) return true;
+    const cNorm = normalizeArabic(r.customerName);
+    const delNorm = normalizeArabic(r.delegateName);
+    return Boolean(cNorm && unsuccessfulVisitsTodayKeys.nameDelegateSet.has(`${cNorm}::${delNorm}`));
+  };
 
   useEffect(() => {
     const unsubUnlocked = safeOnSnapshot(
@@ -238,6 +489,146 @@ export const RoutesScreen: React.FC = () => {
   }, [currentUser, effectiveDelegateCode]);
 
   const [selectedDelegateFilter, setSelectedDelegateFilter] = useState<string | null>(null);
+  const [repGpsStatus, setRepGpsStatus] = useState<GpsTrackingStatus>(() => getLastKnownGpsTrackingStatus());
+  const [repLiveCoords, setRepLiveCoords] = useState<RepLiveCoords | null>(() => getLastKnownRepCoords());
+
+  const getShopLocationDocId = (route: RouteItem): string => {
+    const cleanCode = String(route.customerCode || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (cleanCode) return `cust_${cleanCode}`;
+    const cleanRouteId = String(route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (cleanRouteId) return `route_${cleanRouteId}`;
+    return `shop_${Date.now()}`;
+  };
+
+  const savedShopLocationsLookup = useMemo(() => {
+    const byDocId = new Map<string, ShopLocationRecord>();
+    const byCode = new Map<string, ShopLocationRecord>();
+    const byRouteId = new Map<string, ShopLocationRecord>();
+    savedShopLocations.forEach((rec) => {
+      if (rec.id) byDocId.set(rec.id, rec);
+      const code = String(rec.customerCode || '').trim();
+      if (code) byCode.set(code, rec);
+      const rId = String(rec.routeId || '').trim();
+      if (rId) byRouteId.set(rId, rec);
+    });
+    return { byDocId, byCode, byRouteId };
+  }, [savedShopLocations]);
+
+  const getSavedLocationForRoute = (route: RouteItem | null): ShopLocationRecord | undefined => {
+    if (!route) return undefined;
+    const docId = getShopLocationDocId(route);
+    if (savedShopLocationsLookup.byDocId.has(docId)) return savedShopLocationsLookup.byDocId.get(docId);
+    const code = String(route.customerCode || '').trim();
+    if (code && savedShopLocationsLookup.byCode.has(code)) return savedShopLocationsLookup.byCode.get(code);
+    if (route.id && savedShopLocationsLookup.byRouteId.has(route.id)) return savedShopLocationsLookup.byRouteId.get(route.id);
+    return undefined;
+  };
+
+  // Merge permanently saved rep_shop_locations into routes so map & geofence always rely on pinned shop coordinates
+  const enrichedRoutes = useMemo(() => {
+    if (savedShopLocations.length === 0) return routes;
+    return routes.map((r) => {
+      const savedLoc = getSavedLocationForRoute(r);
+      if (!savedLoc) return r;
+      const lat = parseCoordinate(r.latitude) ?? parseCoordinate(savedLoc.latitude);
+      const lng = parseCoordinate(r.longitude) ?? parseCoordinate(savedLoc.longitude);
+      return {
+        ...r,
+        latitude: lat,
+        longitude: lng,
+        shopLocation:
+          r.shopLocation ||
+          savedLoc.shopLocation ||
+          (lat !== null && lng !== null ? formatShopLocationString(lat, lng) : undefined),
+        repLocationSaved: true,
+      };
+    });
+  }, [routes, savedShopLocationsLookup, savedShopLocations.length]);
+
+  const cachedShopCoordsMap = useMemo(() => {
+    cacheShopCoordinatesLocally(enrichedRoutes);
+    return getCachedShopCoordinates();
+  }, [enrichedRoutes]);
+
+  const openShopActionModalForRoute = (r: RouteItem) => {
+    setSelectedRowId(r.id);
+    setEditingSavedLocationRecord(null);
+    setActionModalRoute(r);
+    setActionModalStep('choice');
+    setSelectedOption(availableOptions[0] || CUSTOMER_INFO_OPTIONS[0]);
+    setOtherInfoNotesInput('');
+  };
+
+  const openShopActionRef = useRef(openShopActionModalForRoute);
+  openShopActionRef.current = openShopActionModalForRoute;
+
+  useEffect(() => {
+    const onGpsChange = (ev: Event) => {
+      const next = (ev as CustomEvent<{ status: GpsTrackingStatus }>).detail?.status;
+      if (next) setRepGpsStatus(next);
+    };
+    const onCoordsChange = (ev: Event) => {
+      const next = (ev as CustomEvent<{ coords: RepLiveCoords | null }>).detail?.coords ?? null;
+      setRepLiveCoords(next);
+    };
+    const onOpenShopAction = (ev: Event) => {
+      const route = (ev as CustomEvent<{ route?: RouteItem }>).detail?.route || consumePendingShopActionRoute();
+      if (route) {
+        consumePendingShopActionRoute();
+        openShopActionRef.current(route);
+      }
+    };
+
+    const pending = consumePendingShopActionRoute();
+    if (pending) {
+      openShopActionRef.current(pending);
+    }
+
+    window.addEventListener(GPS_STATUS_EVENT, onGpsChange);
+    window.addEventListener(REP_COORDS_EVENT, onCoordsChange);
+    window.addEventListener(OPEN_SHOP_ACTION_MODAL_EVENT, onOpenShopAction);
+    return () => {
+      window.removeEventListener(GPS_STATUS_EVENT, onGpsChange);
+      window.removeEventListener(REP_COORDS_EVENT, onCoordsChange);
+      window.removeEventListener(OPEN_SHOP_ACTION_MODAL_EVENT, onOpenShopAction);
+    };
+  }, []);
+
+  // Refresh local GPS position while the Shop Action Modal is open for a representative so entering <= 100m reveals Create Invoice immediately
+  useEffect(() => {
+    if (!actionModalRoute || actionModalStep !== 'choice') return;
+    if (currentUser?.isAdmin || isDataEntry) return;
+    const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
+      actionModalRoute,
+      cachedShopCoordsMap
+    );
+    if (shopLat === null || shopLng === null) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    let cancelled = false;
+    const requestFreshFix = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (cancelled) return;
+          dispatchRepLiveCoords({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        },
+        () => {
+          // Non-blocking: RepresentativeLiveTracker manages permission UI & watchPosition
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      );
+    };
+
+    requestFreshFix();
+    const intervalId = window.setInterval(requestFreshFix, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [actionModalRoute, actionModalStep, currentUser?.isAdmin, isDataEntry, cachedShopCoordsMap]);
 
   // Compute overdue debts strictly belonging to the logged-in representative with Due Days > 1
   const representativeOverdueDebts = useMemo(() => {
@@ -352,6 +743,20 @@ export const RoutesScreen: React.FC = () => {
   const [showShiftModal, setShowShiftModal] = useState<boolean>(false);
   const [selectedShiftDay, setSelectedShiftDay] = useState<string>('الأحد');
   const [isShiftingRoute, setIsShiftingRoute] = useState<boolean>(false);
+
+  // Live Fleet Map state
+  const [showFleetMap, setShowFleetMap] = useState<boolean>(true);
+
+  // Excel Manager section: shop location table, inline editing, and location-only Excel upload
+  const [excelLocFilter, setExcelLocFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [excelSearch, setExcelSearch] = useState<string>('');
+  const [excelDisplayLimit, setExcelDisplayLimit] = useState<number>(30);
+  const [isUploadingLocationsExcel, setIsUploadingLocationsExcel] = useState<boolean>(false);
+  const [editingLocationRouteId, setEditingLocationRouteId] = useState<string | null>(null);
+  const [editingLocationInput, setEditingLocationInput] = useState<string>('');
+  const [isSavingInlineLocation, setIsSavingInlineLocation] = useState<boolean>(false);
+
+  const isFieldRep = useMemo(() => isFieldRepresentativeUser(currentUser), [currentUser]);
 
   const handleOpenShiftModal = (route: RouteItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -561,18 +966,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return () => clearInterval(interval);
   }, []);
 
-  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  // Format targetAutoLockTime for English display (e.g. 15:00 -> 03:00 PM)
   const formattedTargetTime = useMemo(() => {
     try {
       const [hStr, mStr] = targetAutoLockTime.split(':');
       let h = parseInt(hStr || '15', 10);
       const m = mStr || '00';
-      const ampm = h >= 12 ? 'م' : 'ص';
+      const ampm = h >= 12 ? 'PM' : 'AM';
       h = h % 12;
       h = h ? h : 12;
       return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
     } catch {
-      return '03:00 م';
+      return '03:00 PM';
     }
   }, [targetAutoLockTime]);
 
@@ -742,6 +1147,11 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         return payA - payB;
       });
   }, [debts, debtSearch, selectedDelegateFilter, delegateAccounts]);
+
+  const visibleDebtsTotal = useMemo(
+    () => filteredDebts.reduce((sum, d) => sum + (Number(d.amountDue) || 0), 0),
+    [filteredDebts]
+  );
 
   const exportDebtsToExcel = async () => {
     try {
@@ -1122,6 +1532,28 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 );
               })}
             </tbody>
+            {debtsLoaded && filteredDebts.length > 0 && (
+              <tfoot
+                className={`border-t-2 font-black ${
+                  isDarkMode
+                    ? 'bg-slate-800/95 border-slate-700 text-slate-100'
+                    : 'bg-emerald-50/90 border-emerald-200 text-slate-900'
+                }`}
+              >
+                <tr>
+                  <td
+                    colSpan={currentUser?.isAdmin || isDataEntry ? 3 : 2}
+                    className="px-2 py-2.5 text-[10px] sm:text-xs font-black text-slate-700 dark:text-slate-200 whitespace-nowrap"
+                  >
+                    مجموع المبالغ ({filteredDebts.length})
+                  </td>
+                  <td className="px-2 py-2.5 font-black text-emerald-700 dark:text-emerald-300 font-mono text-[11px] sm:text-xs whitespace-nowrap">
+                    {formatDebtAmount(visibleDebtsTotal)} <span className="text-[9px] font-sans">د.ع</span>
+                  </td>
+                  <td colSpan={currentUser?.isAdmin || isDataEntry ? 5 : 4} className="px-2 py-2.5" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
@@ -1333,6 +1765,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           tempAssignedDay: data.tempAssignedDay || data.assigned_day || '',
           overrideExpiresAt: Number(data.overrideExpiresAt || data.override_expires_at) || 0,
           originalPath: data.originalPath || data.path || '',
+          latitude: parseCoordinate(data.latitude),
+          longitude: parseCoordinate(data.longitude),
+          repLocationSaved: Boolean(data.repLocationSaved),
+          visitedToday: Boolean(data.visitedToday ?? data.visited_today),
         } as RouteItem);
       });
       setRoutes(loaded);
@@ -1398,7 +1834,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   }, [nowDate]);
 
   const currentDay = routeDayInfo.activeDay;
-  const isCompleted = completedDelegates[currentUser?.name || ''] || false;
+  const isCompleted = Boolean(
+    completedDelegates[currentUser?.name || ''] ||
+    isDelegateCompletedToday(currentUser?.name, currentUser?.delegateCode)
+  );
 
   // Set of customer codes that have debts for O(1) instant lookup
   const customerDebtsSet = useMemo(() => {
@@ -1410,65 +1849,94 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return set;
   }, [debts]);
 
-  // Pre-indexed summary of customer sales (visited today, weight today, recent order) for O(1) instant lookup
+  // Pre-indexed summary of customer sales (visited today, weight today) scoped strictly by customerCode
+  // (falling back to customerName + delegateName ONLY when an invoice has no customerCode)
   const customerSalesSummaryMap = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
-    const summary = new Map<string, { visitedToday: boolean; totalWeightToday: number; hasOrderIn12Hours: boolean }>();
+    const todayStr = baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0];
+    const byCode = new Map<string, { visitedToday: boolean; totalWeightToday: number }>();
+    const byNameDelegateNoCode = new Map<string, { visitedToday: boolean; totalWeightToday: number }>();
 
     allSalesEntries.forEach(e => {
+      if (e.status === 'cancelled') return;
+      if (e.dateString !== todayStr) return;
+
       const cCode = String(e.customerCode ?? '').trim();
-      if (!cCode) return;
+      const weight = Number(e.totalWeightKg) || 0;
 
-      let item = summary.get(cCode);
-      if (!item) {
-        item = { visitedToday: false, totalWeightToday: 0, hasOrderIn12Hours: false };
-        summary.set(cCode, item);
-      }
-
-      if (e.dateString === todayStr) {
+      if (cCode) {
+        let item = byCode.get(cCode);
+        if (!item) {
+          item = { visitedToday: false, totalWeightToday: 0 };
+          byCode.set(cCode, item);
+        }
         item.visitedToday = true;
-        item.totalWeightToday += (e.totalWeightKg || 0);
-      }
-      if (e.timestamp && e.timestamp >= twelveHoursAgo) {
-        item.hasOrderIn12Hours = true;
+        item.totalWeightToday += weight;
+      } else if (e.customerName) {
+        const cNameNorm = normalizeArabic(e.customerName);
+        const delNorm = normalizeArabic(e.delegateName);
+        if (!cNameNorm) return;
+        const key = `${cNameNorm}::${delNorm}`;
+        let item = byNameDelegateNoCode.get(key);
+        if (!item) {
+          item = { visitedToday: false, totalWeightToday: 0 };
+          byNameDelegateNoCode.set(key, item);
+        }
+        item.visitedToday = true;
+        item.totalWeightToday += weight;
       }
     });
 
-    return summary;
-  }, [allSalesEntries]);
+    return { byCode, byNameDelegateNoCode };
+  }, [allSalesEntries, baghdadStatus.todayBaghdad]);
+
+  const getCustomerSalesSummary = React.useCallback((r: RouteItem) => {
+    const cCode = String(r.customerCode ?? '').trim();
+    if (cCode) {
+      return customerSalesSummaryMap.byCode.get(cCode);
+    }
+    const cNameNorm = normalizeArabic(r.customerName);
+    const delNorm = normalizeArabic(r.delegateName);
+    if (!cNameNorm) return undefined;
+    return customerSalesSummaryMap.byNameDelegateNoCode.get(`${cNameNorm}::${delNorm}`);
+  }, [customerSalesSummaryMap]);
 
   const isVisited = React.useCallback((r: RouteItem) => {
     const cCode = String(r.customerCode ?? '').trim();
-    const summary = customerSalesSummaryMap.get(cCode);
-    return Boolean(summary?.visitedToday || manualVisits[cCode]);
-  }, [customerSalesSummaryMap, manualVisits]);
+    const summary = getCustomerSalesSummary(r);
+    return Boolean(summary?.visitedToday || (cCode && manualVisits[cCode]));
+  }, [getCustomerSalesSummary, manualVisits]);
 
-  // Precompute distinct invoice counts per customer code/name
+  // Precompute distinct invoice counts per customer code (never cross-colliding common shop names)
   const customerInvoicesCountMap = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+    const byCode = new Map<string, Set<string>>();
+    const byNameDelegateNoCode = new Map<string, Set<string>>();
     allSalesEntries.forEach(e => {
-      const cCode = (e.customerCode || '').trim().toLowerCase();
-      const cName = (e.customerName || '').trim().toLowerCase();
-      const invKey = e.invoiceId || `${e.dateString}_${e.delegateName || ''}_${cCode || cName}`;
+      if (e.status === 'cancelled') return;
+      const cCode = String(e.customerCode ?? '').trim().toLowerCase();
+      const cNameNorm = normalizeArabic(e.customerName);
+      const delNorm = normalizeArabic(e.delegateName);
+      const invKey = e.invoiceId || `${e.dateString}_${delNorm}_${cCode || cNameNorm}`;
       if (cCode) {
-        if (!map.has(cCode)) map.set(cCode, new Set());
-        map.get(cCode)!.add(invKey);
-      }
-      if (cName) {
-        if (!map.has(cName)) map.set(cName, new Set());
-        map.get(cName)!.add(invKey);
+        if (!byCode.has(cCode)) byCode.set(cCode, new Set());
+        byCode.get(cCode)!.add(invKey);
+      } else if (cNameNorm) {
+        const key = `${cNameNorm}::${delNorm}`;
+        if (!byNameDelegateNoCode.has(key)) byNameDelegateNoCode.set(key, new Set());
+        byNameDelegateNoCode.get(key)!.add(invKey);
       }
     });
-    return map;
+    return { byCode, byNameDelegateNoCode };
   }, [allSalesEntries]);
 
   const getRouteItemInvoicesCount = React.useCallback((r: RouteItem) => {
-    const cCode = (r.customerCode || '').trim().toLowerCase();
-    const cName = (r.customerName || '').trim().toLowerCase();
-    const byCode = cCode ? customerInvoicesCountMap.get(cCode)?.size : 0;
-    const byName = cName ? customerInvoicesCountMap.get(cName)?.size : 0;
-    return byCode || byName || 0;
+    const cCode = String(r.customerCode ?? '').trim().toLowerCase();
+    if (cCode) {
+      return customerInvoicesCountMap.byCode.get(cCode)?.size || 0;
+    }
+    const cNameNorm = normalizeArabic(r.customerName);
+    const delNorm = normalizeArabic(r.delegateName);
+    if (!cNameNorm) return 0;
+    return customerInvoicesCountMap.byNameDelegateNoCode.get(`${cNameNorm}::${delNorm}`)?.size || 0;
   }, [customerInvoicesCountMap]);
 
   // Customer phone lookup across debts and sales entries for instant fallback
@@ -1497,6 +1965,358 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return '';
   }, [customerPhoneLookup]);
 
+  // Helper: determine if a given delegate's workday has ended today
+  // (either they clicked "لقد أكملت مبيعات اليوم" OR official closing time has passed without an active custom extension)
+  const getDelegateDayEndStatus = React.useCallback(
+    (delName?: string, delCode?: string): { ended: boolean; reason: 'closing_time_expired' | 'delegate_completed_sales' } => {
+      const nameStr = (delName || '').trim();
+      const normDel = normalizeArabic(nameStr);
+      const customTimerInfo = delegateCustomTimes[nameStr] || delegateCustomTimes[normDel];
+
+      let hasActiveCustomExtension = false;
+      if (customTimerInfo && customTimerInfo.active) {
+        if (customTimerInfo.expireAtTimestamp) {
+          hasActiveCustomExtension = Date.now() < customTimerInfo.expireAtTimestamp;
+        } else if (customTimerInfo.customTime) {
+          try {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'Asia/Baghdad',
+              hour12: false,
+              hour: 'numeric',
+              minute: 'numeric',
+              second: 'numeric',
+            }).formatToParts(now);
+            const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+            const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+            const s = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+            const currentSec = h * 3600 + m * 60 + s;
+            const [th, tm] = customTimerInfo.customTime.split(':');
+            const targetSec = parseInt(th || '21', 10) * 3600 + parseInt(tm || '00', 10) * 60;
+            hasActiveCustomExtension = currentSec < targetSec;
+          } catch {
+            hasActiveCustomExtension = false;
+          }
+        }
+      }
+
+      const delegateCompleted = Boolean(
+        (nameStr && completedDelegates[nameStr]) ||
+          (normDel && completedDelegates[normDel]) ||
+          isDelegateCompletedToday(delName, delCode)
+      );
+
+      if (delegateCompleted && !hasActiveCustomExtension) {
+        return { ended: true, reason: 'delegate_completed_sales' };
+      }
+      if (baghdadStatus.isPastClosing && !hasActiveCustomExtension) {
+        return { ended: true, reason: 'closing_time_expired' };
+      }
+      return { ended: false, reason: 'closing_time_expired' };
+    },
+    [delegateCustomTimes, completedDelegates, baghdadStatus.isPastClosing, timeTick]
+  );
+
+  // Count how many distinct delegates have completed their sales today
+  const completedDelegatesCountToday = useMemo(() => {
+    const names = new Set<string>();
+    Object.entries(completedDelegates).forEach(([k, v]) => {
+      if (v) names.add(normalizeArabic(k));
+    });
+    return names.size;
+  }, [completedDelegates]);
+
+  // Compute ALL today's live RED shops (scheduled on today's Baghdad weekday,
+  // NO non-cancelled invoice today (`!isVisited`), and NO unsuccessful visit today (`!isRouteUnsuccessfulToday`)).
+  // Successful visits (GREEN) are NEVER included; unsuccessful visits (YELLOW) belong to Sub-section 1.
+  const todayLiveRedShops = useMemo<EndOfDayUnvisitedShop[]>(() => {
+    const todayStr = baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0];
+    const normTodayDay = normalizeArabic(routeDayInfo.todayDayName);
+    if (!normTodayDay || enrichedRoutes.length === 0) return [];
+
+    const seenKeys = new Set<string>();
+    const results: EndOfDayUnvisitedShop[] = [];
+    const nowIso = new Date().toISOString();
+
+    enrichedRoutes.forEach((r) => {
+      const effDay = normalizeArabic(getEffectiveRouteDay(r));
+      if (!effDay || (!effDay.includes(normTodayDay) && !normTodayDay.includes(effDay))) {
+        return;
+      }
+
+      // Exclude GREEN shops (invoiced/visited today)
+      if (isVisited(r)) return;
+
+      // Exclude YELLOW shops (unsuccessful visit recorded today — shown in Sub-section 1)
+      if (isRouteUnsuccessfulToday(r)) return;
+
+      const cCode = String(r.customerCode ?? '').trim();
+      const cNameNorm = normalizeArabic(r.customerName);
+      const delNorm = normalizeArabic(r.delegateName);
+      const dedupeKey = cCode ? `code::${cCode}` : `name::${cNameNorm}::${delNorm}`;
+      if (seenKeys.has(dedupeKey)) return;
+      seenKeys.add(dedupeKey);
+
+      const endStatus = getDelegateDayEndStatus(r.delegateName, r.delegateCode);
+      const coords = resolveRouteCoordinatesWithCache(r, cachedShopCoordsMap);
+      const hasMapLocation = coords.latitude !== null && coords.longitude !== null;
+      const safeIdPart = (cCode || cNameNorm || r.id || 'shop').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '_');
+      const safeDelPart = (delNorm || 'rep').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '_');
+
+      results.push({
+        id: `${todayStr}_${safeIdPart}_${safeDelPart}`,
+        routeId: r.id,
+        customerCode: cCode,
+        customerName: r.customerName,
+        customerAddress: r.customerAddress || '',
+        customerType: r.customerType || 'مفرد',
+        phone: getCustomerPhone(r) || '',
+        delegateName: r.delegateName || '',
+        delegateCode: r.delegateCode || '',
+        routeDay: getEffectiveRouteDay(r) || routeDayInfo.todayDayName,
+        dateString: todayStr,
+        latitude: hasMapLocation ? coords.latitude : null,
+        longitude: hasMapLocation ? coords.longitude : null,
+        hasMapLocation,
+        closureReason: endStatus.ended ? endStatus.reason : 'in_progress_unvisited',
+        recordedAt: nowIso,
+      });
+    });
+
+    results.sort((a, b) => {
+      const delCmp = (a.delegateName || '').localeCompare(b.delegateName || '', 'ar');
+      if (delCmp !== 0) return delCmp;
+      return (a.customerName || '').localeCompare(b.customerName || '', 'ar');
+    });
+
+    return results;
+  }, [
+    enrichedRoutes,
+    baghdadStatus.todayBaghdad,
+    routeDayInfo.todayDayName,
+    getDelegateDayEndStatus,
+    isVisited,
+    unsuccessfulVisitsTodayKeys,
+    cachedShopCoordsMap,
+    getCustomerPhone,
+  ]);
+
+  // Subset of today's red shops whose delegate's day has ended (persisted to Firestore for subsequent days)
+  const todayEndedUnvisitedShops = useMemo<EndOfDayUnvisitedShop[]>(
+    () => todayLiveRedShops.filter((s) => s.closureReason !== 'in_progress_unvisited'),
+    [todayLiveRedShops]
+  );
+
+  // Persist today's ended-day unvisited (red) shops snapshot to Firestore (1 compact doc per date)
+  // so Admin always has a persistent record even on subsequent days.
+  useEffect(() => {
+    if (isGlobalQuotaExceeded() || enrichedRoutes.length === 0) return;
+    const todayStr = baghdadStatus.todayBaghdad;
+    if (!todayStr) return;
+
+    if (isStrictAdmin) {
+      const existingTodaySnap = dailyUnvisitedSnapshots.find((s) => s.dateString === todayStr);
+      const dismissedSet = new Set<string>(existingTodaySnap?.dismissedShopIds || []);
+      const effectiveShops = todayEndedUnvisitedShops.filter((s) => !dismissedSet.has(s.id));
+
+      if (effectiveShops.length === 0 && !existingTodaySnap) return;
+
+      const nextSig = `admin|${todayStr}|${effectiveShops.map((s) => s.id).join(',')}`;
+      const savedSig = existingTodaySnap
+        ? `admin|${todayStr}|${(existingTodaySnap.shops || []).map((s) => s.id).join(',')}`
+        : '';
+
+      if (nextSig === savedSig || nextSig === lastSyncedUnvisitedSigRef.current) return;
+      lastSyncedUnvisitedSigRef.current = nextSig;
+
+      const payload: DailyUnvisitedSnapshot = {
+        id: todayStr,
+        dateString: todayStr,
+        routeDay: routeDayInfo.todayDayName,
+        closingTime: formattedTargetTime,
+        shops: effectiveShops,
+        dismissedShopIds: existingTodaySnap?.dismissedShopIds || [],
+        updatedAt: new Date().toISOString(),
+        timestamp: Date.now(),
+      };
+
+      setDoc(doc(db, 'daily_unvisited_shops', todayStr), cleanFirestoreData(payload), { merge: true }).catch((err) => {
+        logFirestoreErrorGracefully(err, 'sync daily_unvisited_shops (admin)');
+      });
+      return;
+    }
+
+    // Representative side: if this rep's own day has ended, merge ONLY their own unvisited red shops once
+    // so Admin sees them even if Admin didn't open the app before midnight.
+    if (isFieldRep && currentUser) {
+      const myName = normalizeArabic(currentUser.name || currentUser.delegateName || '');
+      const myCode = normalizeArabic(effectiveDelegateCode || currentUser.delegateCode || '');
+      if (!myName && !myCode) return;
+
+      const myOwnShops = todayEndedUnvisitedShops.filter((s) => {
+        const sDel = normalizeArabic(s.delegateName);
+        const sCode = normalizeArabic(s.delegateCode);
+        return (
+          (myName !== '' && (sDel === myName || sDel.includes(myName) || myName.includes(sDel))) ||
+          (myCode !== '' && sCode === myCode)
+        );
+      });
+
+      if (myOwnShops.length === 0) return;
+
+      const repSig = `rep|${todayStr}|${myName || myCode}|${myOwnShops.map((s) => s.id).join(',')}`;
+      if (repSig === lastSyncedUnvisitedSigRef.current) return;
+      try {
+        if (sessionStorage.getItem(`eod_unvisited_synced_${todayStr}`) === repSig) {
+          lastSyncedUnvisitedSigRef.current = repSig;
+          return;
+        }
+      } catch {}
+
+      lastSyncedUnvisitedSigRef.current = repSig;
+      const docRef = doc(db, 'daily_unvisited_shops', todayStr);
+
+      getDoc(docRef)
+        .then((snap) => {
+          const existing = snap.exists() ? (snap.data() as Partial<DailyUnvisitedSnapshot>) : null;
+          const dismissedSet = new Set<string>(Array.isArray(existing?.dismissedShopIds) ? existing!.dismissedShopIds! : []);
+          const existingShops: EndOfDayUnvisitedShop[] = Array.isArray(existing?.shops) ? existing!.shops! : [];
+
+          const otherDelegatesShops = existingShops.filter((s) => {
+            const sDel = normalizeArabic(s.delegateName);
+            const sCode = normalizeArabic(s.delegateCode);
+            const isMine =
+              (myName !== '' && (sDel === myName || sDel.includes(myName) || myName.includes(sDel))) ||
+              (myCode !== '' && sCode === myCode);
+            return !isMine;
+          });
+
+          const filteredMyShops = myOwnShops.filter((s) => !dismissedSet.has(s.id));
+          const mergedShops = [...otherDelegatesShops, ...filteredMyShops];
+
+          return setDoc(
+            docRef,
+            cleanFirestoreData({
+              id: todayStr,
+              dateString: todayStr,
+              routeDay: existing?.routeDay || routeDayInfo.todayDayName,
+              closingTime: formattedTargetTime,
+              shops: mergedShops,
+              dismissedShopIds: Array.from(dismissedSet),
+              updatedAt: new Date().toISOString(),
+              timestamp: Date.now(),
+            }),
+            { merge: true }
+          );
+        })
+        .then(() => {
+          try {
+            sessionStorage.setItem(`eod_unvisited_synced_${todayStr}`, repSig);
+          } catch {}
+        })
+        .catch((err) => {
+          logFirestoreErrorGracefully(err, 'sync daily_unvisited_shops (rep)');
+        });
+    }
+  }, [
+    isStrictAdmin,
+    isFieldRep,
+    currentUser,
+    effectiveDelegateCode,
+    enrichedRoutes.length,
+    baghdadStatus.todayBaghdad,
+    routeDayInfo.todayDayName,
+    formattedTargetTime,
+    todayEndedUnvisitedShops,
+    dailyUnvisitedSnapshots,
+  ]);
+
+  const handleDeleteUnvisitedShopRow = async (dateString: string, shopId: string) => {
+    if (!isStrictAdmin || !dateString || !shopId) return;
+    try {
+      const existingSnap = dailyUnvisitedSnapshots.find((s) => s.dateString === dateString);
+      const currentShops =
+        dateString === baghdadStatus.todayBaghdad && (!existingSnap || existingSnap.shops.length === 0)
+          ? todayEndedUnvisitedShops
+          : existingSnap?.shops || [];
+      const updatedShops = currentShops.filter((s) => s.id !== shopId);
+      const updatedDismissed = Array.from(new Set([...(existingSnap?.dismissedShopIds || []), shopId]));
+
+      await setDoc(
+        doc(db, 'daily_unvisited_shops', dateString),
+        cleanFirestoreData({
+          id: dateString,
+          dateString,
+          routeDay: existingSnap?.routeDay || routeDayInfo.todayDayName,
+          closingTime: existingSnap?.closingTime || formattedTargetTime,
+          shops: updatedShops,
+          dismissedShopIds: updatedDismissed,
+          updatedAt: new Date().toISOString(),
+          timestamp: Date.now(),
+        }),
+        { merge: true }
+      );
+
+      addToast?.({
+        title: 'تم الحذف بنجاح',
+        message: 'تمت إزالة المحل من سجل المحلات الحمراء غير المزارة.',
+        type: 'success',
+      });
+    } catch (err) {
+      logFirestoreErrorGracefully(err, 'handleDeleteUnvisitedShopRow');
+      addToast?.({
+        title: 'تعذر الحذف',
+        message: 'حدث خطأ أثناء حذف السجل، يرجى المحاولة لاحقاً.',
+        type: 'reminder',
+      });
+    }
+  };
+
+  const handleDeleteUnvisitedDaySnapshot = async (dateString: string) => {
+    if (!isStrictAdmin || !dateString) return;
+    try {
+      if (dateString === baghdadStatus.todayBaghdad) {
+        const existingSnap = dailyUnvisitedSnapshots.find((s) => s.dateString === dateString);
+        const allTodayIds = Array.from(
+          new Set([
+            ...(existingSnap?.dismissedShopIds || []),
+            ...(existingSnap?.shops || []).map((s) => s.id),
+            ...todayLiveRedShops.map((s) => s.id),
+          ])
+        );
+        await setDoc(
+          doc(db, 'daily_unvisited_shops', dateString),
+          cleanFirestoreData({
+            id: dateString,
+            dateString,
+            routeDay: existingSnap?.routeDay || routeDayInfo.todayDayName,
+            closingTime: formattedTargetTime,
+            shops: [],
+            dismissedShopIds: allTodayIds,
+            updatedAt: new Date().toISOString(),
+            timestamp: Date.now(),
+          }),
+          { merge: true }
+        );
+      } else {
+        await deleteDoc(doc(db, 'daily_unvisited_shops', dateString));
+      }
+
+      addToast?.({
+        title: 'تم مسح سجل اليوم',
+        message: `تم مسح جدول المحلات غير المزارة لتاريخ ${dateString} بنجاح.`,
+        type: 'success',
+      });
+    } catch (err) {
+      logFirestoreErrorGracefully(err, 'handleDeleteUnvisitedDaySnapshot');
+      addToast?.({
+        title: 'تعذر المسح',
+        message: 'حدث خطأ أثناء مسح سجل اليوم، يرجى المحاولة لاحقاً.',
+        type: 'reminder',
+      });
+    }
+  };
+
   // Base routes filtered by Customer Type and Search Query (for counting Days & Delegates)
   const routesFilteredByTypeAndSearch = useMemo(() => {
     const rawQuery = searchQuery.trim();
@@ -1504,7 +2324,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     const searchTerms = normalizedQuery.split(' ').filter(Boolean);
     const isSearching = searchTerms.length > 0;
 
-    return routes.filter(r => {
+    return enrichedRoutes.filter(r => {
       // 1. Customer Type filter
       if (routeFilterType === 'جملة' && r.customerType !== 'جملة') return false;
       if (routeFilterType === 'مفرد' && r.customerType === 'جملة') return false;
@@ -1528,7 +2348,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       return true;
     });
-  }, [routes, routeFilterType, searchQuery]);
+  }, [enrichedRoutes, routeFilterType, searchQuery]);
 
   // Dynamic Day shop counts
   const dayCounts = useMemo(() => {
@@ -1765,26 +2585,81 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       if (routeFilterType === 'مفرد') return r.customerType !== 'جملة';
       return true;
     }).sort((a, b) => {
-      // 1. Total invoices count (descending: highest to lowest)
-      const aInvoices = getRouteItemInvoicesCount(a);
-      const bInvoices = getRouteItemInvoicesCount(b);
-      if (aInvoices !== bInvoices) return bInvoices - aInvoices;
+      const aVisited = isVisited(a);
+      const bVisited = isVisited(b);
+      const aSummary = getCustomerSalesSummary(a);
+      const bSummary = getCustomerSalesSummary(b);
+      const aWeight = aSummary?.totalWeightToday || 0;
+      const bWeight = bSummary?.totalWeightToday || 0;
 
-      // 2. Primary: Position (descending, latest moved to top)
+      const aUnvisitedZero = !aVisited && aWeight === 0;
+      const bUnvisitedZero = !bVisited && bWeight === 0;
+
+      // 1. First in table: unvisited shops with zero weight
+      if (aUnvisitedZero && !bUnvisitedZero) return -1;
+      if (!aUnvisitedZero && bUnvisitedZero) return 1;
+
+      // 2. Sort shops by sales weight ascending (lowest weight first, more weight at bottom / من الأسفل إلى الأعلى)
+      if (aWeight !== bWeight) {
+        return aWeight - bWeight;
+      }
+
+      // 3. Secondary: unvisited before visited among weighted shops
+      if (aVisited !== bVisited) {
+        return aVisited ? 1 : -1;
+      }
+
+      // 4. Tertiary: Position
       const aPos = a.position || 0;
       const bPos = b.position || 0;
       if (aPos !== bPos) return bPos - aPos;
 
-      // 3. Secondary: Visited
-      const aVisited = isVisited(a);
-      const bVisited = isVisited(b);
-      if (aVisited === bVisited) return 0;
-      // Unvisited (false) should come before Visited (true)
-      return aVisited ? 1 : -1;
+      return 0;
     });
-  }, [routesBeforeTypeFilter, routeFilterType, getRouteItemInvoicesCount, isVisited]);
+  }, [routesBeforeTypeFilter, routeFilterType, getCustomerSalesSummary, isVisited]);
 
   const finalRoutes = filteredRoutes;
+
+  const delegateTodayBreakdown = useMemo(() => {
+    const todayStr = baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0];
+    const normCurrentDay = normalizeArabic(currentDay);
+
+    return allAvailableDelegates.map(del => {
+      const delNameNorm = normalizeArabic(del.value);
+
+      const delRoutes = routes.filter(r => {
+        const rDelName = normalizeArabic(r.delegateName);
+        const rDelCode = normalizeArabic(r.delegateCode);
+        const rDay = normalizeArabic(getEffectiveRouteDay(r));
+        const matchDel = rDelName === delNameNorm || rDelName.includes(delNameNorm) || delNameNorm.includes(rDelName) || rDelCode === delNameNorm;
+        const matchDay = !normCurrentDay || rDay.includes(normCurrentDay) || normCurrentDay.includes(rDay);
+        return matchDel && matchDay;
+      });
+
+      const scheduledToday = delRoutes.length;
+
+      const delSalesToday = allSalesEntries.filter(e => {
+        const eDelName = normalizeArabic(e.delegateName);
+        const matchDel = eDelName === delNameNorm || eDelName.includes(delNameNorm) || delNameNorm.includes(eDelName);
+        return e.dateString === todayStr && matchDel;
+      });
+      const invoicesToday = new Set(delSalesToday.map(e => e.customerCode || e.customerName)).size;
+
+      const remainingToday = delRoutes.filter(r => {
+        const cCode = String(r.customerCode ?? '').trim();
+        const summary = getCustomerSalesSummary(r);
+        return !summary?.visitedToday && !(cCode && manualVisits[cCode]);
+      }).length;
+
+      return {
+        name: del.value,
+        label: del.label,
+        scheduledToday,
+        invoicesToday,
+        remainingToday,
+      };
+    }).filter(d => d.scheduledToday > 0 || d.invoicesToday > 0);
+  }, [allAvailableDelegates, routes, allSalesEntries, currentDay, baghdadStatus.todayBaghdad, getCustomerSalesSummary, manualVisits]);
 
   // Group routes by path/day in a single pass without re-sorting inline in JSX
   const groupedRoutesByDay = useMemo(() => {
@@ -1821,6 +2696,58 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     }
   };
 
+  const noteMatchesDelegate = React.useCallback((note: CustomerInfoNote, filterDel: string): boolean => {
+    if (!filterDel) return true;
+    const filterNorm = normalizeArabic(filterDel);
+    const nDelName = normalizeArabic(note.delegateName);
+    const nDelCode = String(note.delegateCode || '').trim().toLowerCase();
+
+    const matchedAcc = delegateAccounts.find(
+      a =>
+        (a.delegateName && normalizeArabic(a.delegateName) === filterNorm) ||
+        (a.username && normalizeArabic(a.username) === filterNorm) ||
+        (a.delegateCode && normalizeArabic(a.delegateCode) === filterNorm)
+    );
+    const matchCode = matchedAcc?.delegateCode ? String(matchedAcc.delegateCode).trim().toLowerCase() : '';
+    const matchName = matchedAcc?.delegateName ? normalizeArabic(matchedAcc.delegateName) : '';
+
+    return Boolean(
+      (nDelName && (nDelName === filterNorm || (matchName && nDelName === matchName))) ||
+      (nDelCode && ((matchCode && nDelCode === matchCode) || nDelCode === filterNorm))
+    );
+  }, [delegateAccounts]);
+
+  // Delegate filter buttons list & counts for Customer Notes
+  const notesDelegateOptions = useMemo(() => {
+    const namesMap = new Map<string, { name: string; count: number }>();
+
+    allAvailableDelegates.forEach((d) => {
+      const clean = (d.value || '').trim();
+      const norm = normalizeArabic(clean);
+      if (clean && norm && !isHiddenDelegateForFilter(clean) && norm !== normalizeArabic('الأدمن')) {
+        if (!namesMap.has(norm)) {
+          namesMap.set(norm, { name: clean, count: 0 });
+        }
+      }
+    });
+
+    customerNotes.forEach((note) => {
+      const clean = (note.delegateName || '').trim();
+      const norm = normalizeArabic(clean);
+      if (!clean || !norm || isHiddenDelegateForFilter(clean)) return;
+      if (!namesMap.has(norm)) {
+        namesMap.set(norm, { name: clean, count: 0 });
+      }
+    });
+
+    const list = Array.from(namesMap.values()).map((item) => ({
+      name: item.name,
+      count: customerNotes.filter((n) => noteMatchesDelegate(n, item.name)).length,
+    }));
+
+    return list.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ar'));
+  }, [allAvailableDelegates, customerNotes, noteMatchesDelegate]);
+
   // User role filtering for customer notes (delegates see their own notes, admins see all)
   const visibleCustomerNotes = useMemo(() => {
     const isPrivileged = Boolean(currentUser?.isAdmin || isDataEntry);
@@ -1835,6 +2762,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         return (currentDelName && (nDelName === currentDelName || nDelName.includes(currentDelName))) ||
                (currentDelCode && nDelCode === currentDelCode);
       });
+    } else if (notesDelegateFilter) {
+      list = list.filter(note => noteMatchesDelegate(note, notesDelegateFilter));
     }
 
     // Filter by action status
@@ -1861,8 +2790,129 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       });
     }
 
+    return [...list].sort((a, b) => {
+      const aDone = a.adminActionTaken ? 1 : 0;
+      const bDone = b.adminActionTaken ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      const aTs = Number(a.timestamp) || (a.createdAt ? new Date(a.createdAt).getTime() : 0) || 0;
+      const bTs = Number(b.timestamp) || (b.createdAt ? new Date(b.createdAt).getTime() : 0) || 0;
+      return bTs - aTs;
+    });
+  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesActionFilter, notesSearchQuery, notesDelegateFilter, noteMatchesDelegate]);
+
+  // Reset notes table pagination back to first 10 whenever filters or search change
+  useEffect(() => {
+    setNotesVisibleLimit(10);
+  }, [notesActionFilter, notesSearchQuery, notesDelegateFilter]);
+
+  const shopLocationsDelegateOptions = useMemo(() => {
+    const set = new Set<string>();
+    savedShopLocations.forEach((rec) => {
+      const name = (rec.delegateName || rec.savedBy || '').trim();
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [savedShopLocations]);
+
+  const visibleShopLocations = useMemo(() => {
+    const isPrivileged = Boolean((currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate');
+
+    let list = savedShopLocations;
+    if (!isPrivileged) {
+      // Build exact identity sets for the logged-in representative (no loose cross-rep substring matches)
+      const myNames = new Set<string>();
+      const myCodes = new Set<string>();
+
+      const addName = (val?: string) => {
+        const n = normalizeArabic(val || '');
+        if (n) myNames.add(n);
+      };
+      const addCode = (val?: string) => {
+        const c = String(val || '').trim().toLowerCase();
+        if (c) myCodes.add(c);
+      };
+
+      addName(currentUser?.name);
+      addName(currentUser?.delegateName);
+      addCode(currentUser?.delegateCode);
+      addCode(effectiveDelegateCode);
+      addCode(currentUser?.username);
+
+      const matchedAcc = delegateAccounts.find(
+        (a) =>
+          (currentUser?.username && a.username?.toLowerCase() === currentUser.username.toLowerCase()) ||
+          (currentUser?.delegateCode && a.delegateCode && a.delegateCode.trim().toLowerCase() === currentUser.delegateCode.trim().toLowerCase()) ||
+          (currentUser?.name && a.delegateName && normalizeArabic(a.delegateName) === normalizeArabic(currentUser.name))
+      );
+      if (matchedAcc) {
+        addName(matchedAcc.delegateName);
+        addCode(matchedAcc.delegateCode);
+        addCode(matchedAcc.username);
+      }
+
+      const matchesRepIdentity = (dName?: string, dCode?: string): boolean => {
+        const nName = normalizeArabic(dName || '');
+        const nCode = String(dCode || '').trim().toLowerCase();
+        return (nCode !== '' && myCodes.has(nCode)) || (nName !== '' && myNames.has(nName));
+      };
+
+      // Lookup routes by ID and customerCode to verify current shop ownership
+      const routeById = new Map<string, RouteItem>();
+      const routeByCode = new Map<string, RouteItem>();
+      routes.forEach((rt) => {
+        if (rt.id) routeById.set(String(rt.id).trim(), rt);
+        const c = String(rt.customerCode || '').trim().toLowerCase();
+        if (c) routeByCode.set(c, rt);
+      });
+
+      list = list.filter((rec) => {
+        const rId = String(rec.routeId || '').trim();
+        const rCustCode = String(rec.customerCode || '').trim().toLowerCase();
+        const matchedRoute = (rId && routeById.get(rId)) || (rCustCode && routeByCode.get(rCustCode)) || undefined;
+
+        if (matchedRoute) {
+          return matchesRepIdentity(matchedRoute.delegateName, matchedRoute.delegateCode);
+        }
+
+        return (
+          matchesRepIdentity(rec.delegateName, rec.delegateCode) ||
+          matchesRepIdentity(rec.savedBy, rec.savedByCode)
+        );
+      });
+    } else if (shopLocationsDelegateFilter) {
+      const targetNorm = normalizeArabic(shopLocationsDelegateFilter);
+      list = list.filter((rec) => {
+        const d1 = normalizeArabic(rec.delegateName || '');
+        const d2 = normalizeArabic(rec.savedBy || '');
+        return d1 === targetNorm || d2 === targetNorm;
+      });
+    }
+
+    const q = normalizeArabic(shopLocationsSearchQuery);
+    if (q) {
+      list = list.filter((rec) => {
+        const hay = [
+          normalizeArabic(rec.customerName),
+          normalizeArabic(rec.customerCode),
+          normalizeArabic(rec.customerAddress),
+          normalizeArabic(rec.delegateName),
+          normalizeArabic(rec.savedBy),
+          normalizeArabic(rec.path),
+        ].join(' ');
+        return hay.includes(q);
+      });
+    }
     return list;
-  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesActionFilter, notesSearchQuery]);
+  }, [
+    savedShopLocations,
+    currentUser,
+    isDataEntry,
+    effectiveDelegateCode,
+    delegateAccounts,
+    routes,
+    shopLocationsDelegateFilter,
+    shopLocationsSearchQuery,
+  ]);
 
   // Overall counts for tabs (total, pending, action_taken) based on user's visibility
   const notesCounts = useMemo(() => {
@@ -1878,18 +2928,21 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         return (currentDelName && (nDelName === currentDelName || nDelName.includes(currentDelName))) ||
                (currentDelCode && nDelCode === currentDelCode);
       });
+    } else if (notesDelegateFilter) {
+      baseList = baseList.filter(note => noteMatchesDelegate(note, notesDelegateFilter));
     }
 
     const total = baseList.length;
     const actionTaken = baseList.filter(n => Boolean(n.adminActionTaken)).length;
     const pending = total - actionTaken;
     return { total, actionTaken, pending };
-  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode]);
+  }, [customerNotes, currentUser, isDataEntry, effectiveDelegateCode, notesDelegateFilter, noteMatchesDelegate]);
 
-  // Customer code -> Notes count map for route table badges
+  // Customer code -> Notes count map for route table badges (excluding action taken / completed notes)
   const customerNotesCountMap = useMemo(() => {
     const map = new Map<string, number>();
     customerNotes.forEach(note => {
+      if (note.adminActionTaken) return;
       const code = String(note.customerCode || '').trim();
       if (code) {
         map.set(code, (map.get(code) || 0) + 1);
@@ -1919,7 +2972,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     ];
 
     const rows = visibleCustomerNotes.map(note => [
-      new Date(note.timestamp).toLocaleString('ar-EG'),
+      formatEnglishDateTime(note.timestamp, '-'),
       note.delegateName || '',
       note.customerName || '',
       note.customerCode || '',
@@ -1929,7 +2982,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       note.adminActionTaken ? 'تم اتخاذ إجراء' : 'قيد الانتظار',
       note.adminActionDetails || '',
       note.adminActionBy || '',
-      note.adminActionAt ? new Date(note.adminActionAt).toLocaleString('ar-EG') : ''
+      note.adminActionAt ? formatEnglishDateTime(note.adminActionAt, '') : ''
     ]);
 
     const csvContent = [
@@ -1949,11 +3002,13 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   };
 
   const handleOpenAdminActionModal = (note: CustomerInfoNote) => {
+    if (!isStrictAdmin) return;
     setActionModalNote(note);
     setActionDetailsInput(note.adminActionDetails || '');
   };
 
   const handleSaveAdminAction = async () => {
+    if (!isStrictAdmin) return;
     if (!actionModalNote?.id) {
       addToast({ title: 'خطأ', message: 'لم يتم العثور على معرف الملاحظة', type: 'info' });
       return;
@@ -1994,7 +3049,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   };
 
   const handleRevertAdminAction = async (note: CustomerInfoNote) => {
-    if (!note.id) return;
+    if (!isStrictAdmin || !note.id) return;
     if (!confirm(`هل أنت متأكد من إلغاء الإجراء المتخذ وإعادة بطاقة الزبون (${note.customerName}) إلى قيد الانتظار؟`)) {
       return;
     }
@@ -2022,6 +3077,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
   const handleOrderClick = (r: RouteItem) => {
     setSelectedRowId(r.id);
+    setEditingSavedLocationRecord(null);
     setActionModalRoute(r);
     setActionModalStep('choice');
     setSelectedOption(availableOptions[0] || CUSTOMER_INFO_OPTIONS[0]);
@@ -2103,8 +3159,604 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     setActiveTab('products');
   };
 
+  const canCreateInvoiceOnMap = (r: RouteItem): boolean => {
+    const cCode = String(r.customerCode ?? '').trim();
+    const hasDebt = customerDebtsSet.has(cCode);
+    const isUnlockedForOrder = Boolean(
+      unlockedCustomerCodes[cCode] ||
+      unlockedCustomerCodes[normalizeArabic(r.customerName)] ||
+      unlockedCustomerCodes[r.customerName]
+    );
+    if (hasDebt && !isUnlockedForOrder) return false;
+
+    const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
+    if (isPrivilegedUser) return true;
+
+    // Check configured geofence radius if shop has coordinates
+    const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(r, cachedShopCoordsMap);
+    const savedLoc = getSavedLocationForRoute(r);
+    const effLat = shopLat ?? (savedLoc ? savedLoc.latitude : null);
+    const effLng = shopLng ?? (savedLoc ? savedLoc.longitude : null);
+
+    if (effLat !== null && effLng !== null && repLiveCoords) {
+      const dist = calculateHaversineDistanceMeters(repLiveCoords.latitude, repLiveCoords.longitude, effLat, effLng);
+      if (dist > geofenceRadiusMeters) return false;
+    }
+
+    const delName = r.delegateName || currentUser?.name || currentUser?.delegateName || '';
+    const normDel = normalizeArabic(delName);
+    const customTimerInfo = delegateCustomTimes[delName] || delegateCustomTimes[normDel];
+
+    let isSalesClosedByTime = Boolean(baghdadStatus?.isPastClosing);
+    let isSalesCompleted = Boolean(
+      completedDelegates[delName] ||
+      completedDelegates[normDel] ||
+      isDelegateCompletedToday(r.delegateName, r.delegateCode)
+    );
+
+    if (customTimerInfo && customTimerInfo.active) {
+      if (customTimerInfo.expireAtTimestamp) {
+        if (Date.now() < customTimerInfo.expireAtTimestamp) {
+          isSalesClosedByTime = false;
+          isSalesCompleted = false;
+        } else {
+          isSalesClosedByTime = true;
+        }
+      } else if (customTimerInfo.customTime) {
+        const now = new Date();
+        const timeFormatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Baghdad',
+          hour12: false,
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+        });
+        const parts = timeFormatter.formatToParts(now);
+        const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+        const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+        const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+        const currentSeconds = hour * 3600 + minute * 60 + second;
+
+        const [hStr, mStr] = customTimerInfo.customTime.split(':');
+        const targetHours = parseInt(hStr || '21', 10);
+        const targetMinutes = parseInt(mStr || '00', 10);
+        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+        if (currentSeconds < targetSeconds) {
+          isSalesClosedByTime = false;
+          isSalesCompleted = false;
+        } else {
+          isSalesClosedByTime = true;
+        }
+      }
+    }
+
+    return !isSalesClosedByTime && !isSalesCompleted;
+  };
+
+  const handleDirectCreateInvoiceFromMap = (r: RouteItem) => {
+    const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
+    if (isPrivilegedUser) {
+      handleProceedToNewOrder(r);
+      return;
+    }
+
+    const cCode = String(r.customerCode ?? '').trim();
+    const delName = r.delegateName || currentUser?.name || currentUser?.delegateName || '';
+    const normDel = normalizeArabic(delName);
+    const customTimerInfo = delegateCustomTimes[delName] || delegateCustomTimes[normDel];
+
+    const hasDebt = customerDebtsSet.has(cCode);
+    const isUnlockedForOrder = Boolean(
+      unlockedCustomerCodes[cCode] ||
+      unlockedCustomerCodes[normalizeArabic(r.customerName)] ||
+      unlockedCustomerCodes[r.customerName]
+    );
+
+    let isSalesClosedByTime = Boolean(baghdadStatus?.isPastClosing);
+    let isSalesCompleted = Boolean(
+      completedDelegates[delName] ||
+      completedDelegates[normDel] ||
+      isDelegateCompletedToday(r.delegateName, r.delegateCode)
+    );
+
+    if (customTimerInfo && customTimerInfo.active) {
+      if (customTimerInfo.expireAtTimestamp) {
+        if (Date.now() < customTimerInfo.expireAtTimestamp) {
+          isSalesClosedByTime = false;
+          isSalesCompleted = false;
+        } else {
+          isSalesClosedByTime = true;
+        }
+      } else if (customTimerInfo.customTime) {
+        const now = new Date();
+        const timeFormatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Baghdad',
+          hour12: false,
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+        });
+        const parts = timeFormatter.formatToParts(now);
+        const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+        const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+        const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+        const currentSeconds = hour * 3600 + minute * 60 + second;
+
+        const [hStr, mStr] = customTimerInfo.customTime.split(':');
+        const targetHours = parseInt(hStr || '21', 10);
+        const targetMinutes = parseInt(mStr || '00', 10);
+        const targetSeconds = targetHours * 3600 + targetMinutes * 60;
+
+        if (currentSeconds < targetSeconds) {
+          isSalesClosedByTime = false;
+          isSalesCompleted = false;
+        } else {
+          isSalesClosedByTime = true;
+        }
+      }
+    }
+
+    if (hasDebt && !isUnlockedForOrder) {
+      addToast?.({
+        title: 'مغلق لوجود دين مستحق',
+        message: `لا يمكن إنشاء فاتورة لمحل (${r.customerName}) لوجود دين مستحق عليه.`,
+        type: 'reminder',
+      });
+      return;
+    }
+
+    if (isSalesCompleted) {
+      addToast?.({
+        title: 'تم إكمال المبيعات',
+        message: 'تم إكمال مبيعات اليوم لهذا المندوب.',
+        type: 'reminder',
+      });
+      return;
+    }
+
+    if (isSalesClosedByTime) {
+      addToast?.({
+        title: 'انتهى وقت المبيعات',
+        message: 'انتهى وقت المبيعات المتاحة لهذا اليوم.',
+        type: 'reminder',
+      });
+      return;
+    }
+
+    const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
+      r,
+      cachedShopCoordsMap
+    );
+    const savedLoc = getSavedLocationForRoute(r);
+    const effectiveLat = shopLat ?? (savedLoc ? savedLoc.latitude : null);
+    const effectiveLng = shopLng ?? (savedLoc ? savedLoc.longitude : null);
+
+    if (effectiveLat !== null && effectiveLng !== null) {
+      if (!repLiveCoords) {
+        if (repGpsStatus !== 'denied') {
+          addToast?.({
+            title: 'تحديد الموقع (GPS)',
+            message: 'جاري تحديد موقعك الحالي (GPS) للتحقق من القرب من المحل...',
+            type: 'reminder',
+          });
+        }
+        window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT));
+        return;
+      }
+
+      const distanceMeters = Math.round(
+        calculateHaversineDistanceMeters(
+          repLiveCoords.latitude,
+          repLiveCoords.longitude,
+          effectiveLat,
+          effectiveLng
+        )
+      );
+      if (distanceMeters > geofenceRadiusMeters) {
+        addToast?.({
+          title: 'تأكيد موقع الزيارة',
+          message: `يرجى التواجد عند موقع المحل (${r.customerName}) لتسجيل الفاتورة.`,
+          type: 'reminder',
+        });
+        return;
+      }
+    }
+
+    handleProceedToNewOrder(r);
+  };
+
+  const handleOpenVisitModalFromMap = (r: RouteItem) => {
+    const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
+    if (!isPrivilegedUser) {
+      const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
+        r,
+        cachedShopCoordsMap
+      );
+      const savedLoc = getSavedLocationForRoute(r);
+      const effectiveLat = shopLat ?? (savedLoc ? savedLoc.latitude : null);
+      const effectiveLng = shopLng ?? (savedLoc ? savedLoc.longitude : null);
+
+      if (effectiveLat !== null && effectiveLng !== null) {
+        if (!repLiveCoords) {
+          addToast?.({
+            title: 'تأكيد موقع الزيارة',
+            message: `يرجى تفعيل الموقع (GPS) والتواجد عند المحل (${r.customerName}) لتسجيل الزيارة.`,
+            type: 'reminder',
+          });
+          window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT));
+          return;
+        }
+        const distanceMeters = calculateHaversineDistanceMeters(
+          repLiveCoords.latitude,
+          repLiveCoords.longitude,
+          effectiveLat,
+          effectiveLng
+        );
+        if (distanceMeters > geofenceRadiusMeters) {
+          addToast?.({
+            title: 'تأكيد موقع الزيارة',
+            message: `يرجى التواجد عند موقع المحل (${r.customerName}) لتسجيل الزيارة.`,
+            type: 'reminder',
+          });
+          return;
+        }
+      }
+    }
+
+    setCustomerVisitModalRoute(r);
+  };
+
   const handleProceedToOtherInfo = () => {
     setActionModalStep('other_info');
+  };
+
+  const captureShopLocationGps = () => {
+    setGpsCaptureError(null);
+    if (repLiveCoords && Date.now() - repLiveCoords.updatedAt < 20000) {
+      setCapturedLatLng({
+        lat: Number(repLiveCoords.latitude.toFixed(6)),
+        lng: Number(repLiveCoords.longitude.toFixed(6)),
+      });
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      if (!repLiveCoords) {
+        setGpsCaptureError('المتصفح لا يدعم تحديد الموقع التلقائي (GPS). يرجى التأكد من تفعيل خدمة الموقع.');
+      }
+      return;
+    }
+
+    setIsCapturingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const acc = Number.isFinite(pos.coords.accuracy) ? Math.round(pos.coords.accuracy) : undefined;
+        setCapturedLatLng({ lat, lng, accuracy: acc });
+        setManualCoordInput(`${lat}, ${lng}`);
+        setIsCapturingGps(false);
+        setGpsCaptureError(null);
+        dispatchRepLiveCoords({ latitude: lat, longitude: lng });
+      },
+      (err) => {
+        setIsCapturingGps(false);
+        let msg = 'تعذر تحديد الموقع تلقائياً (GPS). تأكد من تفعيل خدمة الموقع وإعطاء الصلاحية للمتصفح.';
+        if (err.code === 1) {
+          msg = 'تم رفض صلاحية الموقع (GPS). يرجى السماح للمتصفح بالوصول للموقع ثم الضغط على «تحديث GPS».';
+        } else if (err.code === 3) {
+          msg = 'انتهت مهلة التقاط إشارة GPS. حاول مجدداً في مكان مكشوف عبر «تحديث GPS».';
+        }
+        setGpsCaptureError(msg);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  const handleProceedToShopLocation = (routeOverride?: RouteItem, savedRecordOverride?: ShopLocationRecord) => {
+    const targetRoute = routeOverride || actionModalRoute;
+    if (routeOverride) {
+      setActionModalRoute(routeOverride);
+    }
+    const existingRecord = savedRecordOverride || (targetRoute ? getSavedLocationForRoute(targetRoute) : undefined);
+    setEditingSavedLocationRecord(savedRecordOverride || existingRecord || null);
+    setActionModalStep('shop_location');
+    setGpsCaptureError(null);
+
+    const resolvedCoords = targetRoute
+      ? resolveRouteCoordinatesWithCache(targetRoute, cachedShopCoordsMap)
+      : { latitude: null, longitude: null };
+    const prefillLat = existingRecord?.latitude ?? resolvedCoords.latitude;
+    const prefillLng = existingRecord?.longitude ?? resolvedCoords.longitude;
+
+    if (
+      isAdminUser &&
+      prefillLat !== null &&
+      prefillLng !== null &&
+      Number.isFinite(Number(prefillLat)) &&
+      Number.isFinite(Number(prefillLng))
+    ) {
+      const latNum = Number(Number(prefillLat).toFixed(6));
+      const lngNum = Number(Number(prefillLng).toFixed(6));
+      setCapturedLatLng({ lat: latNum, lng: lngNum, accuracy: existingRecord?.accuracyMeters });
+      setManualCoordInput(formatShopLocationString(latNum, lngNum));
+      setIsCapturingGps(false);
+    } else {
+      setCapturedLatLng(null);
+      setManualCoordInput('');
+      captureShopLocationGps();
+    }
+  };
+
+  // Auto-resolve short Google Maps URLs (e.g. https://maps.app.goo.gl/...) when entered in shop_location modal
+  useEffect(() => {
+    if (actionModalStep !== 'shop_location') {
+      setIsResolvingMapsUrl(false);
+      return;
+    }
+    const raw = manualCoordInput.trim();
+    if (!raw) {
+      setIsResolvingMapsUrl(false);
+      return;
+    }
+    const syncParsed = parseShopLocationString(raw);
+    if (syncParsed.latitude !== null && syncParsed.longitude !== null) {
+      setCapturedLatLng({ lat: syncParsed.latitude, lng: syncParsed.longitude });
+      setGpsCaptureError(null);
+      setIsResolvingMapsUrl(false);
+      return;
+    }
+    if (!isShortOrExternalMapsUrl(raw)) {
+      setIsResolvingMapsUrl(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsResolvingMapsUrl(true);
+    setGpsCaptureError(null);
+    const timer = window.setTimeout(async () => {
+      const resolved = await resolveShopLocationInput(raw);
+      if (cancelled) return;
+      setIsResolvingMapsUrl(false);
+      if (resolved.latitude !== null && resolved.longitude !== null) {
+        setCapturedLatLng({ lat: resolved.latitude, lng: resolved.longitude });
+        setGpsCaptureError(null);
+      } else {
+        setGpsCaptureError('تعذر استخراج الإحداثيات من رابط الخرائط. تأكد من صحة الرابط أو التقط الموقع عبر GPS.');
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [manualCoordInput, actionModalStep]);
+
+  const handleSaveShopLocationOnce = async () => {
+    if (!actionModalRoute) return;
+
+    const existingLocal = editingSavedLocationRecord || getSavedLocationForRoute(actionModalRoute);
+    const hasPinnedRoute = Boolean(
+      existingLocal ||
+      actionModalRoute.repLocationSaved ||
+      (parseCoordinate(actionModalRoute.latitude) !== null && parseCoordinate(actionModalRoute.longitude) !== null)
+    );
+    if (!isStrictAdmin && hasPinnedRoute) {
+      addToast?.({
+        title: 'تم تثبيت الموقع مسبقاً',
+        message: `موقع المحل (${actionModalRoute.customerName}) مثبت ومحفوظ مسبقاً على الخريطة.`,
+        type: 'info',
+      });
+      setActionModalRoute(null);
+      setActionModalStep(null);
+      setEditingSavedLocationRecord(null);
+      return;
+    }
+
+    setIsSavingShopLocationOnce(true);
+    try {
+      let parsedManual = manualCoordInput.trim()
+        ? parseShopLocationString(manualCoordInput)
+        : { latitude: null, longitude: null };
+
+      if (
+        (parsedManual.latitude === null || parsedManual.longitude === null) &&
+        manualCoordInput.trim() &&
+        isShortOrExternalMapsUrl(manualCoordInput)
+      ) {
+        const resolvedFromLink = await resolveShopLocationInput(manualCoordInput);
+        parsedManual = {
+          latitude: resolvedFromLink.latitude,
+          longitude: resolvedFromLink.longitude,
+        };
+      }
+
+      const finalLat = parsedManual.latitude ?? capturedLatLng?.lat ?? null;
+      const finalLng = parsedManual.longitude ?? capturedLatLng?.lng ?? null;
+
+      if (finalLat === null || finalLng === null) {
+        setGpsCaptureError('يرجى التقاط الموقع عبر زر «تحديث GPS» أولاً.');
+        setIsSavingShopLocationOnce(false);
+        return;
+      }
+
+      const docId = existingLocal?.id || getShopLocationDocId(actionModalRoute);
+      const locDocRef = doc(db, 'rep_shop_locations', docId);
+
+      // Strict once-only server check for non-admin users (reps/data entry); strict Admin can edit any saved location
+      if (!isStrictAdmin) {
+        try {
+          const existingSnap = await getDoc(locDocRef);
+          if (existingSnap.exists()) {
+            addToast?.({
+              title: 'تم الحفظ مسبقاً',
+              message: `تم تسجيل موقع هذا المحل مسبقاً في النظام.`,
+              type: 'info',
+            });
+            setActionModalRoute(null);
+            setActionModalStep(null);
+            setEditingSavedLocationRecord(null);
+            return;
+          }
+        } catch {
+          // Proceed with write if offline check cannot complete
+        }
+      }
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const actorName = currentUser?.name || currentUser?.delegateName || actionModalRoute.delegateName || 'الأدمن';
+      const actorCode = currentUser?.delegateCode || effectiveDelegateCode || actionModalRoute.delegateCode || '';
+
+      const record: ShopLocationRecord = {
+        id: docId,
+        routeId: existingLocal?.routeId || actionModalRoute.id || docId,
+        customerCode: existingLocal?.customerCode || actionModalRoute.customerCode || '',
+        customerName: existingLocal?.customerName || actionModalRoute.customerName,
+        customerAddress: existingLocal?.customerAddress || actionModalRoute.customerAddress || '',
+        customerType: existingLocal?.customerType || actionModalRoute.customerType || 'مفرد',
+        path: existingLocal?.path || getEffectiveRouteDay(actionModalRoute) || actionModalRoute.path || '',
+        delegateName: existingLocal?.delegateName || actionModalRoute.delegateName || actorName,
+        delegateCode: existingLocal?.delegateCode || actionModalRoute.delegateCode || actorCode,
+        latitude: Number(finalLat.toFixed(6)),
+        longitude: Number(finalLng.toFixed(6)),
+        shopLocation: formatShopLocationString(finalLat, finalLng),
+        accuracyMeters: capturedLatLng?.accuracy ?? existingLocal?.accuracyMeters,
+        savedBy: existingLocal?.savedBy || actorName,
+        savedByCode: existingLocal?.savedByCode || actorCode,
+        savedAt: existingLocal?.savedAt || now.toISOString(),
+        timestamp: existingLocal?.timestamp || now.getTime(),
+        dateString: existingLocal?.dateString || todayStr,
+        ...(existingLocal ? { updatedAt: now.toISOString(), updatedBy: actorName } : {}),
+      };
+
+      await setDoc(locDocRef, cleanFirestoreData(record), { merge: true });
+
+      // Sync coordinates into `routes` & Supabase `customers` & any duplicate `rep_shop_locations` and mark `repLocationSaved: true`
+      await saveCustomerCoordinates(
+        actionModalRoute,
+        record.latitude,
+        record.longitude,
+        actorName,
+        { repLocationSaved: true }
+      );
+
+      // Optimistically update savedShopLocations & routes & cache immediately so map pins and button hides instantaneously
+      setSavedShopLocations((prev) => [record, ...prev.filter((item) => item.id !== record.id)]);
+      const targetCode = String(actionModalRoute.customerCode || '').trim();
+      setRoutes((prev) =>
+        prev.map((item) => {
+          const matchesId = item.id && actionModalRoute.id && item.id === actionModalRoute.id;
+          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          if (!matchesId && !matchesCode) return item;
+          return {
+            ...item,
+            latitude: record.latitude,
+            longitude: record.longitude,
+            shopLocation: record.shopLocation,
+            repLocationSaved: true,
+          };
+        })
+      );
+      cacheShopCoordinatesLocally([
+        {
+          ...actionModalRoute,
+          latitude: record.latitude,
+          longitude: record.longitude,
+          shopLocation: record.shopLocation,
+          repLocationSaved: true,
+        },
+      ]);
+
+      addToast?.({
+        title: existingLocal ? 'تم تعديل موقع المحل بنجاح 📍✅' : 'تم تثبيت وحفظ موقع المحل بنجاح 📍✅',
+        message: existingLocal
+          ? `تم تحديث موقع (${actionModalRoute.customerName}) في الخريطة وسجل المواقع.`
+          : `تم تثبيت موقع (${actionModalRoute.customerName}) على الخريطة والاعتماد عليه بشكل دائم.`,
+        type: 'success',
+        delegateName: actorName,
+      });
+
+      setActionModalRoute(null);
+      setActionModalStep(null);
+      setEditingSavedLocationRecord(null);
+      setCapturedLatLng(null);
+      setManualCoordInput('');
+    } catch (err) {
+      console.error('Error saving shop location:', err);
+      setGpsCaptureError('حدث خطأ أثناء حفظ موقع المحل. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsSavingShopLocationOnce(false);
+    }
+  };
+
+  const handleDeleteSavedShopLocation = async (rec: ShopLocationRecord) => {
+    if (!isAdminUser || !rec.id) return;
+    try {
+      await deleteDoc(doc(db, 'rep_shop_locations', rec.id));
+      // Clear repLocationSaved flag on matching route docs so it can be re-captured if needed
+      const matchingRoutes = routes.filter(
+        (r) =>
+          r.id === rec.routeId ||
+          (rec.customerCode && String(r.customerCode || '').trim() === String(rec.customerCode).trim())
+      );
+      for (const mr of matchingRoutes) {
+        if (mr.id) {
+          await updateDoc(doc(db, 'routes', mr.id), { repLocationSaved: false }).catch(() => {});
+        }
+      }
+      setConfirmDeleteShopLocId(null);
+      addToast?.({
+        title: 'تم حذف الموقع',
+        message: `تم حذف الموقع المسجل للمحل (${rec.customerName}) وإعادة تفعيل التحديد له.`,
+        type: 'info',
+      });
+    } catch (err) {
+      console.error('Error deleting saved shop location:', err);
+      addToast?.({ title: 'خطأ', message: 'تعذر حذف سجل موقع المحل.', type: 'info' });
+    }
+  };
+
+  const handleExportShopLocationsExcel = async () => {
+    if (visibleShopLocations.length === 0) return;
+    try {
+      const XLSX = await import('xlsx');
+      const rows = visibleShopLocations.map((rec, idx) => ({
+        'ت': idx + 1,
+        'كود الزبون': rec.customerCode || '',
+        'اسم المحل / الزبون': rec.customerName || '',
+        'النوع': rec.customerType || '',
+        'المسار': rec.path || '',
+        'العنوان': rec.customerAddress || '',
+        'المندوب': rec.delegateName || rec.savedBy || '',
+        'موقع المحل': rec.shopLocation || formatShopLocationString(rec.latitude, rec.longitude),
+        'خط العرض': rec.latitude,
+        'خط الطول': rec.longitude,
+        'دقة GPS (متر)': rec.accuracyMeters ?? '',
+        'تاريخ الحفظ': formatEnglishDateTime(rec.savedAt, rec.dateString),
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!views'] = [{ rightToLeft: true }];
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 14 },
+        { wch: 26 },
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 26 },
+        { wch: 18 },
+        { wch: 24 },
+        { wch: 13 },
+        { wch: 13 },
+        { wch: 14 },
+        { wch: 22 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'مواقع_المحلات');
+      XLSX.writeFile(wb, `مواقع_المحلات_المسجلة_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (err) {
+      console.error('Error exporting shop locations:', err);
+    }
   };
 
   const handleSubmitOtherInfo = async () => {
@@ -2162,6 +3814,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   };
 
   const handleDeleteCustomerNote = async (noteId: string, custName: string) => {
+    if (isDataEntry) return;
     if (!noteId) {
       addToast({ title: 'خطأ', message: 'لم يتم العثور على معرف الملاحظة', type: 'info' });
       return;
@@ -2205,6 +3858,165 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     }
   };
 
+  const handleUploadShopLocationsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || isUploadingLocationsExcel) return;
+
+    setIsUploadingLocationsExcel(true);
+    try {
+      const XLSX = await import('xlsx');
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+
+      if (!jsonData || jsonData.length === 0) {
+        addToast({ title: 'تنبيه', message: 'ملف الإكسل فارغ أو لا يحتوي على بيانات.', type: 'info' });
+        return;
+      }
+
+      const routeByCode = new Map<string, RouteItem>();
+      const routeByName = new Map<string, RouteItem>();
+      routes.forEach((r) => {
+        const code = String(r.customerCode || '').trim();
+        if (code && !routeByCode.has(code)) routeByCode.set(code, r);
+        const normName = normalizeArabic(r.customerName);
+        if (normName && !routeByName.has(normName)) routeByName.set(normName, r);
+      });
+
+      const updates: Array<{ route: RouteItem; latitude: number; longitude: number }> = [];
+
+      const locationMatchers = [
+        'موقع المحل',
+        'الموقع الجغرافي',
+        'احداثيات المحل',
+        'إحداثيات المحل',
+        'الاحداثيات',
+        'الإحداثيات',
+        'رابط الموقع',
+        'موقع gps',
+        'gps',
+        'coordinates',
+        'location',
+        'google maps',
+      ];
+
+      const getLocCell = (row: Record<string, unknown>): string => {
+        const keys = Object.keys(row);
+        for (const m of locationMatchers) {
+          if (row[m] !== undefined && row[m] !== null && String(row[m]).trim() !== '') {
+            return String(row[m]).trim();
+          }
+        }
+        for (const k of keys) {
+          const cleanK = k.trim().toLowerCase();
+          for (const m of locationMatchers) {
+            if (
+              (cleanK === m.toLowerCase() || cleanK.includes(m.toLowerCase())) &&
+              row[k] !== undefined &&
+              row[k] !== null &&
+              String(row[k]).trim() !== ''
+            ) {
+              return String(row[k]).trim();
+            }
+          }
+        }
+        return '';
+      };
+
+      const rawLocCells = jsonData.map((row) => getLocCell(row)).filter(Boolean);
+      const resolvedBatchMap = await resolveShopLocationInputsBatch(rawLocCells);
+
+      jsonData.forEach((row) => {
+        const keys = Object.keys(row);
+        const findColVal = (matchers: string[]): string => {
+          for (const m of matchers) {
+            if (row[m] !== undefined && row[m] !== null && String(row[m]).trim() !== '') {
+              return String(row[m]).trim();
+            }
+          }
+          for (const k of keys) {
+            const cleanK = k.trim().toLowerCase();
+            for (const m of matchers) {
+              if (cleanK === m.toLowerCase() || cleanK.includes(m.toLowerCase())) {
+                if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+                  return String(row[k]).trim();
+                }
+              }
+            }
+          }
+          return '';
+        };
+
+        const code = findColVal(['كود الزبون', 'رمز الزبون', 'كود العميل', 'الكود', 'Customer Code', 'Code']);
+        const name = findColVal(['اسم الزبون', 'الزبون', 'اسم العميل', 'العميل', 'Customer Name', 'Customer']);
+        const locCell = getLocCell(row);
+        const parsed = (locCell && resolvedBatchMap[locCell]) || parseShopLocationString(locCell);
+        const lat = parsed.latitude ?? parseCoordinate(findColVal(['خط العرض', 'latitude', 'lat']));
+        const lng = parsed.longitude ?? parseCoordinate(findColVal(['خط الطول', 'longitude', 'lng', 'lon']));
+
+        if (lat === null || lng === null) return;
+
+        const matchedRoute =
+          (code ? routeByCode.get(code) : undefined) ||
+          (name ? routeByName.get(normalizeArabic(name)) : undefined);
+
+        if (matchedRoute) {
+          updates.push({ route: matchedRoute, latitude: lat, longitude: lng });
+        }
+      });
+
+      if (updates.length === 0) {
+        addToast({
+          title: 'لم يتم العثور على مواقع مطابقة',
+          message: 'تأكد من وجود عمود "كود الزبون" وعمود "موقع المحل" بإحداثيات (34.615800, 43.678600) أو رابط خرائط كوكل.',
+          type: 'info',
+        });
+        return;
+      }
+
+      const updatedCount = await bulkUpdateRouteLocations(updates, currentUser?.name || 'الأدمن');
+      addToast({
+        title: 'تم تحديث مواقع المحلات 📍✅',
+        message: `تم تحديث موقع (${updatedCount}) محل بنجاح من ملف الإكسل دون حذف المسارات.`,
+        type: 'success',
+        delegateName: currentUser?.name || '',
+      });
+    } catch (err) {
+      console.error('Error uploading shop locations Excel:', err);
+      addToast({ title: 'خطأ', message: 'حدث خطأ أثناء قراءة ملف مواقع المحلات.', type: 'info' });
+    } finally {
+      setIsUploadingLocationsExcel(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleSaveInlineLocation = async (route: RouteItem) => {
+    setIsSavingInlineLocation(true);
+    const parsed = await resolveShopLocationInput(editingLocationInput);
+    if (parsed.latitude === null || parsed.longitude === null) {
+      setIsSavingInlineLocation(false);
+      addToast({
+        title: 'تنبيه',
+        message: 'يرجى إدخال الإحداثيات بصيغة صحيحة (مثال: 34.6158, 43.6786) أو رابط خرائط كوكل (مثل maps.app.goo.gl).',
+        type: 'info',
+      });
+      return;
+    }
+    const res = await saveCustomerCoordinates(route, parsed.latitude, parsed.longitude, currentUser?.name || 'الأدمن');
+    setIsSavingInlineLocation(false);
+    addToast({
+      title: res.success ? 'تم حفظ الموقع 📍' : 'خطأ',
+      message: res.message,
+      type: res.success ? 'success' : 'info',
+    });
+    if (res.success) {
+      setEditingLocationRouteId(null);
+      setEditingLocationInput('');
+    }
+  };
+
   const handleDownloadFilteredRoutes = async () => {
     try {
       const XLSX = await import('xlsx');
@@ -2229,6 +4041,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           'اسم الزبون': r.customerName || '',
           'رقم الزبون': phone || '',
           'العنوان': r.customerAddress || '',
+          'موقع المحل': r.shopLocation || formatShopLocationString(r.latitude, r.longitude),
           'المسار': r.path || '',
           'نوع الزبون': r.customerType || 'مفرد',
           'اسم المندوب': r.delegateName || '',
@@ -2243,6 +4056,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         { wch: 28 }, // اسم الزبون
         { wch: 18 }, // رقم الزبون
         { wch: 28 }, // العنوان
+        { wch: 26 }, // موقع المحل
         { wch: 16 }, // المسار
         { wch: 12 }, // نوع الزبون
         { wch: 20 }, // اسم المندوب
@@ -2260,7 +4074,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       XLSX.writeFile(workbook, filename);
 
       addToast({
-        message: `تم تحميل ملف المسارات (${exportList.length} زبون) بنجاح 📥✅`,
+        message: `تم تحميل ملف المسارات (${exportList.length} زبون) مع عمود موقع المحل بنجاح 📥✅`,
         type: 'success',
         title: 'تحميل المسارات',
         delegateName: currentUser?.name || '',
@@ -2287,6 +4101,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           'اسم الزبون': 'اسواق ابو بلال',
           'رقم الزبون': '07719836783',
           'العنوان': 'العلم مدخل الخزامية',
+          'موقع المحل': '34.615800, 43.678600',
           'المسار': 'السبت',
           'نوع الزبون': 'مفرد',
           'اسم المندوب': 'محمد جاسم',
@@ -2297,6 +4112,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           'اسم الزبون': 'اسواق السلام',
           'رقم الزبون': '07701234567',
           'العنوان': 'تكريت حي الزهور',
+          'موقع المحل': '34.608500, 43.675200',
           'المسار': 'الاحد',
           'نوع الزبون': 'جملة',
           'اسم المندوب': 'فيصل فؤاد',
@@ -2310,6 +4126,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         { wch: 28 },
         { wch: 18 },
         { wch: 28 },
+        { wch: 26 }, // موقع المحل
         { wch: 16 },
         { wch: 12 },
         { wch: 20 },
@@ -2318,10 +4135,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "نموذج_مسارات");
-      XLSX.writeFile(workbook, "نموذج_مسارات_مع_رقم_الزبون.xlsx");
+      XLSX.writeFile(workbook, "نموذج_مسارات_ومواقع_المحلات.xlsx");
 
       addToast({
-        message: 'تم تحميل نموذج المسارات (مع عمود رقم الزبون مجاور اسم الزبون) بنجاح 📋✅',
+        message: 'تم تحميل نموذج المسارات (شامل عمود موقع المحل) بنجاح 📋✅',
         type: 'success',
         title: 'نموذج المسارات',
         delegateName: currentUser?.name || '',
@@ -2339,19 +4156,138 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
         <h2 className="text-emerald-800 dark:text-emerald-200 font-black text-xl">المسارات</h2>
         
-        {/* Damaged Products (منتجات تالفة) Button - navigates to QC tab */}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('qc');
-          }}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm shadow-md shadow-rose-600/20 active:scale-95 transition-all cursor-pointer"
-          title="الانتقال إلى صفحة منتجات تالفة (QC)"
-        >
-          <AlertTriangle className="w-4 h-4" />
-          <span>منتجات تالفة (QC)</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {(currentUser?.isAdmin || isDataEntry || isFieldRep) && (
+            <button
+              type="button"
+              onClick={() => setShowFleetMap((v) => !v)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer ${
+                showFleetMap
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700'
+              }`}
+              title={currentUser?.isAdmin ? "خريطة مسارات المندوبين لمحافظة صلاح الدين" : "خريطة مسار ومحلات محافظة صلاح الدين"}
+            >
+              <Navigation className="w-4 h-4" />
+              <span>{showFleetMap ? 'إخفاء خريطة صلاح الدين' : (currentUser?.isAdmin ? 'خريطة المندوبين' : 'خريطة مسار اليوم')}</span>
+            </button>
+          )}
+
+          {/* Damaged Products (منتجات تالفة) Button - navigates to QC tab */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('qc');
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm shadow-md shadow-rose-600/20 active:scale-95 transition-all cursor-pointer"
+            title="الانتقال إلى صفحة منتجات تالفة (QC)"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span>منتجات تالفة (QC)</span>
+          </button>
+
+          {/* New Customer Definition (تعريف جديد) Button */}
+          <button
+            type="button"
+            onClick={() => setShowNewCustomerDefModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer"
+            title="إرسال طلب تعريف محل جديد إلى الأدمن"
+          >
+            <Store className="w-4 h-4" />
+            <span>تعريف جديد</span>
+          </button>
+        </div>
       </div>
+
+      {/* Live Tracking Status Badge (Completion is controlled from Reports page) */}
+      {isFieldRep && (
+        <div
+          className={`p-3 rounded-2xl border shadow-sm flex flex-wrap items-center justify-between gap-3 ${
+            isCompleted
+              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-200'
+              : repGpsStatus === 'denied'
+              ? 'bg-amber-500/15 border-amber-500/50 text-amber-950 dark:text-amber-100'
+              : 'bg-gradient-to-r from-rose-500/10 via-amber-500/10 to-rose-500/10 border-rose-500/30 text-slate-900 dark:text-white'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm font-black">
+            {isCompleted ? (
+              <>
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>اكتملت مبيعات اليوم بنجاح — شكراً لجهودكم وتمنياتنا لكم بالتوفيق ✅</span>
+              </>
+            ) : repGpsStatus === 'denied' ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>تم رفض إذن الموقع (GPS) — يرجى السماح بالوصول للموقع من إعدادات المتصفح لتأكيد الوصول للمحلات وتحديث المسار</span>
+              </>
+            ) : (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0"></span>
+                <span>تحديد الموقع نشط لتأكيد زيارة المحلات وتحديث المسار اليومي</span>
+              </>
+            )}
+          </div>
+          {!isCompleted && repGpsStatus === 'denied' && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT))}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-sm cursor-pointer transition-colors"
+            >
+              تفعيل الموقع
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Admin Live Fleet Tracking & Saladin Governorate Map */}
+      {(currentUser?.isAdmin || isDataEntry) && showFleetMap && (
+        <SaladinFleetMap
+          routes={enrichedRoutes}
+          salesEntries={allSalesEntries}
+          unsuccessfulVisits={unsuccessfulVisits}
+          isDarkMode={isDarkMode}
+          canEditCoordinates={isStrictAdmin}
+          canManageGeofence={isStrictAdmin}
+          selectedDayFilter={routeFilterDay}
+          selectedDelegateFilter={routeFilterDelegate}
+          onSelectCustomerAction={(route) => setCustomerVisitModalRoute(route)}
+          canCreateInvoiceForRoute={(route) => canCreateInvoiceOnMap(route)}
+          onNotify={(msg) =>
+            addToast?.({
+              title: 'خريطة صلاح الدين',
+              message: msg,
+              type: 'success',
+            })
+          }
+        />
+      )}
+
+      {/* Representative Live Route & Saladin Governorate Map (Positioned at top of Routes page) */}
+      {isFieldRep && !currentUser?.isAdmin && !isDataEntry && showFleetMap && (
+        <SaladinFleetMap
+          routes={enrichedRoutes}
+          salesEntries={allSalesEntries}
+          unsuccessfulVisits={unsuccessfulVisits}
+          isDarkMode={isDarkMode}
+          canEditCoordinates={false}
+          repViewOnly={true}
+          restrictRepId={getRepTrackingId(currentUser)}
+          restrictRepName={currentUser?.name || currentUser?.delegateName || ''}
+          restrictDelegateCode={currentUser?.delegateCode || effectiveDelegateCode || ''}
+          restrictUsername={currentUser?.username || ''}
+          restrictDay={currentDay}
+          onSelectCustomerAction={(route) => handleOpenVisitModalFromMap(route)}
+          canCreateInvoiceForRoute={(route) => canCreateInvoiceOnMap(route)}
+          onNotify={(msg) =>
+            addToast?.({
+              title: 'خريطة صلاح الدين',
+              message: msg,
+              type: 'success',
+            })
+          }
+        />
+      )}
       
       {/* Active Route Day Notice / Indicator */}
       {(!currentUser?.isAdmin && !isDataEntry) && (
@@ -2380,25 +4316,84 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       {/* Dashboard Widget */}
       {(() => {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0];
         const scheduledToday = filteredRoutes.length;
         const invoicesToday = new Set(salesEntries.filter(e => e.dateString === todayStr).map(e => e.customerCode)).size;
+        const remainingToday = filteredRoutes.filter(r => !getCustomerSalesSummary(r)?.visitedToday).length;
 
         return (
-            <div className={`grid grid-cols-2 gap-4 p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className={`grid grid-cols-3 gap-2 sm:gap-4 p-3 sm:p-4 rounded-xl border shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                 <div className="text-center">
                     <div className="text-[10px] font-bold text-slate-500 mb-1">
                       {routeDayInfo.isPast6PM && !currentUser?.isAdmin && !isDataEntry ? `زبائن مسار ${currentDay}` : 'زبائن اليوم'}
                     </div>
-                    <div className="text-lg font-black text-slate-900 dark:text-white">{scheduledToday}</div>
+                    <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white">{scheduledToday}</div>
+                </div>
+                <div className="text-center border-x border-slate-200 dark:border-slate-700 px-1">
+                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">فواتير اليوم</div>
+                    <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400">{invoicesToday}</div>
                 </div>
                 <div className="text-center">
-                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">فواتير اليوم</div>
-                    <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">{invoicesToday}</div>
+                    <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mb-1">المتبقي اليوم</div>
+                    <div className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">{remainingToday}</div>
                 </div>
             </div>
         );
       })()}
+
+      {/* Per-Delegate Today Breakdown (Admin / Data Entry View) */}
+      {(currentUser?.isAdmin || isDataEntry) && delegateTodayBreakdown.length > 0 && (
+        <div className={`p-4 rounded-2xl border shadow-sm space-y-3 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <h4 className="font-black text-xs sm:text-sm text-slate-800 dark:text-slate-200 flex items-center justify-between">
+            <span>إحصائيات المناديب اليوم ({currentDay})</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
+              {delegateTodayBreakdown.length} مندوب نشط
+            </span>
+          </h4>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-right text-[11px] sm:text-xs whitespace-nowrap">
+              <thead className={`font-black ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                <tr>
+                  <th className="px-3 py-2 border-b dark:border-slate-700">اسم المندوب</th>
+                  <th className="px-3 py-2 border-b dark:border-slate-700 text-center">زبائن اليوم</th>
+                  <th className="px-3 py-2 border-b dark:border-slate-700 text-center">فواتير اليوم</th>
+                  <th className="px-3 py-2 border-b dark:border-slate-700 text-center">المتبقي اليوم</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-700 bg-slate-800/60 text-slate-200' : 'divide-slate-200 bg-white text-slate-800'}`}>
+                {delegateTodayBreakdown.map((d, idx) => (
+                  <tr key={`del-breakdown-${idx}`} className={`hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} transition-colors`}>
+                    <td className="px-3 py-2 font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span>{d.name}</span>
+                    </td>
+                    <td className="px-3 py-2 font-black text-center font-mono">{d.scheduledToday}</td>
+                    <td className="px-3 py-2 font-black text-center font-mono text-emerald-600 dark:text-emerald-400">{d.invoicesToday}</td>
+                    <td className="px-3 py-2 font-black text-center font-mono text-amber-600 dark:text-amber-400">{d.remainingToday}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className={`font-black border-t-2 ${isDarkMode ? 'border-slate-700 bg-slate-900/90 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-900'}`}>
+                <tr>
+                  <td className="px-3 py-2.5 font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                    <span>المجموع ({delegateTodayBreakdown.length} مندوب)</span>
+                  </td>
+                  <td className="px-3 py-2.5 font-black text-center font-mono text-xs sm:text-sm text-slate-900 dark:text-white">
+                    {delegateTodayBreakdown.reduce((sum, d) => sum + (d.scheduledToday || 0), 0)}
+                  </td>
+                  <td className="px-3 py-2.5 font-black text-center font-mono text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
+                    {delegateTodayBreakdown.reduce((sum, d) => sum + (d.invoicesToday || 0), 0)}
+                  </td>
+                  <td className="px-3 py-2.5 font-black text-center font-mono text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                    {delegateTodayBreakdown.reduce((sum, d) => sum + (d.remainingToday || 0), 0)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
       
       {/* Search and Option Pill Filters */}
       <div className={`p-3 sm:p-4 rounded-2xl border space-y-3 shadow-xs ${isDarkMode ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -2656,15 +4651,12 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   </tr>
                   {dayRoutes.map(r => {
                     const cCode = String(r.customerCode ?? '').trim();
-                    const summary = customerSalesSummaryMap.get(cCode);
-                    const hasOrderIn12Hours = summary?.hasOrderIn12Hours || false;
+                    const summary = getCustomerSalesSummary(r);
+                    const visitedBySale = Boolean(summary?.visitedToday);
+                    const unsuccessfulToday = !visitedBySale && isRouteUnsuccessfulToday(r);
                     const totalWeightToday = summary?.totalWeightToday || 0;
                     
                     const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
-                    const isSearching = searchQuery.trim().length > 0;
-                    const isHidden = !isSearching && !isPrivilegedUser && hasOrderIn12Hours;
-                    
-                    if (isHidden) return null;
 
                     const hasDebt = customerDebtsSet.has(cCode);
                     const isUnlockedForOrder = Boolean(
@@ -2679,7 +4671,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       <tr 
                         key={r.id} 
                         onClick={() => handleRowClick(r)}
-                        className={`cursor-pointer transition-all ${hasOrderIn12Hours ? (isDarkMode ? 'bg-emerald-900/80' : 'bg-emerald-200') : selectedRowId === r.id ? 'bg-red-100 font-black' : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}`}
+                        className={`cursor-pointer transition-all ${
+                          visitedBySale
+                            ? (isDarkMode ? 'bg-emerald-950/50' : 'bg-emerald-50/90')
+                            : unsuccessfulToday
+                            ? (isDarkMode ? 'bg-amber-950/40' : 'bg-amber-50/90')
+                            : selectedRowId === r.id
+                            ? 'bg-red-100 font-black'
+                            : `hover:${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`
+                        }`}
                       >
                         <td className={`px-2 py-1.5 ${selectedRowId === r.id ? 'text-red-700 font-black' : ''}`}>
                           <div className="flex items-center justify-between gap-2">
@@ -2694,7 +4694,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                                     ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs'
                                     : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600'
                                 }`}
-                                title={hasDebt && isUnlockedForOrder ? "طلب جديد (تم فتح الطلب استثناءً رغم وجود الدين)" : "طلب جديد / تسجيل ملاحظة"}
+                                title={hasDebt && isUnlockedForOrder ? "إنشاء فاتورة (تم فتح الطلب استثناءً رغم وجود الدين)" : "إنشاء فاتورة / تسجيل ملاحظة"}
                               >
                                 <ShoppingBag className="w-4 h-4" />
                                 {hasDebt && isUnlockedForOrder && (
@@ -2705,7 +4705,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                               {hasDebt && !isUnlockedForOrder && !currentUser?.isAdmin && !isDataEntry && (
                                 <span 
                                   className="text-[9px] font-black bg-rose-500/20 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-500/30 shrink-0"
-                                  title="مغلق لوجود دين - يمكنك النقر على الزر وتسجيل معلومات أخرى"
+                                  title="مغلق لوجود دين - يمكنك النقر على الزر وتسجيل ملاحظات"
                                 >
                                   دين مستحق
                                 </span>
@@ -2722,6 +4722,31 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                         <td className="px-2 py-1.5 font-bold">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-slate-900 dark:text-white font-black">{r.customerName}</span>
+                            {visitedBySale ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-2xs shrink-0"
+                                title="تمت الزيارة وتسجيل فاتورة بيع لهذا المحل"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>تمت</span>
+                              </span>
+                            ) : unsuccessfulToday ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 border border-amber-500 shadow-2xs shrink-0"
+                                title="تم توثيق زيارة غير ناجحة لهذا المحل اليوم"
+                              >
+                                <AlertTriangle className="w-3 h-3" />
+                                <span>زيارة غير ناجحة</span>
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
+                                title="لم تتم زيارة هذا المحل بفاتورة بيع حتى الآن"
+                              >
+                                <Circle className="w-2.5 h-2.5 fill-rose-500 text-rose-500" />
+                                <span>لم تتم</span>
+                              </span>
+                            )}
                             {customerNotesCountMap.has(cCode) && (
                               <span
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shrink-0"
@@ -2812,7 +4837,22 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
 
 
-      {/* Summary Card removed */}
+      {/* End-of-Day Route Visit Summary & Hourly Chart Report */}
+      <EndOfDayRouteReport
+        routes={routes}
+        salesEntries={allSalesEntries}
+        customerNotes={customerNotes}
+        manualVisits={manualVisits}
+        currentDay={currentDay}
+        delegateName={currentUser?.name || currentUser?.delegateName}
+        delegateCode={currentUser?.delegateCode || effectiveDelegateCode}
+        username={currentUser?.username}
+        isPrivilegedUser={Boolean(currentUser?.isAdmin || isDataEntry)}
+        selectedDelegateFilter={routeFilterDelegate}
+        selectedDayFilter={routeFilterDay}
+        isCompletedToday={isCompleted}
+        isDarkMode={isDarkMode}
+      />
 
       {/* Debts Table rendered first */}
       <div className="mt-8">
@@ -3348,9 +5388,13 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
                 <span>ملاحظات ومعلومات المحلات من المندوبين</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-xs">
-                  {currentUser?.isAdmin || isDataEntry ? 'جميع الملاحظات (أدمن)' : 'ملاحظاتي فقط (مندوب)'}
+                  {isStrictAdmin
+                    ? 'جميع الملاحظات (أدمن)'
+                    : isDataEntry
+                    ? 'جميع الملاحظات'
+                    : 'ملاحظاتي فقط (مندوب)'}
                 </span>
-                {(currentUser?.isAdmin || isDataEntry) && (
+                {(isStrictAdmin || isDataEntry) && (
                   <button
                     onClick={handleExportNotesCSV}
                     className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-black bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-xs cursor-pointer transition-colors"
@@ -3361,8 +5405,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 )}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-                {currentUser?.isAdmin || isDataEntry 
-                  ? 'متابعة ملاحظات المحلات، واتخاذ الإجراءات والموافقات عليها ليراها المندوب مباشرة.' 
+                {isStrictAdmin
+                  ? 'متابعة ملاحظات المحلات، واتخاذ الإجراءات والموافقات عليها ليراها المندوب مباشرة.'
+                  : isDataEntry
+                  ? 'عرض ومتابعة ملاحظات ومعلومات المحلات من جميع المندوبين.'
                   : 'ملاحظاتك المسجلة للمحلات مع بيان الإجراءات والموافقات المتخذة من الإدارة.'}
               </p>
             </div>
@@ -3445,144 +5491,827 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </button>
         </div>
 
-        {/* Notes Cards List */}
+        {/* Delegate Name Filter Buttons (Admin & Data Entry) */}
+        {(currentUser?.isAdmin || isDataEntry) && notesDelegateOptions.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <div className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>فلترة حسب المندوب:</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setNotesDelegateFilter('')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                  !notesDelegateFilter
+                    ? 'bg-blue-600 text-white shadow-blue-600/25'
+                    : isDarkMode
+                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <span>كل المندوبين</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                  !notesDelegateFilter ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                }`}>
+                  {customerNotes.length}
+                </span>
+              </button>
+
+              {notesDelegateOptions.map((del) => {
+                const isSelected = normalizeArabic(notesDelegateFilter) === normalizeArabic(del.name);
+                return (
+                  <button
+                    key={del.name}
+                    type="button"
+                    onClick={() => setNotesDelegateFilter(isSelected ? '' : del.name)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-blue-600/25'
+                        : isDarkMode
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        : 'bg-white text-slate-700 hover:bg-blue-50 border border-slate-200'
+                    }`}
+                  >
+                    <span>{del.name}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {del.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Notes Table */}
         {visibleCustomerNotes.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+          <div className="text-center py-6 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
             لا توجد ملاحظات مطابقة للتصفية الحالية.
           </div>
         ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs">
+            <table className="w-full text-[11px] sm:text-xs text-right">
+              <thead className={`font-black text-[10px] sm:text-[11px] border-b ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                <tr>
+                  <th className="px-2.5 py-2 whitespace-nowrap">الزبون</th>
+                  <th className="px-2 py-2 whitespace-nowrap">النوع</th>
+                  <th className="px-2.5 py-2 min-w-[140px]">الملاحظة</th>
+                  <th className="px-2 py-2 whitespace-nowrap">المندوب / التاريخ</th>
+                  <th className="px-2.5 py-2 min-w-[170px]">حالة وإجراء الإدارة</th>
+                  {!isDataEntry && <th className="px-2 py-2 whitespace-nowrap text-center">إجراءات</th>}
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800 text-slate-200' : 'divide-slate-200 text-slate-800'}`}>
+                {visibleCustomerNotes.slice(0, notesVisibleLimit).map((note) => {
+                  const canDelete = Boolean(
+                    !isDataEntry && (
+                      isStrictAdmin ||
+                      normalizeArabic(note.delegateName) === normalizeArabic(currentUser?.name || currentUser?.delegateName)
+                    )
+                  );
+
+                  return (
+                    <tr
+                      key={note.id || `note-${note.timestamp}`}
+                      className={`transition-colors align-top ${
+                        note.adminActionTaken
+                          ? isDarkMode
+                            ? 'bg-emerald-900/45 hover:bg-emerald-900/65 text-emerald-50'
+                            : 'bg-emerald-100 hover:bg-emerald-200/75 text-emerald-950'
+                          : isDarkMode
+                          ? 'bg-amber-950/15 hover:bg-slate-800/70'
+                          : 'bg-amber-50/35 hover:bg-amber-50/70'
+                      }`}
+                    >
+                      {/* Customer Name, Code, Address */}
+                      <td className="px-2.5 py-2 min-w-[140px] max-w-[210px]">
+                        <div className="font-black text-slate-900 dark:text-white leading-tight">
+                          {note.customerName}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 leading-snug">
+                          {note.customerCode ? `${note.customerCode}` : ''}
+                          {note.customerCode && note.customerAddress ? ' • ' : ''}
+                          {note.customerAddress ? (
+                            <span className="font-sans">{note.customerAddress}</span>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      {/* Selected Option */}
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
+                          {note.selectedOption}
+                        </span>
+                      </td>
+
+                      {/* Note Text */}
+                      <td className="px-2.5 py-2 max-w-[220px]">
+                        {note.notes ? (
+                          <p className="text-[11px] font-bold text-slate-700 dark:text-slate-100 leading-snug whitespace-pre-wrap break-words">
+                            {note.notes}
+                          </p>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">-</span>
+                        )}
+                      </td>
+
+                      {/* Delegate & Date */}
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1 text-[11px]">
+                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{note.delegateName || 'مندوب'}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-500 dark:text-slate-400 font-mono mt-0.5" dir="ltr">
+                          {formatEnglishDateTime(note.createdAt || note.timestamp, note.dateString || '')}
+                        </div>
+                      </td>
+
+                      {/* Admin Status & Action Details */}
+                      <td className="px-2.5 py-2 min-w-[170px] max-w-[250px]">
+                        {note.adminActionTaken ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black bg-emerald-600 text-white">
+                                <ShieldCheck className="w-3 h-3 shrink-0" />
+                                <span>معتمد ومكتمل ✅</span>
+                              </span>
+                              <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400">
+                                {note.adminActionBy || 'الادمن'}
+                              </span>
+                            </div>
+                            {note.adminActionDetails && (
+                              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 bg-white/90 dark:bg-slate-800/80 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-800/60 leading-snug whitespace-pre-wrap">
+                                {note.adminActionDetails}
+                              </div>
+                            )}
+                            {note.adminActionAt && (
+                              <div className="text-[9px] font-mono text-emerald-700/80 dark:text-emerald-400/80" dir="ltr">
+                                {formatEnglishDateTime(note.adminActionAt)}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                            <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span>قيد الانتظار ⏳</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      {!isDataEntry && (
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            {isStrictAdmin && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAdminActionModal(note)}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer active:scale-95 ${
+                                    note.adminActionTaken
+                                      ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+                                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs'
+                                  }`}
+                                  title={note.adminActionTaken ? 'تعديل الإجراء المتخذ' : 'اتخاذ إجراء وموافقة'}
+                                >
+                                  <ShieldCheck className="w-3 h-3 shrink-0" />
+                                  <span>{note.adminActionTaken ? 'تعديل' : 'إجراء'}</span>
+                                </button>
+
+                                {note.adminActionTaken && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevertAdminAction(note)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                    title="تراجع عن الإجراء وإعادته لقيد الانتظار"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+
+                            {canDelete && note.id && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCustomerNote(note.id!, note.customerName)}
+                                className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
+                                title="حذف الملاحظة"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {visibleCustomerNotes.length > 10 && (
+              <div className="p-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 flex-wrap bg-slate-50/70 dark:bg-slate-900/80">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  يتم عرض {Math.min(notesVisibleLimit, visibleCustomerNotes.length)} من أصل {visibleCustomerNotes.length} ملاحظة
+                </span>
+                {notesVisibleLimit < visibleCustomerNotes.length ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setNotesVisibleLimit((prev) => prev + 10)}
+                      className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black shadow-xs transition-colors cursor-pointer"
+                    >
+                      عرض المزيد (+{Math.min(10, visibleCustomerNotes.length - notesVisibleLimit)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNotesVisibleLimit(visibleCustomerNotes.length)}
+                      className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      عرض الكل ({visibleCustomerNotes.length})
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setNotesVisibleLimit(10)}
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    تقليص إلى أول 10 ملاحظات
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Admin Only: Download & Upload Routes Section with Shop Details & Locations */}
+      {isStrictAdmin && (() => {
+        const mappedShopsCount = filteredRoutes.filter(
+          (r) => parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null
+        ).length;
+        const unmappedShopsCount = filteredRoutes.length - mappedShopsCount;
+
+        const excelTableRoutes = filteredRoutes.filter((r) => {
+          const hasLoc = parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null;
+          if (excelLocFilter === 'mapped' && !hasLoc) return false;
+          if (excelLocFilter === 'unmapped' && hasLoc) return false;
+
+          if (excelSearch.trim()) {
+            const q = normalizeArabic(excelSearch);
+            const hay = [
+              normalizeArabic(r.customerCode),
+              normalizeArabic(r.customerName),
+              normalizeArabic(r.customerAddress),
+              normalizeArabic(r.delegateName),
+              normalizeArabic(getEffectiveRouteDay(r)),
+            ].join(' ');
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        const visibleExcelRoutes = excelTableRoutes.slice(0, excelDisplayLimit);
+
+        return (
+          <div
+            className={`mt-6 p-3.5 sm:p-5 rounded-2xl border shadow-sm space-y-4 ${
+              isDarkMode
+                ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60 text-white'
+                : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200 text-slate-900'
+            }`}
+          >
+            {/* Header & Excel Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-black flex items-center gap-2 flex-wrap">
+                    <span>إدارة ملفات المسارات (Excel) ومواقع المحلات</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs">
+                      للأدمن فقط
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold truncate">
+                    المسارات المفلترة: {routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({filteredRoutes.length} محل | محدد الموقع: {mappedShopsCount} • بدون موقع: {unmappedShopsCount})
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadFilteredRoutes}
+                  className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black"
+                  title={`تحميل المسارات مع عمود موقع المحل (${filteredRoutes.length} زبون)`}
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>تصدير Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadRoutesTemplate}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-300 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs font-black"
+                  title="تحميل نموذج إكسل شامل عمود موقع المحل"
+                >
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span>نموذج Excel</span>
+                </button>
+
+                <label
+                  className={`px-3 py-2 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white rounded-xl shadow-md shadow-sky-600/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black ${
+                    isUploadingLocationsExcel ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                  title="رفع ملف إكسل لتحديث عمود (موقع المحل) للزبائن الحاليين فقط دون استبدال المسارات"
+                >
+                  <MapPin className="w-4 h-4 shrink-0" />
+                  <span>{isUploadingLocationsExcel ? 'جاري التحديث...' : 'رفع مواقع المحلات فقط'}</span>
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={handleUploadShopLocationsExcel}
+                    className="hidden"
+                  />
+                </label>
+
+                <label
+                  className="px-3 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black"
+                  title="رفع واستبدال المسارات كاملة من ملف إكسل (يدعم عمود موقع المحل)"
+                >
+                  <Upload className="w-4 h-4 shrink-0" />
+                  <span>رفع مسارات كاملة</span>
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={handleUploadRoutes}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Guide Note for 'موقع المحل' Excel Column */}
+            <div
+              className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
+                isDarkMode
+                  ? 'bg-slate-800/70 border-slate-700 text-slate-300'
+                  : 'bg-white border-emerald-200 text-slate-700'
+              }`}
+            >
+              <MapPin className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>
+                يحتوي ملف التصدير والنموذج على عمود <strong className="text-emerald-700 dark:text-emerald-300 font-black">«موقع المحل»</strong> (يدعم الإحداثيات مثل <span className="font-mono" dir="ltr">34.615800, 43.678600</span> أو أي رابط خرائط كوكل مثل <span className="font-mono" dir="ltr">https://maps.app.goo.gl/...</span> أو عمودي <span className="font-black">خط العرض / خط الطول</span>).
+              </span>
+            </div>
+
+            {/* Filter & Search inside Excel Manager */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { id: 'all' as const, label: `الكل (${filteredRoutes.length})` },
+                  { id: 'mapped' as const, label: `محدد الموقع 📍 (${mappedShopsCount})` },
+                  { id: 'unmapped' as const, label: `بدون موقع (${unmappedShopsCount})` },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setExcelLocFilter(opt.id);
+                      setExcelDisplayLimit(30);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                      excelLocFilter === opt.id
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : isDarkMode
+                        ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative flex-1 min-w-[200px] max-w-xs">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  value={excelSearch}
+                  onChange={(e) => {
+                    setExcelSearch(e.target.value);
+                    setExcelDisplayLimit(30);
+                  }}
+                  placeholder="بحث سريع داخل جدول المواقع..."
+                  className={`w-full pr-8 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-700 text-white'
+                      : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Shop Information & Location Table (أمام كل محل) */}
+            <div className="overflow-x-auto max-h-[420px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-[11px] sm:text-xs text-right">
+                <thead
+                  className={`sticky top-0 z-10 font-black ${
+                    isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'
+                  }`}
+                >
+                  <tr>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 whitespace-nowrap">#</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 whitespace-nowrap">كود الزبون</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 min-w-[140px]">اسم المحل والهاتف</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 min-w-[120px]">العنوان</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 whitespace-nowrap">المسار / النوع</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 whitespace-nowrap">المندوب</th>
+                    <th className="px-2.5 py-2.5 border-b dark:border-slate-700 min-w-[210px]">موقع المحل (GPS)</th>
+                  </tr>
+                </thead>
+                <tbody
+                  className={`divide-y ${
+                    isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-200' : 'divide-slate-200 bg-white text-slate-800'
+                  }`}
+                >
+                  {visibleExcelRoutes.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-6 text-slate-500 font-bold">
+                        لا توجد محلات مطابقة للعرض الحالي.
+                      </td>
+                    </tr>
+                  ) : (
+                    visibleExcelRoutes.map((r, idx) => {
+                      const phone = getCustomerPhone(r);
+                      const locString = r.shopLocation || formatShopLocationString(r.latitude, r.longitude);
+                      const isEditing = editingLocationRouteId === r.id;
+
+                      return (
+                        <tr
+                          key={r.id || `${r.customerCode}_${idx}`}
+                          className={`transition-colors ${
+                            isDarkMode ? 'hover:bg-slate-800/70' : 'hover:bg-emerald-50/40'
+                          }`}
+                        >
+                          <td className="px-2.5 py-2 font-mono text-[10px] text-slate-500">{idx + 1}</td>
+                          <td className="px-2.5 py-2 font-mono font-bold whitespace-nowrap">{r.customerCode}</td>
+                          <td className="px-2.5 py-2">
+                            <div className="font-black text-slate-900 dark:text-white">{r.customerName}</div>
+                            {phone && (
+                              <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400" dir="ltr">
+                                {phone}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2.5 py-2 text-slate-600 dark:text-slate-300 max-w-[160px] truncate" title={r.customerAddress}>
+                            {r.customerAddress || '-'}
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            <span className="font-bold">{getEffectiveRouteDay(r)}</span>
+                            <span className="mx-1 text-slate-400">•</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold">
+                              {r.customerType}
+                            </span>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap font-bold">{r.delegateName || '-'}</td>
+                          <td className="px-2.5 py-2">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  dir="ltr"
+                                  value={editingLocationInput}
+                                  onChange={(e) => setEditingLocationInput(e.target.value)}
+                                  placeholder="إحداثيات أو رابط خرائط"
+                                  className={`w-36 px-2 py-1 rounded-lg border text-[11px] font-mono ${
+                                    isDarkMode
+                                      ? 'bg-slate-800 border-emerald-500 text-white'
+                                      : 'bg-white border-emerald-500 text-slate-900'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isSavingInlineLocation}
+                                  onClick={() => handleSaveInlineLocation(r)}
+                                  className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-50"
+                                  title="حفظ الموقع"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingLocationRouteId(null);
+                                    setEditingLocationInput('');
+                                  }}
+                                  className="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
+                                  title="إلغاء"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-1.5">
+                                {locString ? (
+                                  <div className="inline-flex items-center gap-1 min-w-0">
+                                    <span
+                                      dir="ltr"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-mono text-[10px] font-black select-all"
+                                      title="إحداثيات موقع المحل"
+                                    >
+                                      <MapPin className="w-3 h-3 shrink-0" />
+                                      <span>{locString}</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyCoords(`route_${r.id}`, locString)}
+                                      className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer shrink-0"
+                                      title="نسخ الإحداثيات"
+                                    >
+                                      {copiedCoordKey === `route_${r.id}` ? (
+                                        <Check className="w-3 h-3 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[10px] font-bold">
+                                    غير محدد
+                                  </span>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingLocationRouteId(r.id);
+                                    setEditingLocationInput(locString);
+                                  }}
+                                  className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 cursor-pointer shrink-0"
+                                  title="إضافة أو تعديل موقع المحل يدوياً"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {excelTableRoutes.length > excelDisplayLimit && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExcelDisplayLimit((prev) => prev + 40)}
+                  className="flex-1 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 font-black text-xs transition-colors cursor-pointer"
+                >
+                  عرض المزيد ({excelTableRoutes.length - excelDisplayLimit} محل متبقي)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExcelDisplayLimit(excelTableRoutes.length)}
+                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black text-xs transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  عرض الكل ({excelTableRoutes.length})
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* New Section at the Bottom of Routes Page: Representative Saved Shop Locations (موقع المحل) */}
+      <div
+        className={`mt-6 p-4 sm:p-5 rounded-2xl border shadow-md space-y-4 ${
+          isDarkMode
+            ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-teal-800/60'
+            : 'bg-gradient-to-br from-teal-50/80 via-white to-slate-50 border-teal-200'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-teal-100 dark:border-slate-700/80">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-teal-600 text-white shadow-md shadow-teal-600/30 shrink-0">
+              <MapPin className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                <span>مواقع المحلات المحفوظة (موقع المحل)</span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-600 text-white shadow-xs">
+                  {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
+                    ? `جميع المواقع لكل المندوبين (${visibleShopLocations.length})`
+                    : `محلاتي فقط (${visibleShopLocations.length})`}
+                </span>
+                {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate' && visibleShopLocations.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleExportShopLocationsExcel}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-black bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>تصدير Excel</span>
+                  </button>
+                )}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
+                  ? 'جميع مواقع المحلات التي حددها المندوبون عبر نافذة «إجراء على المحل».'
+                  : 'مواقع محلاتك المحفوظة فقط عبر نافذة «إجراء على المحل».'}
+              </p>
+            </div>
+          </div>
+
+          <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
+            {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate' && (
+              <select
+                value={shopLocationsDelegateFilter}
+                onChange={(e) => setShopLocationsDelegateFilter(e.target.value)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold ${
+                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                }`}
+              >
+                <option value="">جميع المناديب</option>
+                {shopLocationsDelegateOptions.map((del) => (
+                  <option key={del} value={del}>
+                    {del}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <div className="w-full sm:w-64 relative">
+              <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={shopLocationsSearchQuery}
+                onChange={(e) => setShopLocationsSearchQuery(e.target.value)}
+                placeholder="بحث باسم المحل، الكود، المندوب..."
+                className={`w-full pr-9 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
+                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                }`}
+              />
+            </div>
+          </div>
+        </div>
+
+        {visibleShopLocations.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+            لا توجد مواقع محلات محفوظة حالياً. يمكن للمندوب تحديد موقع أي محل لمرة واحدة من نافذة «إجراء على المحل».
+          </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {visibleCustomerNotes.map((note) => {
-              const canDelete = Boolean(
-                currentUser?.isAdmin ||
-                isDataEntry ||
-                normalizeArabic(note.delegateName) === normalizeArabic(currentUser?.name || currentUser?.delegateName)
-              );
+            {visibleShopLocations.map((rec) => {
+              const coordsText = rec.shopLocation || formatShopLocationString(rec.latitude, rec.longitude);
+              const isConfirmingDelete = confirmDeleteShopLocId === rec.id;
 
               return (
                 <div
-                  key={note.id || `note-${note.timestamp}`}
-                  className={`p-3.5 rounded-2xl border shadow-xs transition-all space-y-3 relative flex flex-col justify-between ${
-                    note.adminActionTaken
-                      ? isDarkMode
-                        ? 'bg-slate-900/95 border-emerald-800/60 hover:border-emerald-600'
-                        : 'bg-white border-emerald-200 hover:border-emerald-400 ring-1 ring-emerald-500/10'
-                      : isDarkMode
-                      ? 'bg-slate-900/90 border-slate-800 hover:border-amber-700/60'
-                      : 'bg-white border-amber-200/80 hover:border-amber-300'
+                  key={rec.id}
+                  className={`p-3.5 rounded-2xl border shadow-xs transition-all space-y-2.5 flex flex-col justify-between ${
+                    isDarkMode
+                      ? 'bg-slate-900/95 border-teal-800/60 hover:border-teal-500'
+                      : 'bg-white border-teal-200 hover:border-teal-400'
                   }`}
                 >
-                  <div className="space-y-2.5">
-                    {/* فقرة اتخاذ الإجراء من الأدمن بأعلى بطاقة الزبون كما طلب المستخدم */}
-                    {note.adminActionTaken ? (
-                      <div className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 dark:from-emerald-950/60 dark:via-teal-950/40 dark:to-emerald-950/60 border border-emerald-400 dark:border-emerald-600/80 shadow-xs space-y-1.5">
-                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                          <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-black text-xs">
-                            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                            <span>تم اتخاذ إجراء بخصوص هذا الزبون</span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-600 text-white shadow-xs">
-                            معتمد ومكتمل ✅
-                          </span>
-                        </div>
-
-                        {note.adminActionDetails && (
-                          <div className="text-xs font-bold text-slate-800 dark:text-slate-100 bg-white/90 dark:bg-slate-900/90 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800/60 leading-relaxed whitespace-pre-wrap">
-                            {note.adminActionDetails}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between text-[9px] text-emerald-700 dark:text-emerald-400 font-bold pt-0.5">
-                          <span>بواسطة الإدارة: {note.adminActionBy || 'الادمن'}</span>
-                          <span className="font-mono">
-                            {note.adminActionAt ? new Date(note.adminActionAt).toLocaleString('ar-IQ') : ''}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 flex items-center justify-between gap-2 text-amber-800 dark:text-amber-300">
-                        <div className="flex items-center gap-1.5 text-[11px] font-black">
-                          <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                          <span>قيد المتابعة (بانتظار إجراء الإدارة)</span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                          قيد الانتظار ⏳
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Customer Info Header */}
-                    <div className="flex items-start justify-between gap-2 pt-1">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
                       <div>
                         <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                          <span>{note.customerName}</span>
+                          <MapPin className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <span>{rec.customerName}</span>
                         </h4>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                          كود: {note.customerCode} {note.customerAddress ? `• ${note.customerAddress}` : ''}
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          كود: {rec.customerCode || '-'} {rec.path ? `• ${rec.path}` : ''} {rec.customerType ? `• ${rec.customerType}` : ''}
                         </p>
                       </div>
 
-                      {canDelete && note.id && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCustomerNote(note.id!, note.customerName)}
-                          className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
-                          title="حذف الملاحظة"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 shrink-0">
+                        محفوظ ✓
+                      </span>
+                    </div>
+
+                    {rec.customerAddress && (
+                      <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate" title={rec.customerAddress}>
+                        العنوان: {rec.customerAddress}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3.5 h-3.5 text-slate-400" />
+                        <span>المندوب: {rec.savedBy || rec.delegateName || '-'}</span>
+                      </span>
+                      {typeof rec.accuracyMeters === 'number' && (
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                          دقة ±{rec.accuracyMeters}م
+                        </span>
                       )}
                     </div>
 
-                    {/* Selected Option Badge */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                        {note.selectedOption}
+                    <div
+                      className={`p-2 rounded-xl border flex items-center justify-between gap-2 ${
+                        isDarkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-teal-50/60 border-teal-200/80'
+                      }`}
+                    >
+                      <span dir="ltr" className="font-mono text-[11px] font-black text-teal-700 dark:text-teal-300 truncate select-all">
+                        {coordsText}
                       </span>
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                        <User className="w-3 h-3 text-slate-400" />
-                        <span>{note.delegateName || 'مندوب'}</span>
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCoords(`saved_${rec.id}`, coordsText)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-black shrink-0 transition-colors cursor-pointer"
+                        title="نسخ إحداثيات موقع المحل"
+                      >
+                        {copiedCoordKey === `saved_${rec.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedCoordKey === `saved_${rec.id}` ? 'تم النسخ' : 'نسخ'}</span>
+                      </button>
                     </div>
-
-                    {/* Freeform Notes content */}
-                    {note.notes && (
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/50 leading-relaxed whitespace-pre-wrap">
-                        {note.notes}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Card Footer: Date & Admin Action Control */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="text-[9px] text-slate-400 font-mono text-left">
-                      تسجيل الملاحظة: {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : note.dateString || ''}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span dir="ltr" className="text-[9px] text-slate-400 font-mono text-right">
+                        {formatEnglishDateTime(rec.savedAt || rec.timestamp, rec.dateString)}
+                      </span>
+                      {rec.updatedAt && (
+                        <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold">
+                          عُدّل: <span dir="ltr" className="font-mono">{formatEnglishDateTime(rec.updatedAt)}</span>
+                        </span>
+                      )}
                     </div>
 
-                    {/* Admin Action Button for Admin / DataEntry */}
-                    {(currentUser?.isAdmin || isDataEntry) && (
-                      <div className="flex items-center gap-2 pt-1">
+                    {isAdminUser && (
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => handleOpenAdminActionModal(note)}
-                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 ${
-                            note.adminActionTaken
-                              ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
-                          }`}
+                          onClick={() => {
+                            const matchedRoute =
+                              routes.find(
+                                (mr) =>
+                                  mr.id === rec.routeId ||
+                                  (rec.customerCode &&
+                                    String(mr.customerCode || '').trim() === String(rec.customerCode).trim())
+                              ) ||
+                              ({
+                                id: rec.routeId || rec.id,
+                                customerCode: rec.customerCode || '',
+                                customerName: rec.customerName,
+                                customerAddress: rec.customerAddress || '',
+                                customerType: rec.customerType || 'مفرد',
+                                path: rec.path || '',
+                                delegateName: rec.delegateName || '',
+                                delegateCode: rec.delegateCode || '',
+                                latitude: rec.latitude,
+                                longitude: rec.longitude,
+                                repLocationSaved: true,
+                              } as RouteItem);
+                            handleProceedToShopLocation(matchedRoute, rec);
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-black transition-colors cursor-pointer"
+                          title="تعديل إحداثيات موقع المحل"
                         >
-                          <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                          <span>{note.adminActionTaken ? 'تعديل الإجراء المتخذ' : 'اتخاذ إجراء وموافقة'}</span>
+                          <Edit3 className="w-3 h-3" />
+                          <span>تعديل</span>
                         </button>
 
-                        {note.adminActionTaken && (
+                        {isConfirmingDelete ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSavedShopLocation(rec)}
+                              className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black cursor-pointer"
+                            >
+                              تأكيد الحذف
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteShopLocId(null)}
+                              className="px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             type="button"
-                            onClick={() => handleRevertAdminAction(note)}
-                            className="p-1.5 rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
-                            title="تراجع عن الإجراء وإعادته لقيد الانتظار"
+                            onClick={() => setConfirmDeleteShopLocId(rec.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
+                            title="حذف الموقع لإتاحة إعادة التحديد للمندوب"
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -3595,70 +6324,81 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         )}
       </div>
 
-      {/* Admin Only: Download & Upload Routes Section at the very bottom of the page */}
-      {currentUser?.isAdmin && (
-        <div className={`mt-6 p-3.5 sm:p-4 rounded-2xl border shadow-sm ${
-          isDarkMode 
-            ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60 text-white' 
-            : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200 text-slate-900'
-        }`}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
-                <FileSpreadsheet className="w-5 h-5" />
-              </div>
-              <div className="truncate">
-                <h3 className="text-xs sm:text-sm font-black flex items-center gap-2 truncate">
-                  <span>إدارة ملفات المسارات (Excel)</span>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs">
-                    للأدمن فقط
-                  </span>
-                </h3>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">
-                  المسارات المفلترة: {routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({filteredRoutes.length} زبون)
-                </p>
-              </div>
-            </div>
+      {/* New Section at End of Routes Page: New Customer Definition Requests (تعريف جديد) */}
+      <NewCustomerDefinitionsSection
+        definitions={newCustomerDefinitions}
+        isAdminViewer={Boolean((currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate')}
+        isStrictAdmin={isStrictAdmin}
+        currentDelegateName={currentUser?.name || currentUser?.delegateName || ''}
+        currentDelegateCode={effectiveDelegateCode}
+        currentUsername={currentUser?.username}
+        isDarkMode={isDarkMode}
+        onNotify={(title, message, type) => addToast?.({ title, message, type: type || 'info' })}
+      />
 
-            {/* Icon-Only Action Buttons */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Download Filtered Routes Icon Button */}
-              <button
-                type="button"
-                onClick={handleDownloadFilteredRoutes}
-                className="p-2.5 sm:p-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white rounded-xl shadow-md shadow-emerald-600/30 transition-all cursor-pointer flex items-center justify-center"
-                title={`تحميل المسارات (${filteredRoutes.length} زبون)`}
-              >
-                <Download className="w-5 h-5" />
-              </button>
+      {/* New Customer Definition Modal (تعريف جديد) */}
+      <NewCustomerDefinitionModal
+        isOpen={showNewCustomerDefModal}
+        onClose={() => setShowNewCustomerDefModal(false)}
+        currentUser={currentUser}
+        effectiveDelegateCode={effectiveDelegateCode}
+        isDarkMode={isDarkMode}
+        onSuccess={(rec) => {
+          addToast?.({
+            title: 'تم إرسال تعريف المحل الجديد ✅',
+            message: `تم إرسال بيانات (${rec.shopSignName}) بنجاح إلى الأدمن.`,
+            type: 'success',
+            delegateName: rec.delegateName,
+          });
+        }}
+      />
 
-              {/* Download Empty Template Icon Button */}
-              <button
-                type="button"
-                onClick={handleDownloadRoutesTemplate}
-                className="p-2.5 sm:p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 flex items-center justify-center"
-                title="تحميل نموذج إكسل فارغ (Template)"
-              >
-                <FileSpreadsheet className="w-5 h-5" />
-              </button>
-
-              {/* Upload Routes Excel Icon Button */}
-              <label
-                className="p-2.5 sm:p-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center"
-                title="رفع مسارات (Excel)"
-              >
-                <Upload className="w-5 h-5" />
-                <input
-                  type="file"
-                  accept=".xlsx, .xls"
-                  onChange={handleUploadRoutes}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          </div>
-        </div>
+      {/* Unsuccessful Visits & Red Unvisited Shops Section at End of Routes Page (خاص بالأدمن فقط - يضم الفقرتين معاً) */}
+      {isStrictAdmin && (
+        <UnsuccessfulVisitsSection
+          visits={unsuccessfulVisits}
+          onDeleteVisit={handleDeleteUnsuccessfulVisit}
+          todayDateString={baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0]}
+          todayRouteDayName={routeDayInfo.todayDayName}
+          formattedClosingTime={formattedTargetTime}
+          isPastClosing={Boolean(baghdadStatus.isPastClosing)}
+          completedDelegatesCount={completedDelegatesCountToday}
+          todayLiveRedShops={todayLiveRedShops}
+          savedRedSnapshots={dailyUnvisitedSnapshots}
+          onDeleteRedShopRow={handleDeleteUnvisitedShopRow}
+          onDeleteRedDaySnapshot={handleDeleteUnvisitedDaySnapshot}
+          isDarkMode={isDarkMode}
+          onNotify={(title, message, type) => addToast?.({ title, message, type: type || 'info' })}
+        />
       )}
+
+      {/* Customer Visit Modal (عند النقر على زيارة في الخريطة) */}
+      <CustomerVisitModal
+        isOpen={Boolean(customerVisitModalRoute)}
+        onClose={() => setCustomerVisitModalRoute(null)}
+        route={customerVisitModalRoute}
+        onSelectCreateInvoice={(route) => {
+          handleDirectCreateInvoiceFromMap(route);
+        }}
+        onSelectUnsuccessfulVisit={(route) => {
+          setUnsuccessfulVisitTargetRoute(route);
+        }}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* Unsuccessful Visit Modal (التقاط صورة للبراد وذكر السبب) */}
+      <UnsuccessfulVisitModal
+        isOpen={Boolean(unsuccessfulVisitTargetRoute)}
+        onClose={() => setUnsuccessfulVisitTargetRoute(null)}
+        route={unsuccessfulVisitTargetRoute}
+        currentUser={currentUser}
+        effectiveDelegateCode={effectiveDelegateCode}
+        isDarkMode={isDarkMode}
+        onSuccess={(rec) => {
+          setUnsuccessfulVisits((prev) => [rec, ...prev.filter((v) => v.id !== rec.id)]);
+        }}
+        onNotify={(title, message, type) => addToast?.({ title, message, type: type || 'info' })}
+      />
 
       {/* Choice Modal (Step 1) */}
       {actionModalRoute && actionModalStep === 'choice' && (
@@ -3772,10 +6512,57 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
               const isNewOrderDisabled = !isPrivilegedUser && Boolean(disabledReason);
 
+              // Check whether shop already has saved map coordinates (hydrating from routes + savedShopLocations)
+              const savedLocForModal = getSavedLocationForRoute(actionModalRoute);
+              const matchedEnrichedRoute = enrichedRoutes.find(
+                (er) =>
+                  er.id === actionModalRoute.id ||
+                  (actionModalRoute.customerCode &&
+                    String(er.customerCode || '').trim() === String(actionModalRoute.customerCode).trim())
+              );
+              const resolvedModalRoute = matchedEnrichedRoute || actionModalRoute;
+              const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
+                resolvedModalRoute,
+                cachedShopCoordsMap
+              );
+              const effectiveShopLat = shopLat ?? (savedLocForModal ? savedLocForModal.latitude : null);
+              const effectiveShopLng = shopLng ?? (savedLocForModal ? savedLocForModal.longitude : null);
+              const hasShopCoordinates = effectiveShopLat !== null && effectiveShopLng !== null;
+              const isShopLocationSavedPermanently = Boolean(
+                savedLocForModal || resolvedModalRoute.repLocationSaved || hasShopCoordinates
+              );
+
+              const currentDistanceMeters =
+                hasShopCoordinates && repLiveCoords && effectiveShopLat !== null && effectiveShopLng !== null
+                  ? Math.round(
+                      calculateHaversineDistanceMeters(
+                        repLiveCoords.latitude,
+                        repLiveCoords.longitude,
+                        effectiveShopLat,
+                        effectiveShopLng
+                      )
+                    )
+                  : null;
+              const isWithinGeofence =
+                hasShopCoordinates &&
+                currentDistanceMeters !== null &&
+                currentDistanceMeters <= geofenceRadiusMeters;
+              const isWithinGeofenceOrNoCoords =
+                isPrivilegedUser || !hasShopCoordinates || isWithinGeofence;
+              const isGeofenceBlocked = !isWithinGeofenceOrNoCoords;
+
+              // For Admin: ALWAYS keep all options ("1- طلب جديد", "2- معلومات اخرى", "3- موقع المحل") visible in Shop Action Modal
+              // For Reps: hide "1- طلب جديد" & "3- موقع المحل" when shop already has saved/pinned map coordinates
+              const shouldShowNewOrderSectionInModal = isAdminUser || !hasShopCoordinates;
+              const shouldShowCreateInvoiceButton =
+                shouldShowNewOrderSectionInModal &&
+                !isDebtLocked &&
+                (isPrivilegedUser || (!isSalesCompleted && !isSalesClosedByTime && !isGeofenceBlocked && !isNewOrderDisabled));
+
               return (
                 <div className="space-y-3 pt-1">
                   {/* Custom Extension Info Badge inside Shop Action Modal */}
-                  {hasActiveCustomExtension && !isSalesClosedByTime && (
+                  {shouldShowNewOrderSectionInModal && hasActiveCustomExtension && !isSalesClosedByTime && (
                     <div className="w-full p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-300 text-xs font-black flex items-center justify-between gap-2 shadow-xs">
                       <div className="flex items-center gap-1.5">
                         <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -3787,8 +6574,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     </div>
                   )}
 
-                  {/* Create Invoice Button - Rendered while sales are open and time has not expired! */}
-                  {(!isPrivilegedUser && (isSalesCompleted || isSalesClosedByTime)) ? null : (
+                  {shouldShowNewOrderSectionInModal && !isPrivilegedUser && !isSalesCompleted && !isSalesClosedByTime && (
+                    <div className="w-full px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>لا توجد إحداثيات موقع مسجلة لهذا المحل — إنشاء الفاتورة متاح</span>
+                    </div>
+                  )}
+
+                  {/* Create Invoice Button - Shown always for Admin, and for Reps when shop has no location on the map */}
+                  {shouldShowCreateInvoiceButton && (
                     <button
                       type="button"
                       onClick={() => handleProceedToNewOrder(actionModalRoute)}
@@ -3796,18 +6590,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     >
                       <span className="flex items-center gap-2">
                         <ShoppingBag className="w-5 h-5" />
-                        <span>1- طلب جديد</span>
+                        <span>إنشاء فاتورة</span>
                       </span>
-                      <span className="text-[11px] bg-emerald-700/60 px-2.5 py-1 rounded-lg font-bold">إنشاء فاتورة</span>
+                      <span className="text-[11px] bg-emerald-700/60 px-2.5 py-1 rounded-lg font-bold">طلب فاتورة</span>
                     </button>
                   )}
-                  
-                  {isNewOrderDisabled && (!isSalesCompleted && !isSalesClosedByTime) && (
+
+                  {shouldShowNewOrderSectionInModal && isNewOrderDisabled && (!isSalesCompleted && !isSalesClosedByTime) && (
                     <div className="w-full p-4 bg-slate-100 dark:bg-slate-800/80 text-slate-400 rounded-xl font-bold text-xs flex flex-col gap-2 border border-slate-200 dark:border-slate-700/80">
                       <div className="flex items-center justify-between w-full">
                         <span className="flex items-center gap-2 font-black text-slate-500 dark:text-slate-400 text-sm">
                           <ShoppingBag className="w-5 h-5 text-slate-400" />
-                          <span>1- طلب جديد</span>
+                          <span>إنشاء فاتورة</span>
                         </span>
                         <span className="text-[10px] bg-rose-500/15 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-md font-black border border-rose-500/30">
                           غير متاح
@@ -3827,10 +6621,30 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   >
                     <span className="flex items-center gap-2">
                       <FileText className="w-5 h-5" />
-                      <span>2- معلومات اخرى</span>
+                      <span>ملاحظات</span>
                     </span>
                     <span className="text-[11px] bg-blue-700/60 px-2.5 py-1 rounded-lg font-bold">تسجيل ملاحظة</span>
                   </button>
+
+                  {(() => {
+                    if (!isStrictAdmin && isShopLocationSavedPermanently) return null;
+                    const isEditingExistingLoc = Boolean(isShopLocationSavedPermanently);
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleProceedToShopLocation(resolvedModalRoute, savedLocForModal)}
+                        className="w-full py-3.5 px-4 bg-teal-600 hover:bg-teal-500 active:scale-98 text-white rounded-xl font-black text-sm shadow-md shadow-teal-600/20 flex items-center justify-between transition-all cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <MapPin className="w-5 h-5" />
+                          <span>3- موقع المحل</span>
+                        </span>
+                        <span className="text-[11px] bg-teal-700/60 px-2.5 py-1 rounded-lg font-bold">
+                          {isEditingExistingLoc ? 'تعديل وحفظ الموقع' : 'تحديد وحفظ الموقع'}
+                        </span>
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -3858,7 +6672,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">معلومات أخرى - {actionModalRoute.customerName}</h3>
+                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">ملاحظات - {actionModalRoute.customerName}</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">كود: {actionModalRoute.customerCode} {actionModalRoute.customerAddress ? `| ${actionModalRoute.customerAddress}` : ''}</p>
                 </div>
               </div>
@@ -4012,11 +6826,200 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         </div>
       )}
 
+      {/* Shop Location One-Time Capture Modal (Step 3) */}
+      {actionModalRoute && actionModalStep === 'shop_location' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => {
+            if (!isSavingShopLocationOnce) {
+              setActionModalRoute(null);
+              setActionModalStep(null);
+            }
+          }}
+          dir="rtl"
+        >
+          <div
+            className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border text-right space-y-4 animate-in zoom-in-95 duration-200 ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
+                    موقع المحل - {actionModalRoute.customerName}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                    كود: {actionModalRoute.customerCode} {actionModalRoute.customerAddress ? `| ${actionModalRoute.customerAddress}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSavingShopLocationOnce) {
+                    setActionModalRoute(null);
+                    setActionModalStep(null);
+                  }
+                }}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* GPS Detection Card */}
+            <div
+              className={`p-4 rounded-2xl border space-y-3 ${
+                isDarkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-teal-50/70 border-teal-200'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
+                  <Crosshair className={`w-4 h-4 ${isCapturingGps ? 'animate-spin' : ''}`} />
+                  <span>إحداثيات الموقع الحالي (GPS):</span>
+                </span>
+
+                <button
+                  type="button"
+                  disabled={isCapturingGps || isSavingShopLocationOnce}
+                  onClick={captureShopLocationGps}
+                  className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-[11px] font-black cursor-pointer flex items-center gap-1"
+                >
+                  {isCapturingGps ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري التحديد...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Navigation className="w-3.5 h-3.5" />
+                      <span>تحديث GPS</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {capturedLatLng ? (
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-teal-300 dark:border-teal-700 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span dir="ltr" className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-400">
+                      {capturedLatLng.lat.toFixed(6)}, {capturedLatLng.lng.toFixed(6)}
+                    </span>
+                    <a
+                      href={`https://www.google.com/maps?q=${capturedLatLng.lat},${capturedLatLng.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>معاينة</span>
+                    </a>
+                  </div>
+                  {typeof capturedLatLng.accuracy === 'number' && (
+                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      دقة تحديد الموقع: <span className="font-mono text-teal-600 dark:text-teal-400">±{capturedLatLng.accuracy} متر</span>
+                    </p>
+                  )}
+                </div>
+              ) : isCapturingGps ? (
+                <div className="py-4 text-center text-xs font-bold text-teal-700 dark:text-teal-300 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>جاري التقاط إحداثيات موقع المحل عبر GPS...</span>
+                </div>
+              ) : (
+                <div className="py-3 text-center text-xs font-bold text-slate-500 dark:text-slate-400">
+                  اضغط «تحديث GPS» لالتقاط موقعك الحالي داخل المحل. (شرط داخل المحل لتحديد الموقع بشكل دقيق)
+                </div>
+              )}
+
+              {gpsCaptureError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] font-bold leading-relaxed">
+                  ⚠️ {gpsCaptureError}
+                </div>
+              )}
+            </div>
+
+            {/* Notice */}
+            {isStrictAdmin ? (
+              <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-800 dark:text-teal-300 text-[11px] font-bold flex items-start gap-2 leading-relaxed">
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
+                <span>
+                  صلاحية الأدمن: يمكنك تعديل وحفظ إحداثيات موقع المحل في أي وقت عبر GPS، وسيتم التحديث فوراً على الخريطة وسجل المواقع.
+                </span>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[11px] font-bold flex items-start gap-2 leading-relaxed">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <span>
+                  ملاحظة: بعد حفظ وتثبيت موقع المحل سيتم تثبيته على الخريطة والاعتماد عليه بشكل دائم، وستختفي فقرة «3- موقع المحل» تماماً.
+                </span>
+              </div>
+            )}
+
+            {/* Modal Buttons */}
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isSavingShopLocationOnce}
+                onClick={() => {
+                  setEditingSavedLocationRecord(null);
+                  setActionModalStep('choice');
+                }}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all active:scale-95 cursor-pointer ${
+                  isDarkMode ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                رجوع
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingShopLocationOnce || isResolvingMapsUrl || !capturedLatLng}
+                onClick={handleSaveShopLocationOnce}
+                className="flex-1 py-2.5 px-4 bg-teal-600 hover:bg-teal-500 active:scale-95 disabled:opacity-50 text-white rounded-xl font-black text-xs sm:text-sm shadow-md shadow-teal-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                {isSavingShopLocationOnce ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>جاري الحفظ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 shrink-0" />
+                    <span>
+                      {isStrictAdmin
+                        ? editingSavedLocationRecord ||
+                          actionModalRoute.repLocationSaved ||
+                          (actionModalRoute.latitude && actionModalRoute.longitude)
+                          ? 'حفظ تعديل الموقع'
+                          : 'حفظ موقع المحل'
+                        : 'حفظ موقع المحل نهائياً'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admin Action & Approval Modal */}
-      {actionModalNote && (
+      {isStrictAdmin && actionModalNote && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl p-4 sm:p-5 space-y-4 my-auto ${
-            isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            actionModalNote.adminActionTaken
+              ? isDarkMode
+                ? 'bg-emerald-950 border-emerald-700 text-emerald-50'
+                : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : isDarkMode
+              ? 'bg-slate-900 border-slate-700 text-white'
+              : 'bg-white border-slate-200 text-slate-900'
           }`}>
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">

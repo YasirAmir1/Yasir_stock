@@ -164,5 +164,68 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.exec_sql(text) TO anon, authenticated, service_role;
 
--- 10. Immediately trigger schema cache reload
+-- 10. Customers Table (with GPS latitude/longitude & visited_today for Geofencing & Map)
+CREATE TABLE IF NOT EXISTS public.customers (
+    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    customer_code TEXT,
+    customer_name TEXT NOT NULL,
+    customer_address TEXT,
+    delegate_name TEXT,
+    delegate_code TEXT,
+    path TEXT,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    visited_today BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'latitude') THEN
+        ALTER TABLE public.customers ADD COLUMN latitude DOUBLE PRECISION;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'longitude') THEN
+        ALTER TABLE public.customers ADD COLUMN longitude DOUBLE PRECISION;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'visited_today') THEN
+        ALTER TABLE public.customers ADD COLUMN visited_today BOOLEAN DEFAULT FALSE;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_customers_code ON public.customers(customer_code);
+CREATE INDEX IF NOT EXISTS idx_customers_delegate ON public.customers(delegate_name);
+
+-- 11. Lightweight Live Representative Locations Table (UPSERT single row per rep)
+CREATE TABLE IF NOT EXISTS public.rep_live_locations (
+    rep_id TEXT PRIMARY KEY REFERENCES public.representatives(id) ON DELETE CASCADE,
+    rep_name TEXT,
+    delegate_code TEXT,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rep_live_locations_active ON public.rep_live_locations(is_active);
+
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rep_live_locations ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Public full access customers" ON public.customers;
+    CREATE POLICY "Public full access customers" ON public.customers FOR ALL USING (true) WITH CHECK (true);
+    DROP POLICY IF EXISTS "Public full access rep_live_locations" ON public.rep_live_locations;
+    CREATE POLICY "Public full access rep_live_locations" ON public.rep_live_locations FOR ALL USING (true) WITH CHECK (true);
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.rep_live_locations;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.customers;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL;
+END $$;
+
+-- 12. Immediately trigger schema cache reload
 NOTIFY pgrst, 'reload schema';

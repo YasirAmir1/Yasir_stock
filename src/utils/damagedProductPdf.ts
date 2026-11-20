@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas-pro';
 import { DamagedProductItem } from '../types';
+import { formatEnglishDateTime } from './dateUtils';
 
 export const generateDamagedProductPdf = async (item: DamagedProductItem): Promise<void> => {
   // Create an off-screen container for rendering the official A4 form
@@ -17,11 +18,11 @@ export const generateDamagedProductPdf = async (item: DamagedProductItem): Promi
   container.style.padding = '32px 36px';
   container.style.zIndex = '-999';
 
-  // Format dates
-  const reportDate = item.createdAt 
-    ? new Date(item.createdAt).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : new Date().toLocaleDateString('ar-EG');
-  const printDate = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // Format dates in English (DD/MM/YYYY hh:mm AM/PM)
+  const reportDate = item.createdAt
+    ? formatEnglishDateTime(item.createdAt, formatEnglishDateTime(new Date(), '-'), false)
+    : formatEnglishDateTime(new Date(), '-', false);
+  const printDate = formatEnglishDateTime(new Date(), '-', false);
 
   // HTML content of the official QC Form
   container.innerHTML = `

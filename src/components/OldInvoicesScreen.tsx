@@ -1,12 +1,26 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useSales } from '../context/SalesContext';
 import { useDebounce } from '../hooks/useDebounce';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { db } from '../lib/firebase';
-import { logFirestoreErrorGracefully } from '../lib/firestoreUtils';
-import { collection, getDocs, query, doc, writeBatch, where, setDoc } from 'firebase/firestore';
-import { safeOnSnapshot } from '../lib/firestoreUtils';
+import { logFirestoreErrorGracefully, clearGlobalQuotaExceeded, isQuotaExceededError, safeOnSnapshot } from '../lib/firestoreUtils';
+import {
+  collection,
+  getDocs,
+  query,
+  doc,
+  writeBatch,
+  where,
+  setDoc,
+  orderBy,
+  limit,
+  startAfter,
+  getCountFromServer,
+  QueryDocumentSnapshot,
+  DocumentData,
+} from 'firebase/firestore';
 import { SalesEntry, RouteItem, DebtItem } from '../types';
-import { parseArabicDigits } from '../utils/numberUtils';
+import { parseArabicDigits, parseArabicNumber } from '../utils/numberUtils';
 import html2canvas from 'html2canvas-pro';
 import { captureInvoiceToBlob, shareOrDownloadInvoice } from '../utils/invoiceCapture';
 import { printInvoiceDirectly } from '../utils/directInvoicePrint';
@@ -34,7 +48,9 @@ import {
   FileSpreadsheet,
   XCircle,
   Scale,
-  Phone
+  Phone,
+  Loader2,
+  ArrowUp
 } from 'lucide-react';
 import { formatWithCommas } from '../utils/numberUtils';
 import logoImg from '../assets/images/logo.png';
@@ -63,6 +79,31 @@ const normalizeDateStr = (raw: string): string => {
     return `${y}-${m}-${d}`;
   }
   return cleaned;
+};
+
+const ARCHIVE_PAGE_SIZE = 200;
+
+const buildMonthsBetween = (earliestDate?: string, latestDate?: string): string[] => {
+  if (!earliestDate || !latestDate) return [];
+  const startNorm = normalizeDateStr(earliestDate);
+  const endNorm = normalizeDateStr(latestDate);
+  const [sy, sm] = startNorm.split('-').map((n) => parseInt(n, 10));
+  const [ey, em] = endNorm.split('-').map((n) => parseInt(n, 10));
+  if (!sy || !sm || !ey || !em) return [];
+  const months: string[] = [];
+  let y = ey;
+  let m = em;
+  let guard = 0;
+  while ((y > sy || (y === sy && m >= sm)) && guard < 120) {
+    months.push(`${y}-${String(m).padStart(2, '0')}`);
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    guard += 1;
+  }
+  return months;
 };
 
 export const OldInvoicesScreen: React.FC = () => {
@@ -112,11 +153,19 @@ export const OldInvoicesScreen: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState<string>('الكل');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedProduct, setSelectedProduct] = useState<string>('الكل');
-  const [visibleCount, setVisibleCount] = useState<number>(30);
   const [archivedEntries, setArchivedEntries] = useState<SalesEntry[]>([]);
-  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(true);
+  const [isFetchingMoreArchive, setIsFetchingMoreArchive] = useState(false);
+  const [hasMoreArchiveFromServer, setHasMoreArchiveFromServer] = useState(true);
+  const [archiveFetchError, setArchiveFetchError] = useState<string | null>(null);
+  const [totalArchiveDocsCount, setTotalArchiveDocsCount] = useState<number | null>(null);
+  const [archiveMonthRange, setArchiveMonthRange] = useState<string[]>([]);
   const [deletingInvoiceKey, setDeletingInvoiceKey] = useState<string | null>(null);
   const [isSharingWhatsApp, setIsSharingWhatsApp] = useState<string | null>(null);
+
+  const lastArchiveDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const archiveFetchInFlightRef = useRef<boolean>(false);
+  const archiveRequestIdRef = useRef<number>(0);
 
   // Auto-lock closing time (default 21:00 / 9:00 PM) & real-time clock tick
   const [targetAutoLockTime, setTargetAutoLockTime] = useState<string>('21:00');
@@ -127,10 +176,12 @@ export const OldInvoicesScreen: React.FC = () => {
   const [monthlyReportMonth, setMonthlyReportMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [monthlyOrderedSearch, setMonthlyOrderedSearch] = useState<string>('');
   const [monthlyOrderedDelegate, setMonthlyOrderedDelegate] = useState<string>('الكل');
-  const [monthlyOrderedShowAll, setMonthlyOrderedShowAll] = useState<boolean>(false);
   const [monthlyUnorderedSearch, setMonthlyUnorderedSearch] = useState<string>('');
   const [monthlyUnorderedDelegate, setMonthlyUnorderedDelegate] = useState<string>('الكل');
-  const [monthlyUnorderedShowAll, setMonthlyUnorderedShowAll] = useState<boolean>(false);
+
+  const monthlyOrderedScrollContainerRef = useRef<HTMLDivElement>(null);
+  const monthlyUnorderedScrollContainerRef = useRef<HTMLDivElement>(null);
+  const archiveSectionTopRef = useRef<HTMLDivElement>(null);
 
   const [routes, setRoutes] = useState<RouteItem[]>(() => contextRoutes);
 
@@ -264,27 +315,152 @@ export const OldInvoicesScreen: React.FC = () => {
     return () => unsub();
   }, [baghdadStatus.todayBaghdad]);
 
-  // Real-time listener for `sales_entries_archive` to ensure full live coverage of archived invoices
+  // Lightweight archive metadata fetch (3 reads total) for total count & month dropdown
   useEffect(() => {
-    setIsLoadingArchive(true);
-    const unsub = safeOnSnapshot(
-      collection(db, 'sales_entries_archive'),
-      (snap: any) => {
-        const list: SalesEntry[] = [];
-        snap.forEach((d: any) => {
-          list.push({ id: d.id, ...d.data() } as SalesEntry);
-        });
-        setArchivedEntries(list);
-        setIsLoadingArchive(false);
-      },
-      (err: any) => {
-        console.error('Error reading sales_entries_archive in OldInvoicesScreen:', err);
-        setIsLoadingArchive(false);
-      },
-      'OldInvoices-archive'
-    );
-    return () => unsub();
+    let cancelled = false;
+    const colRef = collection(db, 'sales_entries_archive');
+
+    Promise.all([
+      getCountFromServer(colRef).catch(() => null),
+      getDocs(query(colRef, orderBy('dateString', 'asc'), limit(1))).catch(() => null),
+      getDocs(query(colRef, orderBy('dateString', 'desc'), limit(1))).catch(() => null),
+    ]).then(([countSnap, earliestSnap, latestSnap]) => {
+      if (cancelled) return;
+      if (countSnap) {
+        setTotalArchiveDocsCount(countSnap.data().count);
+      }
+      const earliestDate = earliestSnap?.docs[0]?.data()?.dateString;
+      const latestDate = latestSnap?.docs[0]?.data()?.dateString;
+      if (earliestDate && latestDate) {
+        setArchiveMonthRange(buildMonthsBetween(earliestDate, latestDate));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Server-side cursor-paginated fetcher for `sales_entries_archive` (200 docs/page instead of loading 27k+ docs at once)
+  const fetchArchivePage = useCallback(
+    async (isInitial: boolean, pageSizeOverride?: number) => {
+      if (!isInitial && (archiveFetchInFlightRef.current || !hasMoreArchiveFromServer)) {
+        return;
+      }
+
+      const requestId = isInitial ? ++archiveRequestIdRef.current : archiveRequestIdRef.current;
+      const pageSize = pageSizeOverride || ARCHIVE_PAGE_SIZE;
+
+      archiveFetchInFlightRef.current = true;
+      if (isInitial) {
+        setIsLoadingArchive(true);
+        setArchiveFetchError(null);
+        lastArchiveDocRef.current = null;
+        setHasMoreArchiveFromServer(true);
+      } else {
+        setIsFetchingMoreArchive(true);
+      }
+
+      try {
+        const colRef = collection(db, 'sales_entries_archive');
+        const cursor = !isInitial ? lastArchiveDocRef.current : null;
+        let q;
+
+        if (selectedDate) {
+          q = cursor
+            ? query(colRef, where('dateString', '==', selectedDate), startAfter(cursor), limit(pageSize))
+            : query(colRef, where('dateString', '==', selectedDate), limit(pageSize));
+        } else if (selectedMonth !== 'الكل') {
+          const monthStart = `${selectedMonth}-01`;
+          const monthEnd = `${selectedMonth}-31`;
+          q = cursor
+            ? query(
+                colRef,
+                where('dateString', '>=', monthStart),
+                where('dateString', '<=', monthEnd),
+                orderBy('dateString', 'desc'),
+                startAfter(cursor),
+                limit(pageSize)
+              )
+            : query(
+                colRef,
+                where('dateString', '>=', monthStart),
+                where('dateString', '<=', monthEnd),
+                orderBy('dateString', 'desc'),
+                limit(pageSize)
+              );
+        } else if (selectedDelegate !== 'الكل') {
+          q = cursor
+            ? query(
+                colRef,
+                where('delegateName', '==', selectedDelegate),
+                orderBy('timestamp', 'desc'),
+                startAfter(cursor),
+                limit(pageSize)
+              )
+            : query(
+                colRef,
+                where('delegateName', '==', selectedDelegate),
+                orderBy('timestamp', 'desc'),
+                limit(pageSize)
+              );
+        } else {
+          q = cursor
+            ? query(colRef, orderBy('timestamp', 'desc'), startAfter(cursor), limit(pageSize))
+            : query(colRef, orderBy('timestamp', 'desc'), limit(pageSize));
+        }
+
+        const snap = await getDocs(q);
+        if (requestId !== archiveRequestIdRef.current) return;
+
+        const batchList: SalesEntry[] = [];
+        snap.forEach((d) => {
+          const raw = d.data() as SalesEntry;
+          batchList.push({ ...raw, id: raw?.id || d.id } as SalesEntry);
+        });
+
+        lastArchiveDocRef.current = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : lastArchiveDocRef.current;
+        setHasMoreArchiveFromServer(snap.docs.length >= pageSize);
+        setArchiveFetchError(null);
+
+        if (isInitial) {
+          setArchivedEntries(batchList);
+        } else if (batchList.length > 0) {
+          setArchivedEntries((prev) => {
+            const merged = new Map<string, SalesEntry>();
+            prev.forEach((item) => {
+              if (item?.id) merged.set(item.id, item);
+            });
+            batchList.forEach((item) => {
+              if (item?.id) merged.set(item.id, item);
+            });
+            return Array.from(merged.values());
+          });
+        }
+      } catch (err: any) {
+        if (requestId !== archiveRequestIdRef.current) return;
+        console.error('Error fetching paginated sales_entries_archive:', err);
+        if (isQuotaExceededError(err)) {
+          setArchiveFetchError('تم الوصول مؤقتاً إلى حد قراءة قاعدة البيانات اليومي. يرجى المحاولة لاحقاً.');
+        } else {
+          setArchiveFetchError('تعذر الاتصال بسجل الأرشيف حالياً. يرجى الضغط على إعادة المحاولة.');
+        }
+        setHasMoreArchiveFromServer(false);
+      } finally {
+        if (requestId === archiveRequestIdRef.current) {
+          archiveFetchInFlightRef.current = false;
+          setIsLoadingArchive(false);
+          setIsFetchingMoreArchive(false);
+        }
+      }
+    },
+    [selectedDate, selectedMonth, selectedDelegate, hasMoreArchiveFromServer]
+  );
+
+  // Trigger initial server page load whenever server-side archive filters change
+  useEffect(() => {
+    fetchArchivePage(true);
+  }, [selectedDate, selectedMonth, selectedDelegate]);
 
   // Helper to check if a representative has marked today's sales as completed
   const isDelegateCompletedToday = (delName?: string, delCode?: string) => {
@@ -301,12 +477,7 @@ export const OldInvoicesScreen: React.FC = () => {
     return false;
   };
 
-  // Helper to verify if an invoice entry is eligible into "Old Invoices" (Historical Record)
-  // according to the conditional saving & calculation rule:
-  // - Invoices must NOT be saved or displayed immediately upon creation during the day.
-  // - Invoices must only be saved, processed, and calculated into "Old Invoices" after either:
-  //   * The representative clicks "I have completed today's sales", OR
-  //   * The official sales closing time for the day has expired/ended.
+  // Helper to verify if an active (non-archived) invoice entry is eligible into "Old Invoices"
   const isEntryEligibleForOldInvoices = (entry: SalesEntry): boolean => {
     if (!entry.dateString) return true;
     const cleanDate = normalizeDateStr(entry.dateString);
@@ -323,27 +494,23 @@ export const OldInvoicesScreen: React.FC = () => {
     }
 
     // 3. Current day (today):
-    // Condition A: If official closing time has expired, automatically adopt all active remaining invoices
     if (isPastClosing) {
       return true;
     }
 
-    // Condition B: Otherwise, ONLY adopt if the representative has clicked "I have completed today's sales"
     return isDelegateCompletedToday(entry.delegateName, (entry as any).delegateCode);
   };
 
   // Background archiving synchronization:
-  // Automatically archive eligible invoices into `sales_entries_archive` in Firestore
-  // when either the representative clicks completion or the official sales closing time expires
+  // Only archive eligible entries from active today's `salesEntries` (avoids re-writing historical docs)
   useEffect(() => {
-    if (!allSalesEntries || allSalesEntries.length === 0) return;
+    if (!salesEntries || salesEntries.length === 0) return;
     const archivedIds = new Set(archivedEntries.map((e) => e.id));
-    const entriesToArchive = allSalesEntries.filter(
+    const entriesToArchive = salesEntries.filter(
       (e) => e.id && !archivedIds.has(e.id) && isEntryEligibleForOldInvoices(e)
     );
 
     if (entriesToArchive.length > 0) {
-      // Chunk batches up to 400 to respect Firestore limits
       const chunks: SalesEntry[][] = [];
       for (let i = 0; i < entriesToArchive.length; i += 400) {
         chunks.push(entriesToArchive.slice(i, i + 400));
@@ -371,28 +538,29 @@ export const OldInvoicesScreen: React.FC = () => {
         }
       });
     }
-  }, [allSalesEntries, archivedEntries, baghdadStatus, completedDelegates]);
+  }, [salesEntries, archivedEntries, baghdadStatus, completedDelegates]);
 
-  // Merge all entries (allSalesEntries + archivedEntries) without duplicates,
-  // STRICTLY filtered so that only eligible invoices (completed sales OR past closing time) are included:
+  // Merge paginated archived entries (always included) + eligible recent/today entries without duplicates
   const allEntriesCombined = useMemo(() => {
     const map = new Map<string, SalesEntry>();
+    // Active / context entries must satisfy daily closing/completion rule
     allSalesEntries.forEach((e) => {
       if (e && e.id && isEntryEligibleForOldInvoices(e)) {
         map.set(e.id, e);
       }
     });
+    // Entries loaded from `sales_entries_archive` are already archived historical records
     archivedEntries.forEach((e) => {
-      if (e && e.id && isEntryEligibleForOldInvoices(e)) {
+      if (e && e.id) {
         map.set(e.id, e);
       }
     });
     return Array.from(map.values());
   }, [allSalesEntries, archivedEntries, baghdadStatus, completedDelegates]);
 
-  // Extract available months for filtering (sorted descending)
+  // Extract available months for filtering (sorted descending) — includes full server archive range
   const availableMonths = useMemo(() => {
-    const months = new Set<string>();
+    const months = new Set<string>(archiveMonthRange);
     allEntriesCombined.forEach(e => {
       if (e.dateString) {
         const parts = e.dateString.replace(/\//g, '-').split('-');
@@ -402,7 +570,7 @@ export const OldInvoicesScreen: React.FC = () => {
       }
     });
     return Array.from(months).sort().reverse();
-  }, [allEntriesCombined]);
+  }, [allEntriesCombined, archiveMonthRange]);
 
   // Count of completed delegates for UI badge
   const completedDelegatesCount = useMemo(() => {
@@ -427,9 +595,34 @@ export const OldInvoicesScreen: React.FC = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
   }, [productsList, allEntriesCombined]);
 
+  // Fast O(1) Product & Route lookup maps to accelerate grouping and infinite scroll rendering
+  const productsByNameMap = useMemo(() => {
+    const map = new Map<string, (typeof productsList)[number]>();
+    productsList.forEach((p) => {
+      if (p?.productName) {
+        map.set(p.productName, p);
+      }
+    });
+    return map;
+  }, [productsList]);
+
+  const { routePhoneByCode, routePhoneByName } = useMemo(() => {
+    const byCode = new Map<string, string>();
+    const byName = new Map<string, string>();
+    contextRoutes.forEach((r) => {
+      const phone = r.customerPhone ? String(r.customerPhone).trim() : '';
+      if (!phone) return;
+      const code = String(r.customerCode || '').trim();
+      const name = (r.customerName || '').trim();
+      if (code && !byCode.has(code)) byCode.set(code, phone);
+      if (name && !byName.has(name)) byName.set(name, phone);
+    });
+    return { routePhoneByCode: byCode, routePhoneByName: byName };
+  }, [contextRoutes]);
+
   // Product Code lookup helper
   const getProductCode = (productName: string) => {
-    const prod = productsList.find(p => p.productName === productName);
+    const prod = productsByNameMap.get(productName);
     return prod?.productCode || '---';
   };
 
@@ -533,7 +726,7 @@ export const OldInvoicesScreen: React.FC = () => {
       grp.entries.push(entry);
       grp.totalWeight += (entry.totalWeightKg || 0);
 
-      const prod = productsList.find(p => p.productName === entry.productName);
+      const prod = productsByNameMap.get(entry.productName);
       const unitPrice = prod 
         ? (mode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) 
         : 0;
@@ -547,7 +740,7 @@ export const OldInvoicesScreen: React.FC = () => {
       }
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
-  }, [allEntriesCombined, debouncedShopSearchTerm, selectedDelegate, selectedPriceMode, selectedMonth, selectedDate, productsList]);
+  }, [allEntriesCombined, debouncedShopSearchTerm, selectedDelegate, selectedPriceMode, selectedMonth, selectedDate, selectedProduct, productsByNameMap]);
 
   // Summary Metrics
   const summaryMetrics = useMemo(() => {
@@ -564,17 +757,13 @@ export const OldInvoicesScreen: React.FC = () => {
     }
     const cCode = inv.customerCode ? String(inv.customerCode).trim() : '';
     if (cCode) {
-      const matched = contextRoutes.find(r => String(r.customerCode || '').trim() === cCode);
-      if (matched?.customerPhone && String(matched.customerPhone).trim()) {
-        return String(matched.customerPhone).trim();
-      }
+      const matchedPhone = routePhoneByCode.get(cCode);
+      if (matchedPhone) return matchedPhone;
     }
     const cleanName = inv.customerName?.trim() || '';
     if (cleanName) {
-      const matchedByName = contextRoutes.find(r => r.customerName && r.customerName.trim() === cleanName);
-      if (matchedByName?.customerPhone && String(matchedByName.customerPhone).trim()) {
-        return String(matchedByName.customerPhone).trim();
-      }
+      const matchedByName = routePhoneByName.get(cleanName);
+      if (matchedByName) return matchedByName;
     }
     const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
     const phoneMatch = cleanName.match(phoneRegex);
@@ -966,7 +1155,7 @@ export const OldInvoicesScreen: React.FC = () => {
   const monthlyOrderedData = useMemo(() => {
     if (!canViewMonthlyReports) return { list: [], totalWeight: 0, totalAmount: 0, totalInvoices: 0 };
 
-    const monthEntries = allSalesEntries.filter((e) => {
+    const monthEntries = allEntriesCombined.filter((e) => {
       if (!e.dateString) return false;
       const cleanDate = normalizeDateStr(e.dateString);
       return cleanDate.startsWith(monthlyReportMonth);
@@ -1111,7 +1300,7 @@ export const OldInvoicesScreen: React.FC = () => {
     const totalInvoices = list.reduce((sum, item) => sum + item.invoicesCount, 0);
 
     return { list, totalWeight, totalAmount, totalInvoices };
-  }, [allSalesEntries, salesEntries, debts, monthlyReportMonth, routes, productsList, baghdadStatus, completedDelegates]);
+  }, [allEntriesCombined, salesEntries, debts, monthlyReportMonth, routes, productsList, baghdadStatus, completedDelegates]);
 
   const filteredMonthlyOrdered = useMemo(() => {
     return monthlyOrderedData.list.filter((c) => {
@@ -1216,6 +1405,40 @@ export const OldInvoicesScreen: React.FC = () => {
     XLSX.writeFile(workbook, `زبائن_بدون_فواتير_شهرية_${monthlyReportMonth}.xlsx`);
   };
 
+  // Infinite Scroll controllers for archive tables & old sales history
+  const monthlyOrderedScroll = useInfiniteScroll({
+    totalItems: filteredMonthlyOrdered.length,
+    initialCount: 25,
+    batchSize: 25,
+    rootMargin: '180px 0px',
+    scrollContainerRef: monthlyOrderedScrollContainerRef,
+    resetKey: `${monthlyReportMonth}|${monthlyOrderedSearch}|${monthlyOrderedDelegate}`,
+  });
+
+  const monthlyUnorderedScroll = useInfiniteScroll({
+    totalItems: filteredMonthlyUnordered.length,
+    initialCount: 25,
+    batchSize: 25,
+    rootMargin: '180px 0px',
+    scrollContainerRef: monthlyUnorderedScrollContainerRef,
+    resetKey: `${monthlyReportMonth}|${monthlyUnorderedSearch}|${monthlyUnorderedDelegate}`,
+  });
+
+  const handleLoadNextArchivePage = useCallback(() => {
+    fetchArchivePage(false);
+  }, [fetchArchivePage]);
+
+  const oldInvoicesScroll = useInfiniteScroll({
+    totalItems: groupedOldInvoices.length,
+    initialCount: 20,
+    batchSize: 20,
+    rootMargin: '450px 0px',
+    resetKey: `${debouncedShopSearchTerm}|${selectedDelegate}|${selectedPriceMode}|${selectedMonth}|${selectedDate}|${selectedProduct}`,
+    hasMoreExternal: hasMoreArchiveFromServer,
+    isLoadingExternal: isFetchingMoreArchive,
+    onReachEnd: handleLoadNextArchivePage,
+  });
+
   const renderMonthlyCustomerReports = () => {
     if (!canViewMonthlyReports) return null;
 
@@ -1228,13 +1451,8 @@ export const OldInvoicesScreen: React.FC = () => {
     const currentFilteredAmount = filteredMonthlyOrdered.reduce((sum, c) => sum + c.totalAmount, 0);
     const currentFilteredInvoices = filteredMonthlyOrdered.reduce((sum, c) => sum + c.invoicesCount, 0);
 
-    const displayedMonthlyOrdered = monthlyOrderedShowAll 
-      ? filteredMonthlyOrdered 
-      : filteredMonthlyOrdered.slice(0, 20);
-
-    const displayedMonthlyUnordered = monthlyUnorderedShowAll 
-      ? filteredMonthlyUnordered 
-      : filteredMonthlyUnordered.slice(0, 20);
+    const displayedMonthlyOrdered = filteredMonthlyOrdered.slice(0, monthlyOrderedScroll.visibleCount);
+    const displayedMonthlyUnordered = filteredMonthlyUnordered.slice(0, monthlyUnorderedScroll.visibleCount);
 
     return (
       <div className="space-y-4 mb-6">
@@ -1386,9 +1604,12 @@ export const OldInvoicesScreen: React.FC = () => {
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs">
+          <div
+            ref={monthlyOrderedScrollContainerRef}
+            className="overflow-x-auto overflow-y-auto max-h-[440px] rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs"
+          >
             <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
-              <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
+              <thead className={`sticky top-0 z-10 font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/95 text-slate-900 border-b border-slate-300'}`}>
                 <tr>
                   <th className="px-2.5 py-2 text-center w-8">ت</th>
                   <th className="px-2.5 py-2">اسم الزبون</th>
@@ -1439,7 +1660,7 @@ export const OldInvoicesScreen: React.FC = () => {
                 )}
               </tbody>
               {filteredMonthlyOrdered.length > 0 && (
-                <tfoot className={`font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/90 border-slate-300 text-slate-950'}`}>
+                <tfoot className={`sticky bottom-0 z-10 font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/95 border-slate-300 text-slate-950'}`}>
                   <tr>
                     <td colSpan={5} className="px-2.5 py-2 font-black text-emerald-700 dark:text-emerald-300 text-xs">
                       المجموع ({filteredMonthlyOrdered.length} زبون)
@@ -1457,30 +1678,33 @@ export const OldInvoicesScreen: React.FC = () => {
                 </tfoot>
               )}
             </table>
+
+            {monthlyOrderedScroll.hasMore && (
+              <div
+                ref={monthlyOrderedScroll.sentinelRef}
+                className="py-2.5 flex items-center justify-center gap-2 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50/40 dark:bg-slate-800/40"
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>جاري تحميل المزيد تلقائياً...</span>
+              </div>
+            )}
           </div>
 
-          {filteredMonthlyOrdered.length > 20 && (
-            <div className="pt-2 flex justify-center">
-              <button
-                onClick={() => setMonthlyOrderedShowAll(!monthlyOrderedShowAll)}
-                className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
-                  isDarkMode 
-                    ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/60' 
-                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-                }`}
-              >
-                {monthlyOrderedShowAll ? (
-                  <>
-                    <ChevronUp className="w-4 h-4" />
-                    <span>عرض أقل (أول 20 زبون فقط)</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-4 h-4" />
-                    <span>المزيد (+{filteredMonthlyOrdered.length - 20} زبون)</span>
-                  </>
-                )}
-              </button>
+          {filteredMonthlyOrdered.length > 0 && (
+            <div className="pt-1 flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400">
+              <span>
+                معروض <strong className="text-emerald-700 dark:text-emerald-300">{displayedMonthlyOrdered.length.toLocaleString()}</strong> من أصل <strong>{filteredMonthlyOrdered.length.toLocaleString()}</strong> زبون
+                {monthlyOrderedScroll.hasMore ? ' (مرّر للأسفل داخل الجدول لتحميل المزيد)' : ' — تم عرض الكل'}
+              </span>
+              {monthlyOrderedScroll.hasMore && (
+                <button
+                  type="button"
+                  onClick={monthlyOrderedScroll.loadMore}
+                  className="text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer font-black"
+                >
+                  تحميل المزيد الآن
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1551,9 +1775,12 @@ export const OldInvoicesScreen: React.FC = () => {
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs">
+          <div
+            ref={monthlyUnorderedScrollContainerRef}
+            className="overflow-x-auto overflow-y-auto max-h-[440px] rounded-xl border border-slate-300 dark:border-slate-800 shadow-xs"
+          >
             <table className="w-full min-w-[650px] text-[10px] sm:text-[11px] text-right whitespace-nowrap">
-              <thead className={`font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/90 text-slate-900 border-b border-slate-300'}`}>
+              <thead className={`sticky top-0 z-10 font-black ${isDarkMode ? 'bg-slate-800 text-slate-100 border-b border-slate-700' : 'bg-slate-200/95 text-slate-900 border-b border-slate-300'}`}>
                 <tr>
                   <th className="px-2.5 py-2 text-center w-8">ت</th>
                   <th className="px-2.5 py-2">اسم الزبون</th>
@@ -1595,7 +1822,7 @@ export const OldInvoicesScreen: React.FC = () => {
                 )}
               </tbody>
               {filteredMonthlyUnordered.length > 0 && (
-                <tfoot className={`font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/90 border-slate-300 text-slate-950'}`}>
+                <tfoot className={`sticky bottom-0 z-10 font-black border-t-2 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-200/95 border-slate-300 text-slate-950'}`}>
                   <tr>
                     <td colSpan={5} className="px-2.5 py-2 font-black text-amber-700 dark:text-amber-300 text-xs">
                       مجموع الزبائن غير الطالبين ({filteredMonthlyUnordered.length} زبون)
@@ -1605,30 +1832,33 @@ export const OldInvoicesScreen: React.FC = () => {
                 </tfoot>
               )}
             </table>
+
+            {monthlyUnorderedScroll.hasMore && (
+              <div
+                ref={monthlyUnorderedScroll.sentinelRef}
+                className="py-2.5 flex items-center justify-center gap-2 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/40 dark:bg-slate-800/40"
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>جاري تحميل المزيد تلقائياً...</span>
+              </div>
+            )}
           </div>
 
-          {filteredMonthlyUnordered.length > 20 && (
-            <div className="pt-2 flex justify-center">
-              <button
-                onClick={() => setMonthlyUnorderedShowAll(!monthlyUnorderedShowAll)}
-                className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
-                  isDarkMode 
-                    ? 'bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-800/60' 
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
-                }`}
-              >
-                {monthlyUnorderedShowAll ? (
-                  <>
-                    <ChevronUp className="w-4 h-4" />
-                    <span>عرض أقل (أول 20 زبون فقط)</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-4 h-4" />
-                    <span>المزيد (+{filteredMonthlyUnordered.length - 20} زبون)</span>
-                  </>
-                )}
-              </button>
+          {filteredMonthlyUnordered.length > 0 && (
+            <div className="pt-1 flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400">
+              <span>
+                معروض <strong className="text-amber-700 dark:text-amber-300">{displayedMonthlyUnordered.length.toLocaleString()}</strong> من أصل <strong>{filteredMonthlyUnordered.length.toLocaleString()}</strong> زبون
+                {monthlyUnorderedScroll.hasMore ? ' (مرّر للأسفل داخل الجدول لتحميل المزيد)' : ' — تم عرض الكل'}
+              </span>
+              {monthlyUnorderedScroll.hasMore && (
+                <button
+                  type="button"
+                  onClick={monthlyUnorderedScroll.loadMore}
+                  className="text-amber-700 dark:text-amber-300 hover:underline cursor-pointer font-black"
+                >
+                  تحميل المزيد الآن
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1636,11 +1866,14 @@ export const OldInvoicesScreen: React.FC = () => {
     );
   };
 
-  const displayedInvoices = groupedOldInvoices.slice(0, visibleCount);
+  const displayedInvoices = useMemo(
+    () => groupedOldInvoices.slice(0, oldInvoicesScroll.visibleCount),
+    [groupedOldInvoices, oldInvoicesScroll.visibleCount]
+  );
 
   const displayedFilteredEntries = useMemo(() => {
-    return displayedInvoices.flatMap((inv) => inv.entries);
-  }, [displayedInvoices]);
+    return groupedOldInvoices.flatMap((inv) => inv.entries);
+  }, [groupedOldInvoices]);
 
   const displayedProductWeight = useMemo(() => {
     return displayedFilteredEntries.reduce((sum, e) => sum + (e.totalWeightKg || 0), 0);
@@ -1703,11 +1936,14 @@ export const OldInvoicesScreen: React.FC = () => {
       {renderMonthlyCustomerReports()}
 
       {/* Header Banner */}
-      <div className={`p-4 rounded-2xl border-2 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
-        isDarkMode 
-          ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-emerald-500/40 text-white' 
-          : 'bg-gradient-to-r from-emerald-50/80 via-white to-emerald-50/80 border-emerald-200 text-slate-900'
-      }`}>
+      <div
+        ref={archiveSectionTopRef}
+        className={`p-4 rounded-2xl border-2 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+          isDarkMode 
+            ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-emerald-500/40 text-white' 
+            : 'bg-gradient-to-r from-emerald-50/80 via-white to-emerald-50/80 border-emerald-200 text-slate-900'
+        }`}
+      >
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-sm">
@@ -2054,179 +2290,310 @@ export const OldInvoicesScreen: React.FC = () => {
 
       {/* Invoices List matching EntryScreen Design exactly */}
       <div className="space-y-4">
-        {groupedOldInvoices.length === 0 ? (
-          <div className={`p-8 rounded-2xl border text-center space-y-2 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-            <div className="text-3xl">📭</div>
-            <h3 className="text-sm font-black text-slate-700 dark:text-slate-300">
-              لا توجد فواتير قديمة تطابق معايير البحث
+        {isLoadingArchive && groupedOldInvoices.length === 0 ? (
+          <div className={`p-8 rounded-2xl border text-center space-y-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <Loader2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400 animate-spin mx-auto" />
+            <h3 className="text-sm font-black text-slate-700 dark:text-slate-200">
+              جاري تحميل أحدث دفعة من المبيعات القديمة...
             </h3>
             <p className="text-xs text-slate-500 font-bold">
-              تأكد من كتابة اسم المحل بشكل صحيح أو اختر "جميع المندوبين" لعرض كامل الأرشيف.
+              يتم جلب البيانات تدريجياً من الأرشيف (200 سجل في كل دفعة) لسرعة فائقة أثناء التصفح.
             </p>
+          </div>
+        ) : archiveFetchError && groupedOldInvoices.length === 0 ? (
+          <div className={`p-8 rounded-2xl border text-center space-y-3 ${isDarkMode ? 'bg-slate-900 border-rose-800/60' : 'bg-white border-rose-200'}`}>
+            <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+            <h3 className="text-sm font-black text-rose-600 dark:text-rose-400">
+              {archiveFetchError}
+            </h3>
+            <button
+              type="button"
+              onClick={() => {
+                clearGlobalQuotaExceeded();
+                fetchArchivePage(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm transition-all cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>إعادة تحميل الأرشيف</span>
+            </button>
+          </div>
+        ) : groupedOldInvoices.length === 0 ? (
+          <div className={`p-8 rounded-2xl border text-center space-y-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className="text-3xl">📭</div>
+            <h3 className="text-sm font-black text-slate-700 dark:text-slate-300">
+              لا توجد فواتير قديمة تطابق معايير البحث في الدفعة الحالية
+            </h3>
+            <p className="text-xs text-slate-500 font-bold">
+              {hasMoreArchiveFromServer
+                ? `تم فحص ${archivedEntries.length.toLocaleString()} سجل حديث حتى الآن. يمكنك البحث في دفعة أقدم من الأرشيف.`
+                : 'تأكد من كتابة اسم المحل بشكل صحيح أو اختر "جميع المندوبين" لعرض كامل الأرشيف.'}
+            </p>
+            {hasMoreArchiveFromServer && (
+              <button
+                type="button"
+                disabled={isFetchingMoreArchive}
+                onClick={() => fetchArchivePage(false, 500)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black shadow-sm transition-all cursor-pointer"
+              >
+                {isFetchingMoreArchive ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Search className="w-3.5 h-3.5" />
+                )}
+                <span>البحث في دفعة أقدم من الأرشيف (+500 سجل)</span>
+              </button>
+            )}
           </div>
         ) : (
           displayedInvoices.map((inv) => {
             const customerName = inv.customerName;
             const entries = inv.entries;
 
+            const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
+            const customerDisplayName = String(customerName || 'بدون اسم محل')
+              .replace(/__(wholesale|retail)/g, '')
+              .replace(phoneRegex, '')
+              .replace(/^[\s-–—:]+|[\s-–—:]+$/g, '')
+              .trim() || 'بدون اسم محل';
+
+            const phone = getCustomerPhoneForOldInvoice(inv);
+            const isProcessing = isSharingWhatsApp === inv.invoiceKey;
+            const isProductFilterActive = selectedProduct !== 'الكل';
+
+            const formatPriceValue = (val: number): string => {
+              if (val === null || val === undefined || isNaN(val)) return '0';
+              const num = Number(val);
+              if (num === 0) return '0';
+              if (Number.isInteger(num)) {
+                return num.toLocaleString('en-US');
+              }
+              return num.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+            };
+
+            const findProduct = (entry: SalesEntry) => {
+              const normalizedName = (entry.productName || '').trim();
+              return (
+                productsByNameMap.get(entry.productName) ||
+                productsByNameMap.get(normalizedName) ||
+                productsList.find((p) => (p.productName || '').trim().toLowerCase() === normalizedName.toLowerCase())
+              );
+            };
+
+            const getEntryCartons = (entry: SalesEntry) => {
+              if (entry.isGift) return 0;
+              const prod = findProduct(entry);
+              const cq = Number(prod?.cartonQuantity) || 1;
+              if (entry.entryUnit === 'carton') {
+                return Number(entry.enteredQuantity) || 0;
+              }
+              if (cq > 1 && entry.quantity >= cq) {
+                return Math.floor(entry.quantity / cq);
+              }
+              return 0;
+            };
+
+            const getEntryUnitPrice = (entry: SalesEntry) => {
+              if (entry.isGift) return 0;
+              const prod = findProduct(entry);
+              if (!prod) return 0;
+              const isWholesale = Boolean(
+                entry.priceMode === 'wholesale' ||
+                (entry.priceMode as unknown as string) === 'جملة' ||
+                inv.priceMode === 'wholesale' ||
+                entry.customerType === 'جملة' ||
+                entries[0]?.customerType === 'جملة'
+              );
+              const ws = typeof prod.wholesalePrice === 'string' ? parseArabicNumber(prod.wholesalePrice) : Number(prod.wholesalePrice) || 0;
+              const rt = typeof prod.retailPrice === 'string' ? parseArabicNumber(prod.retailPrice) : Number(prod.retailPrice) || 0;
+              return isWholesale ? (ws > 0 ? ws : rt) : (rt > 0 ? rt : ws);
+            };
+
+            const totalInvoiceCartons = entries.reduce((sum, e) => sum + getEntryCartons(e), 0);
+            const totalInvoicePieces = entries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+            const totalInvoiceWeight = entries.reduce((sum, e) => sum + (Number(e.totalWeightKg) || 0), 0);
+            const totalInvoiceAmount = entries.reduce((sum, e) => {
+              if (e.isGift) return sum;
+              return sum + getEntryUnitPrice(e) * (Number(e.quantity) || 0);
+            }, 0);
+
+            const invoiceDateTimeStr = entries[0]?.timestamp
+              ? `${new Date(entries[0].timestamp).toISOString().split('T')[0]} ${new Date(entries[0].timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+              : inv.dateString
+              ? `${inv.dateString} 0:00`
+              : '1900-01-00 0:00';
+
             return (
-              <div 
-                key={inv.invoiceKey} 
-                className={`invoice-card border-2 rounded-xl p-0 shadow-md overflow-hidden transition-all ${
-                  isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-400'
+              <div
+                key={inv.invoiceKey}
+                className={`invoice-card border-2 rounded-2xl shadow-md overflow-hidden transition-all mb-5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
                 }`}
               >
-                {/* Invoice Card Header - Matching EntryScreen exactly */}
-                <h4 className={`font-extrabold text-sm mb-0 p-3 border-b flex flex-col gap-2 rounded-t-xl ${
-                  isDarkMode ? 'bg-slate-700/80 border-slate-600 text-slate-100' : 'bg-slate-100/80 border-slate-200 text-slate-900'
+                {/* Header Bar: Matching EntryScreen exactly */}
+                <div className={`p-2.5 sm:p-3.5 border-b flex items-center justify-between gap-2 relative ${
+                  isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-slate-200'
                 }`}>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    {/* Customer Name Group (Right side in RTL) */}
-                    <div className="flex-1 flex items-center justify-start gap-2 flex-wrap min-w-0">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
-                      <span className="bg-slate-200 dark:bg-slate-600 text-[10px] font-black px-2 py-0.5 rounded border border-slate-300 dark:border-slate-500 shrink-0">
-                        {inv.customerCode || '---'}
-                      </span>
-                      <span className="font-black text-sm truncate text-[#1f4e78] dark:text-blue-300">
-                        {(() => {
-                          const phoneRegex = /(?:\+964|0)?7[3-9]\d[\s-]?\d{3}[\s-]?\d{4}/;
-                          return String(customerName).replace(phoneRegex, '').replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();
-                        })()}
-                      </span>
-                      {(() => {
-                        const phone = getCustomerPhoneForOldInvoice(inv);
-                        return phone && (
-                          <a
-                            href={`tel:${phone}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-full border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 shadow-2xs transition-all cursor-pointer shrink-0"
-                            title={`اتصال بالزبون: ${phone}`}
-                            dir="ltr"
-                          >
-                            <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          </a>
-                        );
-                      })()}
-                      {inv.customerAddress && (
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal truncate">
-                          ({inv.customerAddress})
-                        </span>
-                      )}
-                    </div>
+                  {/* Customer Name Header with Phone Button */}
+                  <div className="flex-1 flex items-center justify-start gap-2 flex-wrap min-w-0 px-1">
+                    <h3 className="font-black text-xs sm:text-base md:text-lg text-[#1f4e78] dark:text-blue-300 tracking-wide">
+                      {customerDisplayName}
+                    </h3>
+                    {phone && (
+                      <div className="inline-flex items-center gap-1.5 flex-wrap">
+                        <a
+                          href={`tel:${phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-full border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 shadow-xs transition-all cursor-pointer shrink-0"
+                          title={`اتصال بالزبون: ${phone}`}
+                          dir="ltr"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
 
-                    {/* Action Buttons Group (Left side in RTL) */}
-                    <div className="flex items-center gap-1.5 shrink-0 z-10">
+                  {/* Action Buttons (Print, WhatsApp, Delete) */}
+                  <div className="flex items-center gap-1.5 shrink-0 z-10">
+                    <button
+                      type="button"
+                      onClick={() => handlePrintInvoice(inv)}
+                      className={`p-1 sm:p-1.5 rounded-lg border transition-all cursor-pointer shadow-xs flex items-center justify-center active:scale-95 ${
+                        isDarkMode
+                          ? 'bg-blue-900/40 text-blue-300 hover:bg-blue-800/60 border-blue-700'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-300'
+                      }`}
+                      title="طباعة الفاتورة"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleWhatsAppInvoice(inv, phone);
+                      }}
+                      className={`px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1 active:scale-95 ${
+                        isProcessing
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                          : isDarkMode
+                            ? 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/60 border-emerald-700'
+                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300'
+                      }`}
+                      title={isProcessing ? 'جاري تجهيز الفاتورة...' : phone ? `مشاركة صورة الفاتورة إلى واتساب الزبون (${phone})` : 'مشاركة صورة الفاتورة عبر واتساب'}
+                    >
+                      {isProcessing ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
+                      )}
+                      <span className="hidden sm:inline">
+                        {isProcessing ? 'جاري التجهيز...' : 'مشاركة الى واتساب'}
+                      </span>
+                    </button>
+
+                    {currentUser?.isAdmin && (
                       <button
                         type="button"
-                        onClick={() => handlePrintInvoice(inv)}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
-                          isDarkMode 
-                            ? 'bg-blue-900/50 text-blue-400 hover:bg-blue-800 border-blue-700' 
-                            : 'bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border-blue-200'
+                        disabled={deletingInvoiceKey === inv.invoiceKey}
+                        onClick={() => handleDeleteOldInvoice(inv)}
+                        className={`p-1 sm:p-1.5 rounded-lg border transition-all cursor-pointer shadow-xs flex items-center justify-center active:scale-95 ${
+                          isDarkMode
+                            ? 'bg-red-900/40 text-red-300 hover:bg-red-800/60 border-red-700'
+                            : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300'
                         }`}
-                        title="طباعة الفاتورة القديمة"
+                        title="مسح / حذف الفاتورة بالكامل"
                       >
-                        <Printer className="w-4 h-4" />
+                        {deletingInvoiceKey === inv.invoiceKey ? (
+                          <span className="w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
                       </button>
-                      {(() => {
-                        const phone = getCustomerPhoneForOldInvoice(inv);
-                        const isProcessing = isSharingWhatsApp === inv.invoiceKey;
-
-                        return (
-                          <button
-                            type="button"
-                            disabled={isProcessing}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleWhatsAppInvoice(inv, phone);
-                            }}
-                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
-                              isProcessing
-                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                                : isDarkMode 
-                                  ? 'bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 border-emerald-700' 
-                                  : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border-emerald-200'
-                            }`}
-                            title={isProcessing ? 'جاري تجهيز الفاتورة...' : phone ? `مشاركة صورة الفاتورة إلى واتساب الزبون (${phone})` : 'مشاركة صورة الفاتورة عبر واتساب'}
-                          >
-                            {isProcessing ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <MessageCircle className="w-4 h-4 text-emerald-500" />
-                            )}
-                          </button>
-                        );
-                      })()}
-                      {currentUser?.isAdmin && (
-                        <button
-                          type="button"
-                          disabled={deletingInvoiceKey === inv.invoiceKey}
-                          onClick={() => handleDeleteOldInvoice(inv)}
-                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm flex items-center justify-center active:scale-95 ${
-                            isDarkMode 
-                              ? 'bg-rose-950/40 text-rose-400 hover:bg-rose-900 border-rose-800' 
-                              : 'bg-rose-100 text-rose-600 hover:bg-rose-200 hover:text-rose-800 border-rose-200'
-                          }`}
-                          title="حذف هذه الفاتورة القديمة يدوياً (خاص بالمدير)"
-                        >
-                          {deletingInvoiceKey === inv.invoiceKey ? (
-                            <span className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
-                    </div>
+                    )}
                   </div>
 
-                  {/* Row 2: Grid Layout for Invoice Type & Metadata (Representative, Weight, Total) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] pt-2 border-t border-slate-200/70 dark:border-slate-600/70">
-                    {/* 1. نوع الفاتورة: مفرد / جملة */}
-                    <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold text-center ${
-                      inv.priceMode === 'wholesale' 
-                        ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
-                        : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                    }`}>
-                      {inv.priceMode === 'wholesale' ? <Package className="w-3.5 h-3.5 shrink-0" /> : <ShoppingCart className="w-3.5 h-3.5 shrink-0" />}
-                      <span className="truncate">{inv.priceMode === 'wholesale' ? 'فاتورة جملة' : 'فاتورة مفرد'}</span>
-                    </div>
-
-                    {/* 2. اسم المندوب وتاريخ الفاتورة */}
-                    <div className={`flex items-center justify-between sm:justify-center gap-1.5 py-1 px-2 rounded-lg border font-bold ${
-                      isDarkMode ? 'bg-slate-800 text-slate-200 border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-300'
-                    }`}>
-                      <div className="flex items-center gap-1 truncate">
-                        <span className="text-slate-500 dark:text-slate-400 font-normal">المندوب:</span>
-                        <span className="truncate">{inv.delegateName}</span>
-                      </div>
-                      <span className={`text-[9px] font-bold whitespace-nowrap border-r pr-1 shrink-0 ${
-                        isDarkMode ? 'text-slate-400 border-slate-600' : 'text-slate-600 border-slate-400'
-                      }`} dir="ltr">
-                        {inv.dateString}
+                  <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    {isProductFilterActive ? (
+                      <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-700">
+                        مفلتر: {selectedProduct}
                       </span>
-                    </div>
+                    ) : (
+                      <span className="text-[11px] font-bold text-slate-400">#{entries.length} مواد</span>
+                    )}
+                  </div>
+                </div>
 
-                    {/* 3. الوزن الكلي */}
-                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-emerald-600 text-white font-black border border-emerald-700 shadow-sm text-center">
-                      <span className="text-emerald-100 text-[9px] font-normal">الوزن:</span>
-                      <span>{formatWithCommas(parseFloat(inv.totalWeight.toFixed(0)), true)} كجم</span>
+                {/* Metadata Sub-Header Bar (Mobile: Compact 2x2 grid) */}
+                <div className="sm:hidden border-b border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-1.5 text-[10px]">
+                  <div className="grid grid-cols-2 gap-1 text-right">
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700">
+                      <span className="font-black text-[#1f4e78] dark:text-blue-300">كود الزبون:</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{inv.customerCode || '---'}</span>
                     </div>
-
-                    {/* 4. المبلغ الكلي */}
-                    <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-indigo-600 text-white font-black border border-indigo-700 shadow-sm text-center" title="إجمالي مبلغ الفاتورة">
-                      <span className="text-indigo-100 text-[9px] font-normal">المجموع:</span>
-                      <span>{formatWithCommas(Math.round(inv.totalAmount), true)} د.ع</span>
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700">
+                      <span className="font-black text-[#1f4e78] dark:text-blue-300">نوع الزبون:</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100">{inv.priceMode === 'wholesale' ? 'جملة' : 'مفرد'}</span>
+                    </div>
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700">
+                      <span className="font-black text-[#1f4e78] dark:text-blue-300">وقت وتاريخ:</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-[9px]" dir="ltr">{invoiceDateTimeStr}</span>
+                    </div>
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700">
+                      <span className="font-black text-[#1f4e78] dark:text-blue-300">اسم المندوب:</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[85px]">{inv.delegateName || 'غير محدد'}</span>
                     </div>
                   </div>
-                </h4>
+                </div>
+
+                {/* Desktop Sub-Header Bar (sm and up) - Excel-style 8 columns matching EntryScreen */}
+                <div className="hidden sm:block overflow-x-auto border-b border-slate-300 dark:border-slate-700">
+                  <table className="w-full text-center border-collapse text-xs">
+                    <tbody>
+                      <tr className="divide-x divide-x-reverse divide-slate-300 dark:divide-slate-700">
+                        <th className="py-1.5 px-2 bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-300 font-black whitespace-nowrap">
+                          كود الزبون:
+                        </th>
+                        <td className="py-1.5 px-2 font-mono font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                          {inv.customerCode || '---'}
+                        </td>
+
+                        <th className="py-1.5 px-2 bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-300 font-black whitespace-nowrap">
+                          نوع الزبون:
+                        </th>
+                        <td className="py-1.5 px-2 font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                          {inv.priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+                        </td>
+
+                        <th className="py-1.5 px-2 bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-300 font-black whitespace-nowrap">
+                          وقت وتاريخ:
+                        </th>
+                        <td className="py-1.5 px-2 font-mono font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap" dir="ltr">
+                          {invoiceDateTimeStr}
+                        </td>
+
+                        <th className="py-1.5 px-2 bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-300 font-black whitespace-nowrap">
+                          اسم المندوب:
+                        </th>
+                        <td className="py-1.5 px-2 font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                          {inv.delegateName || 'غير محدد'}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
 
                 {/* Active Product Filter Info Banner */}
-                {selectedProduct !== 'الكل' && (
+                {isProductFilterActive && (
                   <div className="px-3 py-1.5 bg-emerald-50/90 dark:bg-emerald-950/50 border-b border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
                     <div className="flex items-center gap-1.5">
                       <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <span>
-                        عرض مادة: <strong className="font-black underline">{selectedProduct}</strong> فقط (تم إخفاء باقي المواد مؤقتاً)
+                        يتم عرض مادة: <strong className="font-black underline">{selectedProduct}</strong> فقط في هذه الفاتورة (تم إخفاء باقي المواد مؤقتاً)
                       </span>
                     </div>
                     <button
@@ -2239,90 +2606,200 @@ export const OldInvoicesScreen: React.FC = () => {
                   </div>
                 )}
 
-                {/* Items List - Exactly matching EntryScreen layout */}
-                <div className="flex flex-col px-2 pb-1 pt-0.5">
-                  {entries.map((entry, index) => {
-                    const isGift = Boolean(entry.isGift);
-                    const prod = productsList.find(p => p.productName === entry.productName);
-                    const cartonQty = Number(prod?.cartonQuantity) || 1;
-                    const itemUnitPrice = prod && !isGift ? (entry.priceMode === 'wholesale' ? (prod.wholesalePrice || 0) : (prod.retailPrice || 0)) : 0;
-                    const itemTotalPrice = itemUnitPrice * entry.quantity;
-
-                    return (
-                      <div
-                        key={`old_item_${entry.id || index}`}
-                        className={`py-1 px-2 border-b last:border-b-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] transition-colors ${
-                          isGift
-                            ? (isDarkMode ? 'bg-amber-950/30 border-amber-800/60' : 'bg-amber-50/70 border-amber-200')
-                            : (isDarkMode ? 'border-slate-700 hover:bg-slate-700/50' : 'border-slate-200 hover:bg-slate-50')
-                        }`}
-                      >
-                        {/* Product Code, Name, Category */}
-                        <div className="flex-1 flex flex-col gap-1 w-full sm:w-auto">
-                          <div className="flex items-center gap-2">
-                            {isGift ? (
-                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-xs">
-                                هدية 🎁
-                              </span>
-                            ) : (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                isDarkMode ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-700 border-slate-300'
-                              }`} title="كود المنتج">
-                                {getProductCode(entry.productName)}
-                              </span>
-                            )}
-                            <span className={`font-bold text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-                              {entry.productName}
-                            </span>
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
-                              isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}>
-                              {entry.categoryName}
-                            </span>
+                {/* Main Invoice Table matching EntryScreen design */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-center border-collapse text-[9.5px] sm:text-xs">
+                    <thead>
+                      <tr className="bg-[#1f4e78] text-white font-black">
+                        <th className="py-1 sm:py-2 px-0.5 sm:px-1 text-center border border-slate-400/30 w-7 sm:w-9">
+                          ت
+                        </th>
+                        <th className="py-1 sm:py-2 px-1 sm:px-2.5 text-right border border-slate-400/30">اسم المنتج</th>
+                        <th className="hidden sm:table-cell py-1.5 sm:py-2 px-1 sm:px-1.5 text-center border border-slate-400/30">الصنف</th>
+                        <th className="sm:hidden py-1 px-1 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>الكمية</span>
+                            <span className="text-[8px] font-normal opacity-90">كارتون (قطع)</span>
                           </div>
-                        </div>
+                        </th>
+                        <th className="hidden sm:table-cell py-1.5 sm:py-2 px-1 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>الكمية</span>
+                            <span className="text-[9px] font-normal opacity-90">(كارتون)</span>
+                          </div>
+                        </th>
+                        <th className="hidden sm:table-cell py-1.5 sm:py-2 px-1 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>الكمية</span>
+                            <span className="text-[9px] font-normal opacity-90">(قطعة)</span>
+                          </div>
+                        </th>
+                        <th className="py-1 sm:py-2 px-0.5 sm:px-1 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>الوزن</span>
+                            <span className="text-[8px] sm:text-[9px] font-normal opacity-90">(كجم)</span>
+                          </div>
+                        </th>
+                        <th className="py-1 sm:py-2 px-0.5 sm:px-1 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="sm:hidden">السعر</span>
+                            <span className="hidden sm:inline">سعر القطعة</span>
+                            <span className="text-[8px] sm:text-[9px] font-normal opacity-90">(د.ع)</span>
+                          </div>
+                        </th>
+                        <th className="py-1 sm:py-2 px-0.5 sm:px-1.5 text-center border border-slate-400/30">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>المبلغ</span>
+                            <span className="text-[8px] sm:text-[9px] font-normal opacity-90">(د.ع)</span>
+                          </div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                      {entries.map((entry, index) => {
+                        const isGift = Boolean(entry.isGift);
+                        const unitPrice = getEntryUnitPrice(entry);
+                        const itemAmount = isGift ? 0 : unitPrice * (Number(entry.quantity) || 0);
+                        const itemCartons = getEntryCartons(entry);
 
-                        {/* Quantities, Weight, and Price */}
-                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                          <div className="flex items-center gap-1.5">
-                            {!isGift && entry.quantity >= cartonQty && (
-                              <div className={`text-center font-bold px-2 py-0.5 border rounded-md text-[10px] min-w-[50px] ${
-                                isDarkMode ? 'bg-indigo-900/50 border-indigo-700 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                              }`} title="الكراتين المدخلة">
-                                {entry.entryUnit === 'carton' 
-                                  ? formatWithCommas(entry.enteredQuantity || 0) 
-                                  : formatWithCommas(parseFloat(((entry.enteredQuantity || entry.quantity) / cartonQty).toFixed(0)))} كارتون
+                        return (
+                          <tr
+                            key={`old_item_${entry.id || index}`}
+                            className={`transition-colors border-b ${
+                              isDarkMode ? 'border-slate-800' : 'border-slate-200'
+                            } ${
+                              isGift
+                                ? isDarkMode
+                                  ? 'bg-amber-950/20 hover:bg-amber-950/30'
+                                  : 'bg-amber-50/60 hover:bg-amber-100/60'
+                                : index % 2 === 0
+                                ? isDarkMode
+                                  ? 'bg-slate-900 hover:bg-slate-800/60'
+                                  : 'bg-white hover:bg-blue-50/40'
+                                : isDarkMode
+                                ? 'bg-slate-800/40 hover:bg-slate-800/70'
+                                : 'bg-slate-50/70 hover:bg-blue-50/40'
+                            }`}
+                          >
+                            {/* ت */}
+                            <td className="py-1 sm:py-1.5 px-0.5 sm:px-1 text-center border-l border-slate-200 dark:border-slate-800">
+                              <span className="font-mono text-slate-400 text-[10px] sm:text-xs">{index + 1}</span>
+                            </td>
+
+                            {/* اسم المنتج */}
+                            <td className="py-1 sm:py-2 px-1 sm:px-2.5 text-right font-black text-slate-900 dark:text-white border-l border-slate-200 dark:border-slate-800">
+                              <div className="flex flex-col text-right">
+                                <div className="flex items-center gap-1 justify-start">
+                                  {isGift ? (
+                                    <span className="text-[8px] sm:text-[9px] font-black px-1 py-0.2 rounded bg-amber-500 text-white shadow-xs shrink-0">
+                                      هدية 🎁
+                                    </span>
+                                  ) : null}
+                                  <span className="font-bold sm:font-black text-slate-900 dark:text-white text-[10px] sm:text-xs leading-tight line-clamp-2">
+                                    {entry.productName}
+                                  </span>
+                                </div>
+
+                                {/* موبايل: كود المنتج (الصنف) */}
+                                <div className="text-[9px] text-slate-500 dark:text-slate-400 font-mono sm:hidden flex items-center gap-1 mt-0.5 leading-none">
+                                  <span className="font-bold text-slate-700 dark:text-slate-300">
+                                    {getProductCode(entry.productName)}
+                                  </span>
+                                  {entry.categoryName ? (
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                      ({entry.categoryName})
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                {/* الشاشات الأكبر: كود المنتج */}
+                                <span className="text-[9px] text-slate-400 font-mono hidden md:inline">
+                                  ({getProductCode(entry.productName)})
+                                </span>
                               </div>
-                            )}
-                            <div className={`text-center font-bold px-2 py-0.5 rounded-md text-[10px] min-w-[50px] ${
-                              isGift
-                                ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 font-black'
-                                : (isDarkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-800')
-                            }`} title={isGift ? "قطع الهدية المجانية" : "القطع"}>
-                              {isGift ? `${formatWithCommas(entry.quantity)} قطعة هدية` : (entry.entryUnit === 'carton' 
-                                ? `${formatWithCommas(entry.quantity)} قطعة` 
-                                : `${formatWithCommas(entry.enteredQuantity || entry.quantity)} قطعة`)}
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-1.5">
-                            <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
-                              isDarkMode ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800'
-                            }`} title="وزن الإدخال">
-                              وزن: {formatWithCommas(parseFloat(entry.totalWeightKg.toFixed(0)), true)} كجم
-                            </div>
-                            <div className={`text-center font-black px-2 py-0.5 rounded-md border text-[10px] min-w-[60px] ${
-                              isGift
-                                ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200'
-                                : (isDarkMode ? 'bg-rose-900/50 border-rose-700 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-800')
-                            }`} title={isGift ? "هدية مجانية (بدون مبلغ)" : "مبلغ الإدخال"}>
-                              {isGift ? 'هدية 🎁' : `مبلغ: ${formatWithCommas(itemTotalPrice, true)} د.ع`}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                            </td>
+
+                            {/* الصنف (سطح المكتب) */}
+                            <td className="hidden sm:table-cell py-1.5 sm:py-2 px-1 sm:px-1.5 text-center text-slate-600 dark:text-slate-300 font-bold border-l border-slate-200 dark:border-slate-800 text-[10px] sm:text-xs">
+                              {entry.categoryName || '—'}
+                            </td>
+
+                            {/* الكمية (موبايل) */}
+                            <td className="sm:hidden py-1 px-1 text-center font-mono border-l border-slate-200 dark:border-slate-800 text-[9px] whitespace-nowrap leading-tight">
+                              <div className="font-bold text-slate-900 dark:text-white">
+                                {itemCartons} كارتون
+                              </div>
+                              <div className="text-[8.5px] text-slate-500 dark:text-slate-400 font-semibold">
+                                ({formatWithCommas(entry.quantity)})
+                              </div>
+                            </td>
+
+                            {/* الكمية (كارتون) سطح المكتب */}
+                            <td className="hidden sm:table-cell py-1.5 sm:py-2 px-1 text-center font-mono font-bold text-slate-800 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800">
+                              {itemCartons > 0 ? formatWithCommas(itemCartons) : 0}
+                            </td>
+
+                            {/* الكمية (قطعة) سطح المكتب */}
+                            <td className="hidden sm:table-cell py-1.5 sm:py-2 px-1 text-center font-mono font-black text-slate-900 dark:text-white border-l border-slate-200 dark:border-slate-800">
+                              {formatWithCommas(entry.quantity)}
+                            </td>
+
+                            {/* الوزن (كجم) */}
+                            <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-bold sm:font-black text-emerald-700 dark:text-emerald-400 border-l border-slate-200 dark:border-slate-800 whitespace-nowrap text-[9px] sm:text-xs">
+                              {formatWithCommas(parseFloat((entry.totalWeightKg || 0).toFixed(0)), true)}
+                            </td>
+
+                            {/* سعر القطعة (د.ع) */}
+                            <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-bold text-slate-700 dark:text-slate-300 border-l border-slate-200 dark:border-slate-800 whitespace-nowrap text-[9px] sm:text-xs">
+                              {isGift ? '0' : formatPriceValue(unitPrice)}
+                            </td>
+
+                            {/* المبلغ (د.ع) */}
+                            <td className="py-1 sm:py-2 px-0.5 sm:px-1.5 text-center font-mono font-bold sm:font-black text-indigo-700 dark:text-indigo-400 border-l border-slate-200 dark:border-slate-800 whitespace-nowrap text-[9px] sm:text-xs">
+                              {isGift ? '0' : formatPriceValue(itemAmount)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+
+                    {/* Footer Row matching EntryScreen */}
+                    <tfoot>
+                      <tr className="bg-[#d9e1f2] dark:bg-slate-800 text-[#1f4e78] dark:text-blue-200 font-black border-t-2 border-slate-400 text-[9.5px] sm:text-xs">
+                        <td colSpan={2} className="sm:hidden py-1.5 px-1 text-right font-black border-l border-slate-300 dark:border-slate-700">
+                          الإجمالي
+                        </td>
+                        <td colSpan={3} className="hidden sm:table-cell py-2 px-1.5 text-right font-black border-l border-slate-300 dark:border-slate-700">
+                          الإجمالي
+                        </td>
+
+                        <td className="sm:hidden py-1.5 px-0.5 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700 text-[8.5px] whitespace-nowrap leading-tight">
+                          <div>{formatWithCommas(totalInvoiceCartons)} كارتون</div>
+                          <div className="text-[8px] opacity-80">({formatWithCommas(totalInvoicePieces)})</div>
+                        </td>
+
+                        <td className="hidden sm:table-cell py-2 px-1 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700">
+                          {formatWithCommas(totalInvoiceCartons)}
+                        </td>
+
+                        <td className="hidden sm:table-cell py-2 px-1 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700">
+                          {formatWithCommas(totalInvoicePieces)}
+                        </td>
+
+                        <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700 whitespace-nowrap text-[9px] sm:text-xs">
+                          {formatWithCommas(parseFloat(totalInvoiceWeight.toFixed(0)), true)} كجم
+                        </td>
+
+                        <td className="py-1 sm:py-2 px-0.5 sm:px-1 text-center font-mono font-black border-l border-slate-300 dark:border-slate-700 whitespace-nowrap text-[9px] sm:text-xs">
+                          —
+                        </td>
+
+                        <td className="py-1 sm:py-2 px-0.5 sm:px-1.5 text-center font-mono font-black text-rose-700 dark:text-rose-300 border-l border-slate-300 dark:border-slate-700 whitespace-nowrap text-[9px] sm:text-xs">
+                          {formatPriceValue(totalInvoiceAmount)} د.ع
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             );
@@ -2330,20 +2807,97 @@ export const OldInvoicesScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Pagination / Load More Button */}
-      {groupedOldInvoices.length > visibleCount && (
-        <div className="pt-2 flex justify-center">
-          <button
-            onClick={() => setVisibleCount(prev => prev + 30)}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md ${
-              isDarkMode 
-                ? 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700' 
-                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-            }`}
-          >
-            <ChevronDown className="w-4 h-4" />
-            <span>عرض المزيد (+30 فاتورة قديمة)</span>
-          </button>
+      {/* Infinite Scroll Sentinel & Progress Footer */}
+      {groupedOldInvoices.length > 0 && (
+        <div
+          ref={oldInvoicesScroll.sentinelRef}
+          className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center gap-2.5 text-center transition-all ${
+            isDarkMode
+              ? 'bg-slate-900/90 border-slate-800 text-slate-300'
+              : 'bg-white border-slate-200 text-slate-700'
+          }`}
+        >
+          {/* Progress Summary */}
+          <div className="w-full max-w-lg space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold">
+              <span>
+                معروض <strong className="text-emerald-600 dark:text-emerald-400">{displayedInvoices.length.toLocaleString()}</strong> فاتورة (من أصل <strong>{groupedOldInvoices.length.toLocaleString()}</strong> محمّلة)
+              </span>
+              {totalArchiveDocsCount !== null && (
+                <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                  سجلات محمّلة: {archivedEntries.length.toLocaleString()} / {totalArchiveDocsCount.toLocaleString()}
+                </span>
+              )}
+            </div>
+            <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}`}>
+              <div
+                className="h-full bg-emerald-600 dark:bg-emerald-500 rounded-full transition-all duration-300"
+                style={{
+                  width: `${
+                    totalArchiveDocsCount && totalArchiveDocsCount > 0 && hasMoreArchiveFromServer
+                      ? Math.min(100, Math.max(5, (archivedEntries.length / totalArchiveDocsCount) * 100))
+                      : Math.min(100, (displayedInvoices.length / Math.max(1, groupedOldInvoices.length)) * 100)
+                  }%`,
+                }}
+              />
+            </div>
+          </div>
+
+          {oldInvoicesScroll.hasMore ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-black text-emerald-700 dark:text-emerald-300">
+                <Loader2 className={`w-4 h-4 ${oldInvoicesScroll.isLoadingMore ? 'animate-spin' : ''}`} />
+                <span>
+                  {isFetchingMoreArchive
+                    ? 'جاري جلب الدفعة التالية من أرشيف قاعدة البيانات...'
+                    : oldInvoicesScroll.isLoadingMore
+                    ? 'جاري عرض المزيد من الفواتير القديمة...'
+                    : 'مرّر للأسفل لتحميل المزيد تلقائياً'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (displayedInvoices.length < groupedOldInvoices.length) {
+                    oldInvoicesScroll.loadMore();
+                  } else if (hasMoreArchiveFromServer) {
+                    fetchArchivePage(false);
+                  }
+                }}
+                disabled={oldInvoicesScroll.isLoadingMore}
+                className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50 ${
+                  isDarkMode
+                    ? 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                }`}
+              >
+                {displayedInvoices.length < groupedOldInvoices.length
+                  ? `عرض المزيد الآن (+${Math.min(20, groupedOldInvoices.length - displayedInvoices.length)})`
+                  : 'جلب دفعة أقدم من الأرشيف (+200 سجل)'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>تم عرض جميع الفواتير المطابقة في الأرشيف ({groupedOldInvoices.length.toLocaleString()} فاتورة)</span>
+              </span>
+              {groupedOldInvoices.length > 10 && (
+                <button
+                  type="button"
+                  onClick={() => archiveSectionTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                  }`}
+                >
+                  <ArrowUp className="w-3.5 h-3.5" />
+                  <span>العودة للأعلى</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

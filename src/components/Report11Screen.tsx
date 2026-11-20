@@ -106,6 +106,7 @@ export type Report11CategoryName = typeof REPORT_11_CATEGORIES[number];
 const normalizeArabic = (str: any): string => {
   if (str === null || str === undefined) return '';
   return String(str)
+    .replace(/[\u200B-\u200F\uFEFF]/g, '')
     .trim()
     .toLowerCase()
     .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
@@ -115,6 +116,66 @@ const normalizeArabic = (str: any): string => {
     .replace(/[يى]/g, 'ي')
     .replace(/ـ/g, '')
     .replace(/\s+/g, ' ');
+};
+
+// Parse numeric Excel values cleanly (supports Arabic-Indic digits, commas, Arabic thousands separator)
+const parseExcelNumeric = (val: any): number | null => {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+  const raw = parseArabicDigits(String(val))
+    .replace(/[\u200B-\u200F\uFEFF]/g, '')
+    .replace(/[٬,،\s]/g, '')
+    .replace(/[^\d.-]/g, '')
+    .trim();
+  if (!raw || raw === '-' || raw === '.') return null;
+  const num = parseFloat(raw);
+  return Number.isFinite(num) ? num : null;
+};
+
+// Trim object keys from Excel rows while keeping original values intact
+const normalizeExcelRowKeys = (row: Record<string, any>): Record<string, any> => {
+  const normalized: Record<string, any> = {};
+  if (!row || typeof row !== 'object') return normalized;
+  for (const [k, v] of Object.entries(row)) {
+    normalized[k] = v;
+    const trimmedKey = String(k).replace(/[\u200B-\u200F\uFEFF]/g, '').trim();
+    if (trimmedKey && normalized[trimmedKey] === undefined) {
+      normalized[trimmedKey] = v;
+    }
+  }
+  return normalized;
+};
+
+// Pick the first value from candidate keys that is genuinely non-empty (ignores undefined, null, and '')
+const pickFirstNonEmpty = (row: Record<string, any>, candidateKeys: string[]): any => {
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      const val = row[key];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        return val;
+      }
+    }
+  }
+  // Normalized header fallback for slight Arabic spacing/Alef/Taa variations
+  const normalizedEntries = Object.entries(row).map(([k, v]) => ({
+    normKey: normalizeArabic(k),
+    val: v,
+  }));
+  for (const key of candidateKeys) {
+    const targetNorm = normalizeArabic(key);
+    const match = normalizedEntries.find(
+      (e) => e.normKey === targetNorm && e.val !== undefined && e.val !== null && String(e.val).trim() !== ''
+    );
+    if (match) return match.val;
+  }
+  return null;
+};
+
+// Compare ISO/date timestamps safely
+const getTimestampMs = (ts: any): number => {
+  if (!ts) return 0;
+  const parsed = Date.parse(String(ts));
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
 // Match any raw category string (from Excel column/cell, Firestore record, or user input) to the canonical Report 11 category
@@ -176,7 +237,7 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   }
 
   // 4. Willy cheese (جبن ويلي)
-  if (str.includes('ويلي') || str.includes('willy')) {
+  if (str.includes('ويلي') || str.includes('willy') || str.includes('willie')) {
     return 'جبن ويلي';
   }
 
@@ -184,8 +245,11 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   if (
     str.includes('مقرمش') ||
     str.includes('بركر') ||
+    str.includes('برجر') ||
     str.includes('برغر') ||
+    str.includes('همبرغر') ||
     str.includes('ناجتس') ||
+    str.includes('ناكت') ||
     str.includes('زنجر') ||
     str.includes('ستريبس') ||
     (str.includes('بيتزا') && str.includes('جاهز'))
@@ -202,7 +266,7 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   if (
     str.includes('حليب بطل') ||
     str.includes('حليب قنينه') ||
-    (str.includes('حليب') && (str.includes('بطل') || str.includes('زجاج')))
+    (str.includes('حليب') && (str.includes('بطل') || str.includes('قنينه') || str.includes('زجاج')))
   ) {
     return 'حليب بطل';
   }
@@ -210,10 +274,11 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   // 8. Packet milk (حليب باكيت)
   if (
     str.includes('حليب باكيت') ||
+    str.includes('حليب باكت') ||
     str.includes('حليب كارتون') ||
     str.includes('حليب كرتون') ||
     str.includes('حليب تترا') ||
-    (str.includes('حليب') && str.includes('باكيت'))
+    (str.includes('حليب') && (str.includes('باكيت') || str.includes('باكت') || str.includes('علب')))
   ) {
     return 'حليب باكيت';
   }
@@ -226,8 +291,15 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   // 10. All regular cheese (جبن 1 / كل انواع الجبن العادي)
   if (
     str.includes('جبن 1') ||
+    str.includes('جبن1') ||
     str === 'جبن' ||
     str.includes('جبن عادي') ||
+    str.includes('جبن مثلث') ||
+    str.includes('جبن ابيض') ||
+    str.includes('جبن كريمي') ||
+    str.includes('جبن كيري') ||
+    str.includes('جبن اماه') ||
+    str.includes('جبن مسدمر') ||
     str.includes('اجبان') ||
     str.includes('فيتا') ||
     str.includes('شيدر') ||
@@ -236,7 +308,8 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
     str.includes('كاسات') ||
     str.includes('مثلثات') ||
     str.includes('لبنه') ||
-    str.includes('لبنة')
+    str.includes('لبنة') ||
+    str.includes('جبن')
   ) {
     return 'جبن 1';
   }
@@ -247,7 +320,7 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   }
 
   // 12. Cream (قشطة)
-  if (str.includes('قشط') || str.includes('قيمر')) {
+  if (str.includes('قشط') || str.includes('قيمر') || str.includes('كيمر')) {
     return 'قشطة';
   }
 
@@ -262,23 +335,13 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
     str.includes('رائب') ||
     str.includes('يوغرت') ||
     str.includes('سفن') ||
-    str.includes('جاموس') ||
-    str === 'لبن' ||
-    str === 'اللبن' ||
-    str === 'زبادي' ||
-    str === 'الزبادي' ||
-    str === 'خاثر' ||
-    str === 'الخاثر' ||
-    str === 'البان' ||
-    str === 'الالبان' ||
-    str === 'ماست' ||
-    str === 'الماست'
+    str.includes('جاموس')
   ) {
     return 'لبن';
   }
 
   // 14. Juice (عصير)
-  if (str.includes('عصير')) {
+  if (str.includes('عصير') || str.includes('عصائر')) {
     return 'عصير';
   }
 
@@ -288,7 +351,7 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   }
 
   // 16. Sauces (صلصات)
-  if (str.includes('صلص') || str.includes('مايونيز') || str.includes('كاتشب')) {
+  if (str.includes('صلص') || str.includes('صوص') || str.includes('مايونيز') || str.includes('كاتشب')) {
     return 'صلصات';
   }
 
@@ -301,6 +364,68 @@ export const matchReport11CategoryName = (rawInput: any): Report11CategoryName |
   }
 
   return null;
+};
+
+// Deduplicate report11_targets by (normalized delegate, canonical category), keeping newest updatedAt
+const dedupeReport11Targets = (list: Report11CategoryTarget[]): Report11CategoryTarget[] => {
+  const map = new Map<string, Report11CategoryTarget>();
+  list.forEach((item) => {
+    if (!item || !item.delegateName || !item.categoryName) return;
+    const delNorm = normalizeArabic(item.delegateName);
+    const matchedCat = matchReport11CategoryName(item.categoryName) || normalizeArabic(item.categoryName);
+    const key = `${delNorm}__${matchedCat}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+    const tsNew = getTimestampMs(item.updatedAt);
+    const tsOld = getTimestampMs(existing.updatedAt);
+    if (tsNew > tsOld) {
+      map.set(key, item);
+    } else if (tsNew === tsOld) {
+      const itemIsCanonical = (REPORT_11_CATEGORIES as readonly string[]).includes(item.categoryName);
+      const existingIsCanonical = (REPORT_11_CATEGORIES as readonly string[]).includes(existing.categoryName);
+      if (itemIsCanonical && !existingIsCanonical) {
+        map.set(key, item);
+      } else if (itemIsCanonical === existingIsCanonical) {
+        const sumNew = (Number(item.monthlyTarget) || 0) + (Number(item.monthlySales) || 0);
+        const sumOld = (Number(existing.monthlyTarget) || 0) + (Number(existing.monthlySales) || 0);
+        if (sumNew > sumOld) map.set(key, item);
+      }
+    }
+  });
+  return Array.from(map.values());
+};
+
+// Deduplicate per-delegate records (specific_product_targets, extra_targets, incentives), keeping newest updatedAt
+const dedupeDelegateRecords = <T extends { delegateName?: string; updatedAt?: string }>(list: T[]): T[] => {
+  const map = new Map<string, T>();
+  list.forEach((item) => {
+    if (!item || !item.delegateName) return;
+    const key = normalizeArabic(item.delegateName);
+    if (!key) return;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+    if (getTimestampMs(item.updatedAt) >= getTimestampMs(existing.updatedAt)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+};
+
+// Commit large sets of Firestore batch operations safely in <= 400-write chunks (Firestore limit is 500)
+const commitFirestoreOpsInChunks = async (ops: Array<(batch: ReturnType<typeof writeBatch>) => void>) => {
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+    const chunk = ops.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((fn) => fn(batch));
+    await batch.commit();
+  }
 };
 
 // Check if two category strings refer to the same canonical Report 11 category
@@ -924,11 +1049,41 @@ export const Report11Screen: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const [extraTargetsList, setExtraTargetsList] = useState<any[]>([]);
-  const [delegateIncentives, setDelegateIncentives] = useState<any[]>([]);
-  const [specificProductTargets, setSpecificProductTargets] = useState<any[]>([]);
-  const [specificProductName, setSpecificProductName] = useState<string>('جبن اماه 200 غم');
-  const [tempSpecificProductName, setTempSpecificProductName] = useState<string>('جبن اماه 200 غم');
+  const [extraTargetsList, setExtraTargetsList] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_extra_targets');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+  const [delegateIncentives, setDelegateIncentives] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_report11_incentives');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+  const [specificProductTargets, setSpecificProductTargets] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('cache_specific_product_targets');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+  const [specificProductName, setSpecificProductName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('cache_specific_product_name') || 'جبن اماه 200 غم';
+    } catch {
+      return 'جبن اماه 200 غم';
+    }
+  });
+  const [tempSpecificProductName, setTempSpecificProductName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('cache_specific_product_name') || 'جبن اماه 200 غم';
+    } catch {
+      return 'جبن اماه 200 غم';
+    }
+  });
   const [isSavingSpecificProductName, setIsSavingSpecificProductName] = useState<boolean>(false);
   const [showAdminSpecificBreakdown, setShowAdminSpecificBreakdown] = useState<boolean>(true);
 
@@ -989,18 +1144,19 @@ export const Report11Screen: React.FC = () => {
     const unsubTargets = safeOnSnapshot(
       collection(db, 'report11_targets'),
       (snapshot: any) => {
-        const list: Report11CategoryTarget[] = [];
+        const rawList: Report11CategoryTarget[] = [];
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as Report11CategoryTarget;
           if (data && data.delegateName && data.categoryName) {
-            list.push({ ...data, id: docSnap.id });
+            rawList.push({ ...data, id: docSnap.id });
           }
         });
 
+        const dedupedList = dedupeReport11Targets(rawList);
         // Keep report11_targets strictly synced with Firestore and Excel uploads
-        setCategoryTargets(list);
+        setCategoryTargets(dedupedList);
         try {
-          localStorage.setItem('cache_report11_targets', JSON.stringify(list));
+          localStorage.setItem('cache_report11_targets', JSON.stringify(dedupedList));
         } catch {}
       },
       (err: any) => logFirestoreErrorGracefully(err, 'report11_targets'),
@@ -1035,7 +1191,11 @@ export const Report11Screen: React.FC = () => {
       (snap: any) => {
         const list: any[] = [];
         snap.forEach((d: any) => list.push({ ...d.data(), id: d.id }));
-        setExtraTargetsList(list);
+        const deduped = dedupeDelegateRecords(list);
+        setExtraTargetsList(deduped);
+        try {
+          localStorage.setItem('cache_report11_extra_targets', JSON.stringify(deduped));
+        } catch {}
       },
       (err: any) => logFirestoreErrorGracefully(err, 'delegate_monthly_extra_targets'),
       'delegate_monthly_extra_targets'
@@ -1046,7 +1206,11 @@ export const Report11Screen: React.FC = () => {
       (snap: any) => {
         const list: any[] = [];
         snap.forEach((d: any) => list.push({ ...d.data(), id: d.id }));
-        setDelegateIncentives(list);
+        const deduped = dedupeDelegateRecords(list);
+        setDelegateIncentives(deduped);
+        try {
+          localStorage.setItem('cache_report11_incentives', JSON.stringify(deduped));
+        } catch {}
       },
       (err: any) => logFirestoreErrorGracefully(err, 'delegate_incentives'),
       'delegate_incentives'
@@ -1057,27 +1221,11 @@ export const Report11Screen: React.FC = () => {
       (snap: any) => {
         const list: any[] = [];
         snap.forEach((d: any) => list.push({ ...d.data(), id: d.id }));
-        if (list.length === 0) {
-          const defaultImageTargets = [
-            { delegateName: 'بكر بدران', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 53, targetCartons: 13, salesCartonsOverride: 2.9, targetShops: 30, actualShopsOverride: 7 },
-            { delegateName: 'فيصل فؤاد', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 146, targetCartons: 13, salesCartonsOverride: 8.1, targetShops: 30, actualShopsOverride: 16 },
-            { delegateName: 'خلدون جمال', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 54, targetCartons: 13, salesCartonsOverride: 3.0, targetShops: 30, actualShopsOverride: 3 },
-            { delegateName: 'محمد جاسم', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 239, targetCartons: 13, salesCartonsOverride: 13.3, targetShops: 30, actualShopsOverride: 29 },
-            { delegateName: 'ناجي خلف', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 18, targetCartons: 13, salesCartonsOverride: 1.0, targetShops: 30, actualShopsOverride: 2 },
-            { delegateName: 'صباح فرحان', productName: 'جبن اماه 200 غم', targetPieces: 230, salesPiecesOverride: 92, targetCartons: 13, salesCartonsOverride: 5.1, targetShops: 30, actualShopsOverride: 8 }
-          ];
-          setSpecificProductTargets(defaultImageTargets);
-          try {
-            const batch = writeBatch(db);
-            defaultImageTargets.forEach((t) => {
-              const docKey = `del_${t.delegateName}`.replace(/[\/\s#$[\]]/g, '_');
-              batch.set(doc(db, 'specific_product_targets', docKey), { ...t, updatedAt: new Date().toISOString() }, { merge: true });
-            });
-            batch.commit();
-          } catch (e) {}
-        } else {
-          setSpecificProductTargets(list);
-        }
+        const deduped = dedupeDelegateRecords(list);
+        setSpecificProductTargets(deduped);
+        try {
+          localStorage.setItem('cache_specific_product_targets', JSON.stringify(deduped));
+        } catch {}
       },
       (err: any) => logFirestoreErrorGracefully(err, 'specific_product_targets'),
       'specific_product_targets'
@@ -1086,11 +1234,14 @@ export const Report11Screen: React.FC = () => {
     const unsubSpecName = safeOnSnapshot(
       doc(db, 'app_settings', 'specific_product_name'),
       (snap: any) => {
-        if (snap.exists() && snap.data()?.productName) {
-          setSpecificProductName(snap.data().productName);
-        } else {
-          setSpecificProductName('جبن اماه 200 غم');
-        }
+        const name = (snap.exists() && snap.data()?.productName)
+          ? String(snap.data().productName).trim()
+          : 'جبن اماه 200 غم';
+        setSpecificProductName(name);
+        setTempSpecificProductName(name);
+        try {
+          localStorage.setItem('cache_specific_product_name', name);
+        } catch {}
       },
       (err: any) => logFirestoreErrorGracefully(err, 'specific_product_name'),
       'specific_product_name'
@@ -1888,6 +2039,9 @@ export const Report11Screen: React.FC = () => {
         { merge: true }
       );
       setSpecificProductName(cleanName);
+      try {
+        localStorage.setItem('cache_specific_product_name', cleanName);
+      } catch {}
       setUserMessage(`تم تعيين وحفظ المنتج المخصص (${cleanName}) بنجاح لكافة المندوبين ✅`);
     } catch (e) {
       console.error('Error saving specific product name:', e);
@@ -1908,59 +2062,102 @@ export const Report11Screen: React.FC = () => {
       const workbook = XLSX.read(buffer, { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
+      const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' });
+
+      let headerRowIdx = 0;
+      for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
+        const text = normalizeArabic((rawRows[r] || []).map((c: any) => String(c)).join(' '));
+        if (text.includes('مندوب') || text.includes('delegate')) {
+          headerRowIdx = r;
+          break;
+        }
+      }
+
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { range: headerRowIdx, defval: '' });
 
       if (!jsonData || jsonData.length === 0) {
         setSpecificProductUploadMessage({ text: 'ملف الإكسل فارغ أو غير صالح!', type: 'error' });
         return;
       }
 
-      const batch = writeBatch(db);
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+      const uploadedRecordsMap = new Map<string, any>();
       let count = 0;
       const activeProdName = specificProductName || 'جبن اماه 200 غم';
+      const nowIso = new Date().toISOString();
 
-      jsonData.forEach((row: any) => {
-        const rawDelegate = (
-          row['اسم المندوب'] ||
-          row['المندوب'] ||
-          row['مندوب'] ||
-          row['Delegate'] ||
-          ''
-        ).toString().trim();
+      jsonData.forEach((rawRowObj: any) => {
+        const row = normalizeExcelRowKeys(rawRowObj);
+        const rawDelegate = String(
+          pickFirstNonEmpty(row, ['اسم المندوب', 'المندوب', 'مندوب', 'Delegate', 'delegateName']) || ''
+        ).trim();
 
         if (!rawDelegate) return;
-
         const normDel = normalizeArabic(rawDelegate);
+        if (normDel.startsWith('مجموع') || normDel.includes('اجمالي') || normDel === 'total') return;
+
         const matchedDel = delegateNamesList.find(
           (d) => normalizeArabic(d) === normDel || d.trim().toLowerCase() === rawDelegate.toLowerCase()
         ) || rawDelegate;
 
-        const targetPieces = parseFloat(String(row['تاركت الصنف (قطعة)'] || row['تاركت القطعة'] || 0).replace(/,/g, '')) || 0;
-        const salesPiecesOverride = parseFloat(String(row['مبيعات الصنف (قطعة)'] || row['مبيعات القطعة'] || 0).replace(/,/g, '')) || 0;
-        const targetCartons = parseFloat(String(row['تاركت المنتج (كارتون)'] || row['تاركت الكارتون'] || 0).replace(/,/g, '')) || 0;
-        const salesCartonsOverride = parseFloat(String(row['مبيعات المنتج (كارتون)'] || row['مبيعات الكارتون'] || 0).replace(/,/g, '')) || 0;
-        const targetShops = parseFloat(String(row['مطلوب تبيع لعدد محلات'] || row['تاركت المحلات'] || 0).replace(/,/g, '')) || 0;
-        const actualShopsOverride = parseFloat(String(row['تم بيع لعدد محلات'] || row['محلات مباع لها'] || 0).replace(/,/g, '')) || 0;
+        const rowProdName = pickFirstNonEmpty(row, ['اسم المنتج', 'المنتج', 'الصنف']);
+        const recordProdName = rowProdName ? String(rowProdName).trim() : activeProdName;
+
+        const targetPieces = parseExcelNumeric(pickFirstNonEmpty(row, ['تاركت الصنف (قطعة)', 'تاركت القطعة', 'تاركت قطعة', 'تاركت (قطعة)', 'هدف الصنف (قطعة)'])) ?? 0;
+        const salesPiecesOverride = parseExcelNumeric(pickFirstNonEmpty(row, ['مبيعات الصنف (قطعة)', 'مبيعات القطعة', 'مبيعات قطعة', 'مبيعات (قطعة)'])) ?? 0;
+        const targetCartons = parseExcelNumeric(pickFirstNonEmpty(row, ['تاركت المنتج (كارتون)', 'تاركت الصنف (كارتون)', 'تاركت الكارتون', 'تاركت كارتون', 'تاركت (كارتون)'])) ?? 0;
+        const salesCartonsOverride = parseExcelNumeric(pickFirstNonEmpty(row, ['مبيعات المنتج (كارتون)', 'مبيعات الصنف (كارتون)', 'مبيعات الكارتون', 'مبيعات كارتون', 'مبيعات (كارتون)'])) ?? 0;
+        const targetShops = parseExcelNumeric(pickFirstNonEmpty(row, ['مطلوب تبيع لعدد محلات', 'تاركت المحلات', 'تاركت تغطية المحلات', 'هدف المحلات'])) ?? 0;
+        const actualShopsOverride = parseExcelNumeric(pickFirstNonEmpty(row, ['تم بيع لعدد محلات', 'تم بيع لمحلات', 'محلات مباع لها', 'تغطية المحلات'])) ?? 0;
 
         const docKey = `del_${matchedDel}`.replace(/[\/\s#$[\]]/g, '_');
         const docRef = doc(db, 'specific_product_targets', docKey);
-
-        batch.set(docRef, {
+        const record = {
+          id: docKey,
           delegateName: matchedDel,
-          productName: activeProdName,
+          productName: recordProdName,
           targetPieces,
           salesPiecesOverride,
           targetCartons,
           salesCartonsOverride,
           targetShops,
           actualShopsOverride,
-          updatedAt: new Date().toISOString(),
+          updatedAt: nowIso,
           updatedBy: currentUser?.name || 'الأدمن',
-        }, { merge: true });
+        };
+
+        // Clean up any stale duplicate docs for the same delegate with a different doc.id
+        specificProductTargets.forEach((existingRec) => {
+          if (
+            existingRec?.id &&
+            existingRec.id !== docKey &&
+            normalizeArabic(existingRec.delegateName || '') === normalizeArabic(matchedDel)
+          ) {
+            ops.push((b) => b.delete(doc(db, 'specific_product_targets', existingRec.id)));
+          }
+        });
+
+        ops.push((b) => b.set(docRef, record, { merge: true }));
+        uploadedRecordsMap.set(normalizeArabic(matchedDel), record);
         count++;
       });
 
-      await batch.commit();
+      if (count === 0) {
+        setSpecificProductUploadMessage({ text: 'لم يتم العثور على صفوف صالحة في ملف الإكسل!', type: 'error' });
+        return;
+      }
+
+      await commitFirestoreOpsInChunks(ops);
+
+      setSpecificProductTargets((prev) => {
+        const merged = [...prev.filter((r) => !uploadedRecordsMap.has(normalizeArabic(r.delegateName || '')))];
+        uploadedRecordsMap.forEach((rec) => merged.push(rec));
+        const deduped = dedupeDelegateRecords(merged);
+        try {
+          localStorage.setItem('cache_specific_product_targets', JSON.stringify(deduped));
+        } catch {}
+        return deduped;
+      });
 
       setSpecificProductUploadMessage({
         text: `تم رفع وتحديث بيانات المنتج المخصص لـ (${count}) مندوب بنجاح وإرسال التنبيهات 🔔✅`,
@@ -2015,14 +2212,17 @@ export const Report11Screen: React.FC = () => {
     const confirmed = await showConfirm('هل أنت متأكد من مسح وتفريغ كافة بيانات ملف الإكسل للصنف المحدد؟');
     if (!confirmed) return;
     try {
-      const batch = writeBatch(db);
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
       specificProductTargets.forEach((t) => {
         if (t.id) {
-          batch.delete(doc(db, 'specific_product_targets', t.id));
+          ops.push((b) => b.delete(doc(db, 'specific_product_targets', t.id)));
         }
       });
-      await batch.commit();
+      await commitFirestoreOpsInChunks(ops);
       setSpecificProductTargets([]);
+      try {
+        localStorage.setItem('cache_specific_product_targets', '[]');
+      } catch {}
       setUserMessage('تم مسح بيانات الصنف المحدد بنجاح ✅');
     } catch (err) {
       console.error('Error clearing specific product targets:', err);
@@ -2048,22 +2248,30 @@ export const Report11Screen: React.FC = () => {
     try {
       setIsSavingSpecificProductModal(true);
       const docKey = `del_${editSpecificProductDelegate}`.replace(/[\/\s#$[\]]/g, '_');
-      await setDoc(
-        doc(db, 'specific_product_targets', docKey),
-        {
-          delegateName: editSpecificProductDelegate,
-          productName: specificProductName,
-          targetPieces: parseFloat(editSpecificTargetPieces.replace(/,/g, '')) || 0,
-          salesPiecesOverride: parseFloat(editSpecificSalesPieces.replace(/,/g, '')) || 0,
-          targetCartons: parseFloat(editSpecificTargetCartons.replace(/,/g, '')) || 0,
-          salesCartonsOverride: parseFloat(editSpecificSalesCartons.replace(/,/g, '')) || 0,
-          targetShops: parseFloat(editSpecificTargetShops.replace(/,/g, '')) || 0,
-          actualShopsOverride: parseFloat(editSpecificActualShops.replace(/,/g, '')) || 0,
-          updatedAt: new Date().toISOString(),
-          updatedBy: currentUser?.name || 'الأدمن',
-        },
-        { merge: true }
+      const existing = specificProductTargets.find(
+        (t) => normalizeArabic(t.delegateName || '') === normalizeArabic(editSpecificProductDelegate)
       );
+      const updatedRecord = {
+        id: docKey,
+        delegateName: editSpecificProductDelegate,
+        productName: specificProductName,
+        targetPieces: parseExcelNumeric(editSpecificTargetPieces) ?? 0,
+        salesPiecesOverride: parseExcelNumeric(editSpecificSalesPieces) ?? 0,
+        targetCartons: editSpecificTargetCartons.trim() !== '' ? (parseExcelNumeric(editSpecificTargetCartons) ?? 0) : (existing?.targetCartons || 0),
+        salesCartonsOverride: editSpecificSalesCartons.trim() !== '' ? (parseExcelNumeric(editSpecificSalesCartons) ?? 0) : (existing?.salesCartonsOverride || 0),
+        targetShops: parseExcelNumeric(editSpecificTargetShops) ?? 0,
+        actualShopsOverride: parseExcelNumeric(editSpecificActualShops) ?? 0,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.name || 'الأدمن',
+      };
+      await setDoc(doc(db, 'specific_product_targets', docKey), updatedRecord, { merge: true });
+      setSpecificProductTargets((prev) => {
+        const next = dedupeDelegateRecords([...prev.filter((r) => normalizeArabic(r.delegateName || '') !== normalizeArabic(editSpecificProductDelegate)), updatedRecord]);
+        try {
+          localStorage.setItem('cache_specific_product_targets', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
       setShowEditSpecificProductModal(false);
       setUserMessage(`تم حفظ أهداف ومبيعات المنتج المخصص للمندوب (${editSpecificProductDelegate}) بنجاح ✅`);
     } catch (err) {
@@ -2078,19 +2286,31 @@ export const Report11Screen: React.FC = () => {
     try {
       setIsSavingExtraTargets(true);
       const docKey = `del_${editExtraTargetDelegate}`.replace(/[\/\s#$[\]]/g, '_');
-      await setDoc(
-        doc(db, 'delegate_monthly_extra_targets', docKey),
-        {
-          delegateName: editExtraTargetDelegate,
-          monthlyIqdTarget: parseFloat(editMonthlyIqdTarget.replace(/,/g, '')) || 0,
-          targetShopsCount: parseFloat(editTargetShopsCount.replace(/,/g, '')) || 0,
-          extraProductName: editExtraProductName.trim() || 'جبن مسدمر مثلث 90 غم',
-          extraProductCustomersTarget: parseFloat(editExtraProductCustomersTarget.replace(/,/g, '')) || 0,
-          updatedAt: new Date().toISOString(),
-          updatedBy: currentUser?.name || 'الأدمن',
-        },
-        { merge: true }
+      const existing = extraTargetsList.find(
+        (t) => normalizeArabic(t.delegateName) === normalizeArabic(editExtraTargetDelegate)
       );
+      const updatedExtra = {
+        ...(existing || {}),
+        id: docKey,
+        delegateName: editExtraTargetDelegate,
+        monthlyIqdTarget: parseExcelNumeric(editMonthlyIqdTarget) ?? 0,
+        targetShopsCount: parseExcelNumeric(editTargetShopsCount) ?? 0,
+        extraProductName: editExtraProductName.trim() || 'جبن مسدمر مثلث 90 غم',
+        extraProductCustomersTarget: parseExcelNumeric(editExtraProductCustomersTarget) ?? 0,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.name || 'الأدمن',
+      };
+      await setDoc(doc(db, 'delegate_monthly_extra_targets', docKey), updatedExtra, { merge: true });
+      setExtraTargetsList((prev) => {
+        const next = dedupeDelegateRecords([
+          ...prev.filter((t) => normalizeArabic(t.delegateName) !== normalizeArabic(editExtraTargetDelegate)),
+          updatedExtra,
+        ]);
+        try {
+          localStorage.setItem('cache_report11_extra_targets', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
       setShowEditExtraTargetsModal(false);
       setUserMessage('تم حفظ الأهداف الإضافية للمندوب بنجاح ✅');
     } catch (err) {
@@ -2125,31 +2345,28 @@ export const Report11Screen: React.FC = () => {
         throw new Error('ملف الإكسل فارغ ولا يحتوي على بيانات صالحة.');
       }
 
-      const batch = writeBatch(db);
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
       const newTargetsList: Report11CategoryTarget[] = [...categoryTargets];
       let processedCount = 0;
 
       const delegateIncentiveMap: Record<string, number> = {};
       const delegateExtraTargetsMap: Record<string, any> = {};
       const delegateSpecificProductMap: Record<string, any> = {};
-      const providedCategoryKeys = new Set<string>();
+      const uploadTimestamp = new Date().toISOString();
 
       workbook.SheetNames.forEach((sheetName) => {
         try {
           const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
-          if (!jsonData || jsonData.length === 0) return;
-
           const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' });
           let headerRowIdx = -1;
           for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
             const rCells = rawRows[r] || [];
-            const text = rCells.map((c: any) => String(c)).join(' ');
+            const text = normalizeArabic(rCells.map((c: any) => String(c)).join(' '));
             if (
-              text.includes('مندوب') || 
-              text.includes('صنف') || 
-              text.includes('Delegate') || 
-              text.includes('Category') ||
+              text.includes('مندوب') ||
+              text.includes('صنف') ||
+              text.includes('delegate') ||
+              text.includes('category') ||
               text.includes('هدف') ||
               text.includes('تاركت')
             ) {
@@ -2158,58 +2375,56 @@ export const Report11Screen: React.FC = () => {
             }
           }
 
-          for (let rowIdx = 0; rowIdx < jsonData.length; rowIdx++) {
-            const row = jsonData[rowIdx];
-            const rawRow = (headerRowIdx >= 0 && headerRowIdx + 1 + rowIdx < rawRows.length)
-              ? rawRows[headerRowIdx + 1 + rowIdx]
-              : (rowIdx + 1 < rawRows.length ? rawRows[rowIdx + 1] : null);
+          const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, {
+            range: headerRowIdx >= 0 ? headerRowIdx : 0,
+            defval: '',
+          });
+          if (!jsonData || jsonData.length === 0) return;
 
-            const rawDelegate = String(
-              row['اسم المندوب'] ??
-              row['المندوب'] ??
-              row['مندوب'] ??
-              row['Delegate'] ??
-              row['delegateName'] ??
+          let lastValidDelegate = '';
+
+          for (let rowIdx = 0; rowIdx < jsonData.length; rowIdx++) {
+            const row = normalizeExcelRowKeys(jsonData[rowIdx]);
+            const rawRowOffset = (headerRowIdx >= 0 ? headerRowIdx : 0) + 1 + rowIdx;
+            const rawRow = rawRowOffset < rawRows.length ? rawRows[rawRowOffset] : null;
+
+            let rawDelegate = String(
+              pickFirstNonEmpty(row, ['اسم المندوب', 'المندوب', 'مندوب', 'Delegate', 'delegateName']) ??
               (rawRow && rawRow[0] !== undefined ? rawRow[0] : '') ??
               ''
             ).trim();
 
-            console.log("Processing row:", row, "Delegate:", rawDelegate);
-            if (!rawDelegate) continue;
-
-            // Normalize against standard delegates
-            const normDel = normalizeArabic(rawDelegate);
-            const matchedDel = delegateNamesList.find(d => normalizeArabic(d) === normDel) || rawDelegate;
-
-            // 1. Category Targets & Sales (Long Format with Category Column)
+            // Check category early to support merged delegate cells in Excel
             let rawCategory = String(
-              row['الصنف'] ??
-              row['اسم الصنف'] ??
-              row['صنف'] ??
-              row['Category'] ??
-              row['categoryName'] ??
-              row['الأصناف'] ??
-              row['الاصناف'] ??
-              row['المجموعة'] ??
-              row['اسم المجموعة'] ??
-              row['المجموعات'] ??
-              row['القسم'] ??
-              row['اسم القسم'] ??
-              row['الفئة'] ??
-              row['اسم الفئة'] ??
-              ''
+              pickFirstNonEmpty(row, [
+                'الصنف', 'اسم الصنف', 'صنف', 'Category', 'categoryName',
+                'الأصناف', 'الاصناف', 'المجموعة', 'اسم المجموعة', 'المجموعات',
+                'القسم', 'اسم القسم', 'الفئة', 'اسم الفئة'
+              ]) || ''
             ).trim();
 
             if (!rawCategory) {
               for (const [k, v] of Object.entries(row)) {
-                if (!v) continue;
+                if (v === undefined || v === null || String(v).trim() === '') continue;
                 const normK = normalizeArabic(k);
+                if (
+                  normK.includes('تاركت') ||
+                  normK.includes('هدف') ||
+                  normK.includes('مبيعات') ||
+                  normK.includes('قطعه') ||
+                  normK.includes('كارتون') ||
+                  normK.includes('محلات') ||
+                  normK.includes('زبائن') ||
+                  normK.includes('منتج')
+                ) {
+                  continue;
+                }
                 if (
                   normK === 'صنف' || normK === 'الصنف' || normK === 'اسم الصنف' ||
                   normK === 'مجموعه' || normK === 'المجموعه' || normK === 'اسم المجموعه' ||
                   normK === 'قسم' || normK === 'القسم' || normK === 'اسم القسم' ||
                   normK === 'فئه' || normK === 'الفئه' || normK === 'اسم الفئه' ||
-                  normK.includes('صنف') || normK.includes('category')
+                  normK.includes('category')
                 ) {
                   rawCategory = String(v).trim();
                   break;
@@ -2217,59 +2432,54 @@ export const Report11Screen: React.FC = () => {
               }
             }
 
+            if (!rawDelegate && rawCategory && matchReport11CategoryName(rawCategory) && lastValidDelegate) {
+              rawDelegate = lastValidDelegate;
+            }
+
+            if (!rawDelegate) continue;
+
+            const normDel = normalizeArabic(rawDelegate);
+            if (
+              normDel.startsWith('مجموع') ||
+              normDel === 'الاجمالي' ||
+              normDel === 'اجمالي' ||
+              normDel.includes('الاجمالي الكلي') ||
+              normDel.includes('المجموع الكلي')
+            ) {
+              continue;
+            }
+
+            const matchedDel = delegateNamesList.find(d => normalizeArabic(d) === normDel) || rawDelegate;
+            lastValidDelegate = matchedDel;
+
             if (rawCategory) {
-              const matchedCat = matchReport11CategoryName(rawCategory) || rawCategory;
-              providedCategoryKeys.add(`${matchedDel}_${matchedCat}`);
-              providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_${matchedCat}`);
-              if (matchedCat === 'لبن') {
-                providedCategoryKeys.add(`${matchedDel}_لبن`);
-                providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_لبن`);
+              const normCatText = normalizeArabic(rawCategory);
+              if (normCatText.includes('المجموع الكلي') || normCatText === 'المجموع' || normCatText === 'الاجمالي') {
+                continue;
               }
+              const matchedCat = matchReport11CategoryName(rawCategory) || rawCategory;
 
-              let rawMonthlyTarget =
-                row['الهدف الشهري'] ??
-                row['التاركت الشهري'] ??
-                row['تاركت شهري'] ??
-                row['هدف شهري'] ??
-                row['الهدف الشهري (كغم)'] ??
-                row['التاركت الشهري (كغم)'] ??
-                row['هدف شهري (كغم)'] ??
-                row['تاركت شهري (كغم)'] ??
-                row['الهدف (كغم)'] ??
-                row['التاركت (كغم)'] ??
-                row['الهدف'] ??
-                row['التاركت'] ??
-                row['هدف'] ??
-                row['تاركت'] ??
-                row['Monthly Target'] ??
-                row['monthlyTarget'] ??
-                row['Target'] ??
-                row['target'] ??
-                null;
+              let rawMonthlyTarget = pickFirstNonEmpty(row, [
+                'الهدف الشهري', 'التاركت الشهري', 'تاركت شهري', 'هدف شهري',
+                'الهدف الشهري (كغم)', 'التاركت الشهري (كغم)', 'هدف شهري (كغم)', 'تاركت شهري (كغم)',
+                'الهدف (كغم)', 'التاركت (كغم)', 'الهدف', 'التاركت', 'هدف', 'تاركت',
+                'Monthly Target', 'monthlyTarget', 'Target', 'target'
+              ]);
 
-              let rawMonthlySales =
-                row['المبيعات الشهرية'] ??
-                row['المبيعات لحد الآن'] ??
-                row['المبيعات لحد الان'] ??
-                row['مبيعات الشهر'] ??
-                row['المبيعات'] ??
-                row['المبيعات الشهرية (كغم)'] ??
-                row['مبيعات شهرية (كغم)'] ??
-                row['المبيعات (كغم)'] ??
-                row['مبيعات (كغم)'] ??
-                row['Monthly Sales'] ??
-                row['monthlySales'] ??
-                row['Sales'] ??
-                row['sales'] ??
-                null;
+              let rawMonthlySales = pickFirstNonEmpty(row, [
+                'المبيعات الشهرية', 'المبيعات لحد الآن', 'المبيعات لحد الان',
+                'مبيعات الشهر', 'المبيعات', 'المبيعات الشهرية (كغم)',
+                'مبيعات شهرية (كغم)', 'المبيعات (كغم)', 'مبيعات (كغم)',
+                'Monthly Sales', 'monthlySales', 'Sales', 'sales'
+              ]);
 
-              if (rawMonthlyTarget === null || rawMonthlyTarget === undefined) {
+              if (rawMonthlyTarget === null) {
                 for (const [k, v] of Object.entries(row)) {
                   if (v === '' || v === null || v === undefined) continue;
                   const normK = normalizeArabic(k);
                   if (
                     (normK.includes('هدف') || normK.includes('تاركت') || normK.includes('target')) &&
-                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('قطعه') && !normK.includes('محل') && !normK.includes('زبائن')
+                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('قطعه') && !normK.includes('كارتون') && !normK.includes('محل') && !normK.includes('زبائن')
                   ) {
                     rawMonthlyTarget = v;
                     break;
@@ -2277,13 +2487,13 @@ export const Report11Screen: React.FC = () => {
                 }
               }
 
-              if (rawMonthlySales === null || rawMonthlySales === undefined) {
+              if (rawMonthlySales === null) {
                 for (const [k, v] of Object.entries(row)) {
                   if (v === '' || v === null || v === undefined) continue;
                   const normK = normalizeArabic(k);
                   if (
                     (normK.includes('مبيعات') || normK.includes('بيع') || normK.includes('sales')) &&
-                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('نقد') && !normK.includes('قطعه') && !normK.includes('محل') && !normK.includes('زبائن')
+                    !normK.includes('دينار') && !normK.includes('يومي') && !normK.includes('نقد') && !normK.includes('قطعه') && !normK.includes('كارتون') && !normK.includes('محل') && !normK.includes('زبائن')
                   ) {
                     rawMonthlySales = v;
                     break;
@@ -2291,25 +2501,44 @@ export const Report11Screen: React.FC = () => {
                 }
               }
 
-              if (rawMonthlyTarget !== null || rawMonthlySales !== null) {
-                const cleanTargetStr = parseArabicDigits(String(rawMonthlyTarget ?? 0)).replace(/,/g, '').trim();
-                const cleanSalesStr = parseArabicDigits(String(rawMonthlySales ?? 0)).replace(/,/g, '').trim();
-                const monthlyTarget = parseFloat(cleanTargetStr) || 0;
-                const monthlySales = parseFloat(cleanSalesStr) || 0;
+              const parsedTarget = parseExcelNumeric(rawMonthlyTarget);
+              const parsedSales = parseExcelNumeric(rawMonthlySales);
+
+              if (parsedTarget !== null || parsedSales !== null) {
+                const existingMatch = newTargetsList.find(
+                  t => normalizeArabic(t.delegateName) === normalizeArabic(matchedDel) &&
+                       isMatchingReport11Category(t.categoryName, matchedCat)
+                );
+
+                const monthlyTarget = parsedTarget !== null ? parsedTarget : (existingMatch?.monthlyTarget || 0);
+                const monthlySales = parsedSales !== null ? parsedSales : (existingMatch?.monthlySales || 0);
 
                 const docKey = `${matchedDel}_${matchedCat}`.replace(/[\/\s#$[\]]/g, '_');
                 const docRef = doc(db, 'report11_targets', docKey);
 
                 const record: Report11CategoryTarget = {
+                  id: docKey,
                   delegateName: matchedDel,
                   categoryName: matchedCat,
                   monthlyTarget,
                   monthlySales,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: uploadTimestamp,
                   updatedBy: currentUser?.name || 'الأدمن'
                 };
 
-                batch.set(docRef, record, { merge: true });
+                // Remove any legacy/duplicate Firestore docs for the same (delegate, category) with a different doc.id
+                categoryTargets.forEach((oldRec) => {
+                  if (
+                    oldRec?.id &&
+                    oldRec.id !== docKey &&
+                    normalizeArabic(oldRec.delegateName) === normalizeArabic(matchedDel) &&
+                    isMatchingReport11Category(oldRec.categoryName, matchedCat)
+                  ) {
+                    ops.push((b) => b.delete(doc(db, 'report11_targets', oldRec.id!)));
+                  }
+                });
+
+                ops.push((b) => b.set(docRef, record, { merge: true }));
 
                 const existingIdx = newTargetsList.findIndex(
                   t => normalizeArabic(t.delegateName) === normalizeArabic(matchedDel) &&
@@ -2317,17 +2546,14 @@ export const Report11Screen: React.FC = () => {
                 );
                 if (existingIdx >= 0) {
                   newTargetsList[existingIdx] = record;
-                  console.log("Updated existing target:", record);
                 } else {
                   newTargetsList.push(record);
-                  console.log("Added new target:", record);
                 }
 
                 processedCount++;
               }
             } else {
               // 1.B Wide / Horizontal Table Support: Categories as Columns!
-              // In case the uploaded Excel has delegates as rows and category names as column headers
               for (const [colKey, colVal] of Object.entries(row)) {
                 if (colVal === null || colVal === undefined || String(colVal).trim() === '') continue;
                 const normCol = normalizeArabic(colKey);
@@ -2338,20 +2564,14 @@ export const Report11Screen: React.FC = () => {
                   normCol.includes('محلات') ||
                   normCol.includes('زبائن') ||
                   normCol.includes('تاكيدي') ||
-                  normCol.includes('قطعه')
+                  normCol.includes('قطعه') ||
+                  normCol.includes('كارتون')
                 ) continue;
 
                 const colCat = matchReport11CategoryName(colKey);
                 if (colCat) {
-                  providedCategoryKeys.add(`${matchedDel}_${colCat}`);
-                  providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_${colCat}`);
-                  if (colCat === 'لبن') {
-                    providedCategoryKeys.add(`${matchedDel}_لبن`);
-                    providedCategoryKeys.add(`${normalizeArabic(matchedDel)}_لبن`);
-                  }
-
-                  const numVal = parseFloat(parseArabicDigits(String(colVal)).replace(/,/g, '').trim());
-                  if (!isNaN(numVal) && numVal >= 0) {
+                  const numVal = parseExcelNumeric(colVal);
+                  if (numVal !== null && numVal >= 0) {
                     const docKey = `${matchedDel}_${colCat}`.replace(/[\/\s#$[\]]/g, '_');
                     const docRef = doc(db, 'report11_targets', docKey);
 
@@ -2361,25 +2581,34 @@ export const Report11Screen: React.FC = () => {
                     );
 
                     const record: Report11CategoryTarget = {
+                      id: docKey,
                       delegateName: matchedDel,
                       categoryName: colCat,
                       monthlyTarget: numVal,
                       monthlySales: existingRecord ? (existingRecord.monthlySales || 0) : 0,
-                      updatedAt: new Date().toISOString(),
+                      updatedAt: uploadTimestamp,
                       updatedBy: currentUser?.name || 'الأدمن'
                     };
 
-                    batch.set(docRef, record, { merge: true });
+                    categoryTargets.forEach((oldRec) => {
+                      if (
+                        oldRec?.id &&
+                        oldRec.id !== docKey &&
+                        normalizeArabic(oldRec.delegateName) === normalizeArabic(matchedDel) &&
+                        isMatchingReport11Category(oldRec.categoryName, colCat)
+                      ) {
+                        ops.push((b) => b.delete(doc(db, 'report11_targets', oldRec.id!)));
+                      }
+                    });
+
+                    ops.push((b) => b.set(docRef, record, { merge: true }));
 
                     const existingIdx = newTargetsList.findIndex(
                       t => normalizeArabic(t.delegateName) === normalizeArabic(matchedDel) &&
                            isMatchingReport11Category(t.categoryName, colCat)
                     );
                     if (existingIdx >= 0) {
-                      newTargetsList[existingIdx] = {
-                        ...newTargetsList[existingIdx],
-                        monthlyTarget: numVal
-                      };
+                      newTargetsList[existingIdx] = record;
                     } else {
                       newTargetsList.push(record);
                     }
@@ -2391,58 +2620,31 @@ export const Report11Screen: React.FC = () => {
             }
 
             // 2. Incentives (الحوافز لحد الان)
-            const rawInc =
-              row['الحوافز لحد الان'] ??
-              row['الحوافز لحد الآن'] ??
-              row['الحوافز الكلية لحد الان'] ??
-              row['الحوافز الكلية لحد الآن'] ??
-              row['الحوافز الكلية'] ??
-              row['مبلغ الحوافز'] ??
-              row['الحوافز'] ??
-              row['Incentives'] ??
-              row['incentives'] ??
-              row['e'] ??
-              null;
+            const rawInc = pickFirstNonEmpty(row, [
+              'الحوافز لحد الان', 'الحوافز لحد الآن', 'الحوافز الكلية لحد الان',
+              'الحوافز الكلية لحد الآن', 'الحوافز الكلية', 'مبلغ الحوافز',
+              'الحوافز', 'Incentives', 'incentives', 'e'
+            ]);
 
-            if (rawInc !== null && rawInc !== undefined && String(rawInc).trim() !== '') {
-              const incVal = parseFloat(String(rawInc).replace(/,/g, '').trim());
-              if (!isNaN(incVal)) {
+            if (rawInc !== null) {
+              const incVal = parseExcelNumeric(rawInc);
+              if (incVal !== null) {
                 delegateIncentiveMap[matchedDel] = incVal;
               }
             }
 
             // 3. Extra Targets (التاركت الديناري الشهري من عمود F، والمبيعات النقدية بالدينار من عمود G)
-            // عمود F: التاركت الديناري الشهري
-            let rawColFVal: any = (rawRow && rawRow[5] !== undefined && rawRow[5] !== '') ? rawRow[5] : undefined;
-            if (rawColFVal === undefined || rawColFVal === '') {
-              const colFKeys = [
-                'التاركت الديناري الشهري',
-                'تاركت ديناري شهري',
-                'التاركت الديناري',
-                'تاركت ديناري',
-                'الهدف الديناري الشهري',
-                'الهدف الديناري',
-                'هدف ديناري شهري',
-                'هدف ديناري',
-                'تاركت المبيعات النقدية بالدينار',
-                'تاركت المبيعات النقدية',
-                'تاركت مبيعات نقدية',
-                'تاركت نقدية',
-                'تاركت نقدي',
-                'تاركت دينار',
-                'F',
-                'f',
-                'Col F',
-                'Column F'
-              ];
-              for (const k of colFKeys) {
-                if (row[k] !== undefined && row[k] !== '') {
-                  rawColFVal = row[k];
-                  break;
-                }
-              }
+            let rawColFVal: any = (rawRow && rawRow[5] !== undefined && String(rawRow[5]).trim() !== '') ? rawRow[5] : null;
+            if (rawColFVal === null) {
+              rawColFVal = pickFirstNonEmpty(row, [
+                'التاركت الديناري الشهري', 'تاركت ديناري شهري', 'التاركت الديناري',
+                'تاركت ديناري', 'الهدف الديناري الشهري', 'الهدف الديناري',
+                'هدف ديناري شهري', 'هدف ديناري', 'تاركت المبيعات النقدية بالدينار',
+                'تاركت المبيعات النقدية', 'تاركت مبيعات نقدية', 'تاركت نقدية',
+                'تاركت نقدي', 'تاركت دينار', 'F', 'f', 'Col F', 'Column F'
+              ]);
             }
-            if (rawColFVal === undefined || rawColFVal === '') {
+            if (rawColFVal === null) {
               for (const [k, v] of Object.entries(row)) {
                 if (v === '' || v === null || v === undefined) continue;
                 const normK = normalizeArabic(k);
@@ -2453,41 +2655,18 @@ export const Report11Screen: React.FC = () => {
               }
             }
 
-            // عمود G: المبيعات النقدية بالدينار (مبيعات ديناري شهري)
-            let rawColGVal: any = (rawRow && rawRow[6] !== undefined && rawRow[6] !== '') ? rawRow[6] : undefined;
-            if (rawColGVal === undefined || rawColGVal === '') {
-              const colGKeys = [
-                'المبيعات النقدية بالدينار',
-                'المبيعات النقدية',
-                'مبيعات نقدية بالدينار',
-                'مبيعات نقدية',
-                'مبيعات ديناري شهري',
-                'المبيعات الدينارية',
-                'المبيعات الدينارية الشهرية',
-                'مبيعات ديناري',
-                'مبيعات بالدينار',
-                'المبيعات بالدينار',
-                'المبيعات النقديه',
-                'مبيعات نقديه',
-                'مبيعات نقدي',
-                'مبيعات دينار',
-                'المبيعات الشهرية بالدينار',
-                'مبيعات شهرية بالدينار',
-                'المبيعات الشهرية دينار',
-                'مبيعات شهرية دينار',
-                'G',
-                'g',
-                'Col G',
-                'Column G'
-              ];
-              for (const k of colGKeys) {
-                if (row[k] !== undefined && row[k] !== '') {
-                  rawColGVal = row[k];
-                  break;
-                }
-              }
+            let rawColGVal: any = (rawRow && rawRow[6] !== undefined && String(rawRow[6]).trim() !== '') ? rawRow[6] : null;
+            if (rawColGVal === null) {
+              rawColGVal = pickFirstNonEmpty(row, [
+                'المبيعات النقدية بالدينار', 'المبيعات النقدية', 'مبيعات نقدية بالدينار',
+                'مبيعات نقدية', 'مبيعات ديناري شهري', 'المبيعات الدينارية',
+                'المبيعات الدينارية الشهرية', 'مبيعات ديناري', 'مبيعات بالدينار',
+                'المبيعات بالدينار', 'المبيعات النقديه', 'مبيعات نقديه', 'مبيعات نقدي',
+                'مبيعات دينار', 'المبيعات الشهرية بالدينار', 'مبيعات شهرية بالدينار',
+                'المبيعات الشهرية دينار', 'مبيعات شهرية دينار', 'G', 'g', 'Col G', 'Column G'
+              ]);
             }
-            if (rawColGVal === undefined || rawColGVal === '') {
+            if (rawColGVal === null) {
               for (const [k, v] of Object.entries(row)) {
                 if (v === '' || v === null || v === undefined) continue;
                 const normK = normalizeArabic(k);
@@ -2498,32 +2677,23 @@ export const Report11Screen: React.FC = () => {
               }
             }
 
-            const parseCleanNumber = (val: any): number | null => {
-              if (val === null || val === undefined || val === '') return null;
-              if (typeof val === 'number') return isNaN(val) ? null : val;
-              const clean = String(val).replace(/,/g, '').replace(/[^\d.-]/g, '').trim();
-              if (clean === '' || clean === '-') return null;
-              const num = parseFloat(clean);
-              return isNaN(num) ? null : num;
-            };
+            const parsedColF = parseExcelNumeric(rawColFVal);
+            const parsedColG = parseExcelNumeric(rawColGVal);
 
-            const parsedColF = parseCleanNumber(rawColFVal);
-            const parsedColG = parseCleanNumber(rawColGVal);
-
-            const rawShopsTarget = row['مطلوب تبيع لعدد محلات'] ?? row['تاركت المحلات'] ?? row['تغطية المحلات'] ?? row['هدف المحلات'];
-            const rawShopsActual = row['تم بيع لعدد محلات'] ?? row['مبيعات المحلات'] ?? row['عدد المحلات المباعة'];
-            const rawExtraProdName = row['اسم المنتج التأكيدي'] ?? row['اسم المنتج الإضافي'] ?? row['المنتج الإضافي'] ?? row['اسم المنتج المخصص'];
-            const rawExtraCustTarget = row['تاركت زبائن شهري'] ?? row['تاركت الزبائن'] ?? row['هدف زبائن الصنف'];
-            const rawExtraCustActual = row['تم بيع لهم'] ?? row['زبائن مباع لهم'] ?? row['مبيعات زبائن الصنف'];
+            const rawShopsTarget = pickFirstNonEmpty(row, ['مطلوب تبيع لعدد محلات', 'تاركت المحلات', 'تغطية المحلات', 'هدف المحلات']);
+            const rawShopsActual = pickFirstNonEmpty(row, ['تم بيع لعدد محلات', 'مبيعات المحلات', 'عدد المحلات المباعة']);
+            const rawExtraProdName = pickFirstNonEmpty(row, ['اسم المنتج التأكيدي', 'اسم المنتج الإضافي', 'المنتج الإضافي', 'اسم المنتج المخصص']);
+            const rawExtraCustTarget = pickFirstNonEmpty(row, ['تاركت زبائن شهري', 'تاركت الزبائن', 'هدف زبائن الصنف']);
+            const rawExtraCustActual = pickFirstNonEmpty(row, ['تم بيع لهم', 'زبائن مباع لهم', 'مبيعات زبائن الصنف']);
 
             if (
               parsedColF !== null ||
               parsedColG !== null ||
-              rawShopsTarget !== undefined ||
-              rawShopsActual !== undefined ||
-              rawExtraProdName !== undefined ||
-              rawExtraCustTarget !== undefined ||
-              rawExtraCustActual !== undefined
+              rawShopsTarget !== null ||
+              rawShopsActual !== null ||
+              rawExtraProdName !== null ||
+              rawExtraCustTarget !== null ||
+              rawExtraCustActual !== null
             ) {
               if (!delegateExtraTargetsMap[matchedDel]) {
                 const existingExtra = extraTargetsList.find(
@@ -2541,64 +2711,61 @@ export const Report11Screen: React.FC = () => {
                 };
               }
 
-              // Update Column F: التاركت الديناري الشهري
-              if (parsedColF !== null) {
-                delegateExtraTargetsMap[matchedDel].monthlyIqdTarget = parsedColF;
-              }
+              if (parsedColF !== null) delegateExtraTargetsMap[matchedDel].monthlyIqdTarget = parsedColF;
+              if (parsedColG !== null) delegateExtraTargetsMap[matchedDel].monthlyIqdSalesOverride = parsedColG;
 
-              // Update Column G: المبيعات النقدية بالدينار
-              if (parsedColG !== null) {
-                delegateExtraTargetsMap[matchedDel].monthlyIqdSalesOverride = parsedColG;
-              }
+              const st = parseExcelNumeric(rawShopsTarget);
+              if (st !== null && st > 0) delegateExtraTargetsMap[matchedDel].targetShopsCount = Math.round(st);
 
-              // Update Shops Target & Actual
-              if (rawShopsTarget !== undefined && String(rawShopsTarget).trim() !== '') {
-                const st = parseInt(String(rawShopsTarget).replace(/,/g, '')) || 0;
-                if (st > 0) delegateExtraTargetsMap[matchedDel].targetShopsCount = st;
-              }
-              if (rawShopsActual !== undefined && String(rawShopsActual).trim() !== '') {
-                const sa = parseInt(String(rawShopsActual).replace(/,/g, '')) || 0;
-                if (sa > 0) delegateExtraTargetsMap[matchedDel].actualShopsCountOverride = sa;
-              }
+              const sa = parseExcelNumeric(rawShopsActual);
+              if (sa !== null && sa > 0) delegateExtraTargetsMap[matchedDel].actualShopsCountOverride = Math.round(sa);
 
-              // Update Extra Product
-              if (rawExtraProdName !== undefined && String(rawExtraProdName).trim() !== '') {
-                delegateExtraTargetsMap[matchedDel].extraProductName = String(rawExtraProdName).trim();
-              }
-              if (rawExtraCustTarget !== undefined && String(rawExtraCustTarget).trim() !== '') {
-                const ct = parseInt(String(rawExtraCustTarget).replace(/,/g, '')) || 0;
-                if (ct > 0) delegateExtraTargetsMap[matchedDel].extraProductCustomersTarget = ct;
-              }
-              if (rawExtraCustActual !== undefined && String(rawExtraCustActual).trim() !== '') {
-                const ca = parseInt(String(rawExtraCustActual).replace(/,/g, '')) || 0;
-                if (ca > 0) delegateExtraTargetsMap[matchedDel].extraProductCustomersActualOverride = ca;
-              }
+              if (rawExtraProdName !== null) delegateExtraTargetsMap[matchedDel].extraProductName = String(rawExtraProdName).trim();
+
+              const ct = parseExcelNumeric(rawExtraCustTarget);
+              if (ct !== null && ct > 0) delegateExtraTargetsMap[matchedDel].extraProductCustomersTarget = Math.round(ct);
+
+              const ca = parseExcelNumeric(rawExtraCustActual);
+              if (ca !== null && ca > 0) delegateExtraTargetsMap[matchedDel].extraProductCustomersActualOverride = Math.round(ca);
             }
 
-            // 4. Specific Product Targets (تاركت الصنف المخصص قطعة/كارتون ومحلات)
-            const rawSpecPiecesTarget = row['تاركت الصنف (قطعة)'] ?? row['تاركت القطعة'] ?? row['تاركت قطعة'];
-            const rawSpecPiecesSales = row['مبيعات الصنف (قطعة)'] ?? row['مبيعات القطعة'] ?? row['مبيعات قطعة'];
-            const rawSpecCartonsTarget = row['تاركت المنتج (كارتون)'] ?? row['تاركت الكارتون'] ?? row['تاركت كارتون'];
-            const rawSpecCartonsSales = row['مبيعات المنتج (كارتون)'] ?? row['مبيعات الكارتون'] ?? row['مبيعات كارتون'];
+            // 4. Specific Product Targets: merge safely and ONLY overwrite fields explicitly provided with non-zero/non-empty values
+            const rawSpecPiecesTarget = pickFirstNonEmpty(row, ['تاركت الصنف (قطعة)', 'تاركت القطعة', 'تاركت قطعة', 'تاركت (قطعة)']);
+            const rawSpecPiecesSales = pickFirstNonEmpty(row, ['مبيعات الصنف (قطعة)', 'مبيعات القطعة', 'مبيعات قطعة', 'مبيعات (قطعة)']);
+            const rawSpecCartonsTarget = pickFirstNonEmpty(row, ['تاركت المنتج (كارتون)', 'تاركت الصنف (كارتون)', 'تاركت الكارتون', 'تاركت كارتون', 'تاركت (كارتون)']);
+            const rawSpecCartonsSales = pickFirstNonEmpty(row, ['مبيعات المنتج (كارتون)', 'مبيعات الصنف (كارتون)', 'مبيعات الكارتون', 'مبيعات كارتون', 'مبيعات (كارتون)']);
 
-            if (rawSpecPiecesTarget !== undefined || rawSpecPiecesSales !== undefined || rawSpecCartonsTarget !== undefined) {
-              const targetPieces = parseFloat(String(rawSpecPiecesTarget || 0).replace(/,/g, '')) || 0;
-              const salesPiecesOverride = parseFloat(String(rawSpecPiecesSales || 0).replace(/,/g, '')) || 0;
-              const targetCartons = parseFloat(String(rawSpecCartonsTarget || 0).replace(/,/g, '')) || 0;
-              const salesCartonsOverride = parseFloat(String(rawSpecCartonsSales || 0).replace(/,/g, '')) || 0;
+            const pTargetPieces = parseExcelNumeric(rawSpecPiecesTarget);
+            const pSalesPieces = parseExcelNumeric(rawSpecPiecesSales);
+            const pTargetCartons = parseExcelNumeric(rawSpecCartonsTarget);
+            const pSalesCartons = parseExcelNumeric(rawSpecCartonsSales);
 
-              if (targetPieces > 0 || salesPiecesOverride > 0 || targetCartons > 0) {
-                delegateSpecificProductMap[matchedDel] = {
-                  delegateName: matchedDel,
-                  productName: specificProductName || 'جبن اماه 200 غم',
-                  targetPieces,
-                  salesPiecesOverride,
-                  targetCartons,
-                  salesCartonsOverride,
-                  targetShops: rawShopsTarget !== undefined ? (parseInt(String(rawShopsTarget).replace(/,/g, '')) || 0) : 0,
-                  actualShopsOverride: rawShopsActual !== undefined ? (parseInt(String(rawShopsActual).replace(/,/g, '')) || 0) : 0
-                };
-              }
+            if (
+              (pTargetPieces !== null && pTargetPieces > 0) ||
+              (pSalesPieces !== null && pSalesPieces > 0) ||
+              (pTargetCartons !== null && pTargetCartons > 0) ||
+              (pSalesCartons !== null && pSalesCartons > 0)
+            ) {
+              const existingSpec = specificProductTargets.find(
+                (p) => normalizeArabic(p.delegateName || '') === normalizeArabic(matchedDel)
+              );
+              const prevObj = delegateSpecificProductMap[matchedDel] || {
+                delegateName: matchedDel,
+                productName: existingSpec?.productName || specificProductName || 'جبن اماه 200 غم',
+                targetPieces: existingSpec?.targetPieces || 0,
+                salesPiecesOverride: existingSpec?.salesPiecesOverride || 0,
+                targetCartons: existingSpec?.targetCartons || 0,
+                salesCartonsOverride: existingSpec?.salesCartonsOverride || 0,
+                targetShops: existingSpec?.targetShops || 0,
+                actualShopsOverride: existingSpec?.actualShopsOverride || 0,
+              };
+
+              if (pTargetPieces !== null && pTargetPieces > 0) prevObj.targetPieces = pTargetPieces;
+              if (pSalesPieces !== null && pSalesPieces > 0) prevObj.salesPiecesOverride = pSalesPieces;
+              if (pTargetCartons !== null && pTargetCartons > 0) prevObj.targetCartons = pTargetCartons;
+              if (pSalesCartons !== null && pSalesCartons > 0) prevObj.salesCartonsOverride = pSalesCartons;
+
+              delegateSpecificProductMap[matchedDel] = prevObj;
             }
           }
         } catch (errSheet) {
@@ -2609,112 +2776,83 @@ export const Report11Screen: React.FC = () => {
       // Save incentives
       let incCount = 0;
       Object.entries(delegateIncentiveMap).forEach(([delName, amount]) => {
-        const incRef = doc(db, 'delegate_incentives', `del_${delName}`.replace(/[\/\s#$[\]]/g, '_'));
-        batch.set(incRef, { delegateName: delName, incentivesAmount: amount, updatedAt: new Date().toISOString() }, { merge: true });
+        const docKey = `del_${delName}`.replace(/[\/\s#$[\]]/g, '_');
+        const incRef = doc(db, 'delegate_incentives', docKey);
+        ops.push((b) => b.set(incRef, { delegateName: delName, incentivesAmount: amount, updatedAt: uploadTimestamp }, { merge: true }));
         incCount++;
       });
 
       // Save extra targets
       let extraCount = 0;
       Object.entries(delegateExtraTargetsMap).forEach(([delName, extraData]) => {
-        const extraRef = doc(db, 'delegate_monthly_extra_targets', `del_${delName}`.replace(/[\/\s#$[\]]/g, '_'));
-        batch.set(extraRef, { ...extraData, updatedAt: new Date().toISOString() }, { merge: true });
+        const docKey = `del_${delName}`.replace(/[\/\s#$[\]]/g, '_');
+        const extraRef = doc(db, 'delegate_monthly_extra_targets', docKey);
+        ops.push((b) => b.set(extraRef, { ...extraData, updatedAt: uploadTimestamp }, { merge: true }));
         extraCount++;
       });
 
       // Save specific product targets
       let specCount = 0;
       Object.entries(delegateSpecificProductMap).forEach(([delName, specData]) => {
-        const specRef = doc(db, 'specific_product_targets', `del_${delName}`.replace(/[\/\s#$[\]]/g, '_'));
-        batch.set(specRef, { ...specData, updatedAt: new Date().toISOString() }, { merge: true });
+        const docKey = `del_${delName}`.replace(/[\/\s#$[\]]/g, '_');
+        const specRef = doc(db, 'specific_product_targets', docKey);
+        ops.push((b) => b.set(specRef, { ...specData, updatedAt: uploadTimestamp }, { merge: true }));
         specCount++;
-      });
-
-      // For all delegates in the uploaded Excel, ensure any omitted category has monthlyTarget: 0 and monthlySales: 0
-      const processedDelegatesSet = new Set<string>();
-      newTargetsList.forEach(t => processedDelegatesSet.add(t.delegateName));
-      
-      const targetDelegates = processedDelegatesSet.size > 0 ? Array.from(processedDelegatesSet) : delegateNamesList;
-
-      targetDelegates.forEach((del) => {
-        REPORT_11_CATEGORIES.forEach((cat) => {
-          const key1 = `${del}_${cat}`;
-          const key2 = `${normalizeArabic(del)}_${cat}`;
-          const isProvided =
-            providedCategoryKeys.has(key1) ||
-            providedCategoryKeys.has(key2) ||
-            Array.from(providedCategoryKeys).some(k => {
-              const parts = k.split('_');
-              const kDel = parts[0];
-              const kCat = parts.slice(1).join('_');
-              return normalizeArabic(kDel) === normalizeArabic(del) && isMatchingReport11Category(kCat, cat);
-            });
-
-          if (!isProvided) {
-            const docKey = `${del}_${cat}`.replace(/[\/\s#$[\]]/g, '_');
-            const docRef = doc(db, 'report11_targets', docKey);
-            const record: Report11CategoryTarget = {
-              delegateName: del,
-              categoryName: cat,
-              monthlyTarget: 0,
-              monthlySales: 0,
-              updatedAt: new Date().toISOString(),
-              updatedBy: currentUser?.name || 'الأدمن'
-            };
-            batch.set(docRef, record);
-
-            const idx = newTargetsList.findIndex(
-              t => normalizeArabic(t.delegateName) === normalizeArabic(del) &&
-                   isMatchingReport11Category(t.categoryName, cat)
-            );
-            if (idx >= 0) {
-              newTargetsList[idx] = record;
-            } else {
-              newTargetsList.push(record);
-            }
-          }
-        });
       });
 
       if (processedCount === 0 && incCount === 0 && extraCount === 0 && specCount === 0) {
         throw new Error('لم يتم العثور على بيانات صالحة في الملف. تأكد من إدراج اسم المندوب والأعمدة المطلوبة.');
       }
 
-      await batch.commit();
+      await commitFirestoreOpsInChunks(ops);
 
-      setCategoryTargets(newTargetsList);
-      // Fetch fresh lists to update local state since batch commit might not trigger snapshots instantly
-      // Or manually update the local states based on maps
-      setDelegateIncentives(prev => {
-        const next = [...prev];
-        Object.entries(delegateIncentiveMap).forEach(([delName, amount]) => {
-          const idx = next.findIndex(i => normalizeArabic(i.delegateName) === normalizeArabic(delName));
-          if (idx >= 0) next[idx] = { ...next[idx], incentivesAmount: amount };
-          else next.push({ delegateName: delName, incentivesAmount: amount });
+      const finalTargetsList = dedupeReport11Targets(newTargetsList);
+      setCategoryTargets(finalTargetsList);
+
+      if (incCount > 0) {
+        setDelegateIncentives(prev => {
+          const next = [...prev];
+          Object.entries(delegateIncentiveMap).forEach(([delName, amount]) => {
+            const idx = next.findIndex(i => normalizeArabic(i.delegateName) === normalizeArabic(delName));
+            if (idx >= 0) next[idx] = { ...next[idx], incentivesAmount: amount, updatedAt: uploadTimestamp };
+            else next.push({ delegateName: delName, incentivesAmount: amount, updatedAt: uploadTimestamp });
+          });
+          const deduped = dedupeDelegateRecords(next);
+          try { localStorage.setItem('cache_report11_incentives', JSON.stringify(deduped)); } catch {}
+          return deduped;
         });
-        return next;
-      });
-      setExtraTargetsList(prev => {
-        const next = [...prev];
-        Object.entries(delegateExtraTargetsMap).forEach(([delName, extraData]) => {
-          const idx = next.findIndex(t => normalizeArabic(t.delegateName) === normalizeArabic(delName));
-          if (idx >= 0) next[idx] = { ...next[idx], ...extraData };
-          else next.push(extraData);
+      }
+
+      if (extraCount > 0) {
+        setExtraTargetsList(prev => {
+          const next = [...prev];
+          Object.entries(delegateExtraTargetsMap).forEach(([delName, extraData]) => {
+            const idx = next.findIndex(t => normalizeArabic(t.delegateName) === normalizeArabic(delName));
+            if (idx >= 0) next[idx] = { ...next[idx], ...extraData, updatedAt: uploadTimestamp };
+            else next.push({ ...extraData, updatedAt: uploadTimestamp });
+          });
+          const deduped = dedupeDelegateRecords(next);
+          try { localStorage.setItem('cache_report11_extra_targets', JSON.stringify(deduped)); } catch {}
+          return deduped;
         });
-        return next;
-      });
-      setSpecificProductTargets(prev => {
-        const next = [...prev];
-        Object.entries(delegateSpecificProductMap).forEach(([delName, specData]) => {
-          const idx = next.findIndex(t => normalizeArabic(t.delegateName) === normalizeArabic(delName));
-          if (idx >= 0) next[idx] = { ...next[idx], ...specData };
-          else next.push(specData);
+      }
+
+      if (specCount > 0) {
+        setSpecificProductTargets(prev => {
+          const next = [...prev];
+          Object.entries(delegateSpecificProductMap).forEach(([delName, specData]) => {
+            const idx = next.findIndex(t => normalizeArabic(t.delegateName) === normalizeArabic(delName));
+            if (idx >= 0) next[idx] = { ...next[idx], ...specData, updatedAt: uploadTimestamp };
+            else next.push({ ...specData, updatedAt: uploadTimestamp });
+          });
+          const deduped = dedupeDelegateRecords(next);
+          try { localStorage.setItem('cache_specific_product_targets', JSON.stringify(deduped)); } catch {}
+          return deduped;
         });
-        return next;
-      });
+      }
 
       try {
-        localStorage.setItem('cache_report11_targets', JSON.stringify(newTargetsList));
+        localStorage.setItem('cache_report11_targets', JSON.stringify(finalTargetsList));
       } catch {}
 
       const detailParts = [];
@@ -2748,27 +2886,38 @@ export const Report11Screen: React.FC = () => {
     if (!confirmed) return;
     try {
       setIsUploading(true);
-      const batch = writeBatch(db);
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
       const clearedList: Report11CategoryTarget[] = [];
+      const canonicalDocKeys = new Set<string>();
+      const nowIso = new Date().toISOString();
 
       delegateNamesList.forEach((del) => {
         REPORT_11_CATEGORIES.forEach((cat) => {
           const docKey = `${del}_${cat}`.replace(/[\/\s#$[\]]/g, '_');
+          canonicalDocKeys.add(docKey);
           const docRef = doc(db, 'report11_targets', docKey);
           const record: Report11CategoryTarget = {
+            id: docKey,
             delegateName: del,
             categoryName: cat,
             monthlyTarget: 0,
             monthlySales: 0,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowIso,
             updatedBy: currentUser?.name || 'الأدمن'
           };
-          batch.set(docRef, record);
+          ops.push((b) => b.set(docRef, record));
           clearedList.push(record);
         });
       });
 
-      await batch.commit();
+      // Also delete any legacy / unlisted docs so stale values cannot reappear on reload
+      categoryTargets.forEach((t) => {
+        if (t.id && !canonicalDocKeys.has(t.id)) {
+          ops.push((b) => b.delete(doc(db, 'report11_targets', t.id!)));
+        }
+      });
+
+      await commitFirestoreOpsInChunks(ops);
       setCategoryTargets(clearedList);
       try {
         localStorage.setItem('cache_report11_targets', JSON.stringify(clearedList));
@@ -2922,7 +3071,7 @@ export const Report11Screen: React.FC = () => {
   const handleSaveInlineEdit = async () => {
     if (!editingCell) return;
     const { delegateName, categoryName, field } = editingCell;
-    const numVal = parseFloat(parseArabicDigits(editValue.trim())) || 0;
+    const numVal = parseExcelNumeric(editValue) ?? 0;
 
     const matchedCat = matchReport11CategoryName(categoryName) || categoryName;
     const docKey = `${delegateName}_${matchedCat}`.replace(/[\/\s#$[\]]/g, '_');
@@ -2932,6 +3081,7 @@ export const Report11Screen: React.FC = () => {
     );
 
     const updatedRecord: Report11CategoryTarget = {
+      id: docKey,
       delegateName,
       categoryName: matchedCat,
       monthlyTarget: field === 'monthlyTarget' ? numVal : (existing?.monthlyTarget || 0),
@@ -2940,21 +3090,38 @@ export const Report11Screen: React.FC = () => {
       updatedBy: currentUser?.name || 'الأدمن'
     };
 
+    const staleIds = categoryTargets
+      .filter(
+        (t) =>
+          t.id &&
+          t.id !== docKey &&
+          normalizeArabic(t.delegateName) === normalizeArabic(delegateName) &&
+          isMatchingReport11Category(t.categoryName, matchedCat)
+      )
+      .map((t) => t.id!);
+
     setCategoryTargets(prev => {
-      const idx = prev.findIndex(
-        t => normalizeArabic(t.delegateName) === normalizeArabic(delegateName) &&
-             isMatchingReport11Category(t.categoryName, categoryName)
+      const filtered = prev.filter(
+        t => !(
+          normalizeArabic(t.delegateName) === normalizeArabic(delegateName) &&
+          isMatchingReport11Category(t.categoryName, matchedCat)
+        )
       );
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = updatedRecord;
-        return next;
-      }
-      return [...prev, updatedRecord];
+      const next = dedupeReport11Targets([...filtered, updatedRecord]);
+      try {
+        localStorage.setItem('cache_report11_targets', JSON.stringify(next));
+      } catch {}
+      return next;
     });
 
     try {
-      await setDoc(doc(db, 'report11_targets', docKey), updatedRecord, { merge: true });
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [
+        (b) => b.set(doc(db, 'report11_targets', docKey), updatedRecord, { merge: true }),
+      ];
+      staleIds.forEach((staleId) => {
+        ops.push((b) => b.delete(doc(db, 'report11_targets', staleId)));
+      });
+      await commitFirestoreOpsInChunks(ops);
       setUserMessage(`تم تحديث ${field === 'monthlyTarget' ? 'الهدف الشهري' : 'المبيعات الشهرية'} لصنف (${categoryName}) بنجاح ✅`);
     } catch (err) {
       console.error('Error saving inline cell:', err);
@@ -3047,73 +3214,6 @@ export const Report11Screen: React.FC = () => {
       
       {/* Daily Sales Completion Bar & Priority Table (Moved from ReportsScreen) */}
       <DailySalesCompletionBar />
-
-      {/* Header Banner */}
-      <div className={`p-4 sm:p-5 rounded-2xl border shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 transition-all duration-500 ${
-        isDarkMode
-          ? 'bg-gradient-to-br from-[#0a1b4b] via-[#08153a] to-[#050c26] border-[#1e293b] text-white shadow-emerald-950/20'
-          : 'bg-gradient-to-r from-emerald-50 via-white to-slate-50 border-emerald-200 text-slate-900'
-      }`}>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shrink-0">
-            <FileSpreadsheet className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-emerald-700 dark:text-emerald-400">
-                التقرير (11)
-              </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                15 صنف رئيسي
-              </span>
-              {!isAdmin && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                  خاص بالمندوب: {currentUser?.name}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              متابعة التاركت اليومي والشهري، مبيعات اليوم من الفواتير، ونسب الإنجاز لكل صنف على حدة
-            </p>
-          </div>
-        </div>
-
-        {/* Action Buttons: WhatsApp, Excel, Print (Admin Only) - Restored */}
-        {isAdmin && (
-          <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-end">
-            <button
-              onClick={handleShareWhatsApp}
-              title="مشاركة التقرير عبر واتساب"
-              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span className="hidden sm:inline">واتساب</span>
-            </button>
-
-            <button
-              onClick={handleExportFullExcel}
-              title="تصدير التقرير كملف إكسل"
-              className="px-3 py-2 rounded-xl bg-teal-700 hover:bg-teal-600 text-white text-xs font-black shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">تصدير إكسل</span>
-            </button>
-
-            <button
-              onClick={handlePrint}
-              title="طباعة التقرير"
-              className={`px-3 py-2 rounded-xl text-xs font-bold border shadow-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                isDarkMode
-                  ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                  : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
-              }`}
-            >
-              <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">طباعة</span>
-            </button>
-          </div>
-        )}
-      </div>
 
       {/* 🚀 New Delegate Selector Bar (Moved to Top) */}
       {isAdmin && (

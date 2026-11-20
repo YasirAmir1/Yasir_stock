@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { X, Bell, FileText, Info, Trash2, Edit2, Volume2, VolumeX, Radio } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Bell, FileText, Info, Trash2, Edit2, Volume2, VolumeX, Radio, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { useSales } from '../context/SalesContext';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc, deleteDoc, updateDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import { isNotificationSoundEnabled, setNotificationSoundEnabled, testNotificationSound } from '../utils/soundAlert';
 import { AdminBroadcastModal } from './AdminBroadcastModal';
+import { showConfirm } from '../utils/dialogService';
+import { formatEnglishDate, formatEnglishTime, formatEnglishDateTime } from '../utils/dateUtils';
+import { isNotificationForDelegate } from '../utils/notificationUtils';
 
 interface DelegatePanelModalProps {
   onClose: () => void;
@@ -50,6 +53,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const isAdminOrDataEntry = isAdmin || isDataEntry;
 
   const [activeTab, setActiveTab] = useState<'alerts' | 'notes' | 'notifications' | 'route' | 'tasks'>('alerts');
+  const userSwitchedTabRef = useRef(false);
   const [soundEnabled, setSoundEnabled] = useState(isNotificationSoundEnabled());
 
   const handleToggleSound = async () => {
@@ -67,6 +71,9 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   const [alertDate, setAlertDate] = useState('');
   const [alertHour, setAlertHour] = useState('12');
   const [alertMinute, setAlertMinute] = useState('00');
+  const [deletingAlertId, setDeletingAlertId] = useState<string | null>(null);
+  const [isClearingAllAlerts, setIsClearingAllAlerts] = useState<boolean>(false);
+  const [alertActionError, setAlertActionError] = useState<string | null>(null);
   
   // Notes State
   const [notes, setNotes] = useState<NoteItem[]>([]);
@@ -113,7 +120,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         alertsQ, 
         (snap: any) => {
           const loaded: AlertItem[] = [];
-          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as AlertItem));
+          snap.forEach((d: any) => loaded.push({ ...(d.data() as AlertItem), id: d.id }));
           setAlerts(loaded.sort((a, b) => a.targetTime - b.targetTime));
         },
         (err: any) => logFirestoreErrorGracefully(err, 'admin_data_entry_alerts'),
@@ -126,7 +133,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         notesQ, 
         (snap: any) => {
           const loaded: NoteItem[] = [];
-          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() } as NoteItem));
+          snap.forEach((d: any) => loaded.push({ ...(d.data() as NoteItem), id: d.id }));
           setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
         },
         (err: any) => logFirestoreErrorGracefully(err, 'admin_data_entry_notes'),
@@ -147,7 +154,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         alertsQ, 
         (snap: any) => {
           const loaded: AlertItem[] = [];
-          snap.forEach((d: any) => loaded.push(d.data() as AlertItem));
+          snap.forEach((d: any) => loaded.push({ ...(d.data() as AlertItem), id: d.id }));
           setAlerts(loaded.sort((a, b) => a.targetTime - b.targetTime));
         },
         (err: any) => logFirestoreErrorGracefully(err, 'delegate_alerts'),
@@ -160,7 +167,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         notesQ, 
         (snap: any) => {
           const loaded: NoteItem[] = [];
-          snap.forEach((d: any) => loaded.push(d.data() as NoteItem));
+          snap.forEach((d: any) => loaded.push({ ...(d.data() as NoteItem), id: d.id }));
           setNotes(loaded.sort((a, b) => b.createdAt - a.createdAt));
         },
         (err: any) => logFirestoreErrorGracefully(err, 'delegate_notes'),
@@ -182,14 +189,19 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         'DelegatePanel-delegate-reads'
       );
 
-      // Load Global Notifications
+      // Load Global & Targeted Notifications for this representative
       const notifsQ = query(collection(db, 'admin_notifications'));
       const unsubNotifs = safeOnSnapshot(
         notifsQ, 
         (snap: any) => {
           const loaded: any[] = [];
-          snap.forEach((d: any) => loaded.push({ id: d.id, ...d.data() }));
-          setGlobalNotifs(loaded.sort((a, b) => b.timestamp - a.timestamp));
+          snap.forEach((d: any) => {
+            const item = { id: d.id, ...d.data() };
+            if (isNotificationForDelegate(item, currentUser)) {
+              loaded.push(item);
+            }
+          });
+          setGlobalNotifs(loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
         },
         (err: any) => logFirestoreErrorGracefully(err, 'admin_notifications'),
         'DelegatePanel-global-notifs'
@@ -203,6 +215,25 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
       };
     }
   }, [currentUser, isAdminOrDataEntry]);
+
+  // Auto-open notifications tab when delegate has unread notifications (e.g., request accepted/rejected) and hasn't manually switched tabs
+  useEffect(() => {
+    if (isAdminOrDataEntry || userSwitchedTabRef.current) return;
+    const twelveHoursMs = 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    const visibleUnread = globalNotifs.filter((n) => {
+      const readAt = readsMap[n.id];
+      if (!readAt) return true;
+      return false;
+    });
+    const hasUnreadStatusAlert = visibleUnread.some(
+      (n) => n.notificationType === 'new_customer_status'
+    );
+    const anyUnreadVisible = visibleUnread.some((n) => !readsMap[n.id] && (!readsMap[n.id] || now - readsMap[n.id] <= twelveHoursMs));
+    if (hasUnreadStatusAlert || (anyUnreadVisible && alerts.length === 0)) {
+      setActiveTab('notifications');
+    }
+  }, [isAdminOrDataEntry, globalNotifs, readsMap, alerts.length]);
 
   useEffect(() => {
     if (currentUser?.name && !isAdminOrDataEntry) {
@@ -365,14 +396,39 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
   };
   
   const handleDeleteAlert = async (id: string) => {
+    if (!id) return;
+    setAlertActionError(null);
+    setDeletingAlertId(id);
     try {
-      if (isAdminOrDataEntry) {
-        await deleteDoc(doc(db, 'admin_data_entry_alerts', id));
-      } else {
-        await deleteDoc(doc(db, 'delegate_alerts', id));
-      }
+      const colName = isAdminOrDataEntry ? 'admin_data_entry_alerts' : 'delegate_alerts';
+      await deleteDoc(doc(db, colName, id));
+      setAlerts((prev) => prev.filter((item) => item.id !== id));
     } catch (e) {
       console.error('Error deleting alert:', e);
+      setAlertActionError('تعذر حذف التنبيه. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setDeletingAlertId(null);
+    }
+  };
+
+  const handleDeleteAllAlerts = async () => {
+    if (alerts.length === 0 || isClearingAllAlerts) return;
+    if (!(await showConfirm(`هل أنت متأكد من مسح جميع التنبيهات المحفوظة (${alerts.length})؟`))) return;
+    setAlertActionError(null);
+    setIsClearingAllAlerts(true);
+    try {
+      const colName = isAdminOrDataEntry ? 'admin_data_entry_alerts' : 'delegate_alerts';
+      await Promise.all(
+        alerts
+          .filter((item) => Boolean(item.id))
+          .map((item) => deleteDoc(doc(db, colName, item.id)))
+      );
+      setAlerts([]);
+    } catch (e) {
+      console.error('Error deleting all alerts:', e);
+      setAlertActionError('حدث خطأ أثناء حذف بعض التنبيهات.');
+    } finally {
+      setIsClearingAllAlerts(false);
     }
   };
 
@@ -439,7 +495,10 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
         <div className="p-1.5 sm:p-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 w-full min-w-0 bg-slate-50/70 dark:bg-slate-900/70">
           <div className="flex items-center gap-1 sm:gap-1.5 w-full min-w-0">
             <button 
-              onClick={() => setActiveTab('alerts')} 
+              onClick={() => {
+                userSwitchedTabRef.current = true;
+                setActiveTab('alerts');
+              }} 
               className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
                 activeTab === 'alerts' 
                   ? 'bg-emerald-500 text-white shadow-sm' 
@@ -456,7 +515,10 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
             </button>
 
             <button 
-              onClick={() => setActiveTab('notes')} 
+              onClick={() => {
+                userSwitchedTabRef.current = true;
+                setActiveTab('notes');
+              }} 
               className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
                 activeTab === 'notes' 
                   ? 'bg-emerald-500 text-white shadow-sm' 
@@ -476,7 +538,10 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
             {!isAdminOrDataEntry && (
               <>
                 <button 
-                  onClick={() => setActiveTab('notifications')} 
+                  onClick={() => {
+                    userSwitchedTabRef.current = true;
+                    setActiveTab('notifications');
+                  }} 
                   className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
                     activeTab === 'notifications' 
                       ? 'bg-emerald-500 text-white shadow-sm' 
@@ -484,9 +549,20 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                   }`}
                 >
                   <span className="truncate">إشعارات</span>
+                  {(() => {
+                    const unreadNotifsCount = globalNotifs.filter((n) => !readsMap[n.id]).length;
+                    return unreadNotifsCount > 0 ? (
+                      <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black shrink-0 animate-pulse">
+                        {unreadNotifsCount}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
                 <button 
-                  onClick={() => setActiveTab('tasks')} 
+                  onClick={() => {
+                    userSwitchedTabRef.current = true;
+                    setActiveTab('tasks');
+                  }} 
                   className={`flex-1 min-w-0 px-1 sm:px-2.5 py-1.5 sm:py-2 rounded-xl font-bold text-[10px] sm:text-xs transition-all flex items-center justify-center gap-1 text-center cursor-pointer ${
                     activeTab === 'tasks' 
                       ? 'bg-emerald-500 text-white shadow-sm' 
@@ -551,14 +627,33 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
               </div>
               
               <div className="space-y-2.5">
-                <h3 className="font-bold text-xs sm:text-sm opacity-80 flex items-center justify-between">
-                  <span>التنبيهات المحفوظة</span>
-                  <span className="text-[11px] opacity-60">({alerts.length})</span>
-                </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-bold text-xs sm:text-sm opacity-80 flex items-center gap-1.5">
+                    <span>التنبيهات المحفوظة</span>
+                    <span className="text-[11px] opacity-60">({alerts.length})</span>
+                  </h3>
+                  {alerts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllAlerts}
+                      disabled={isClearingAllAlerts}
+                      className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-[11px] font-black flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                      title="مسح جميع التنبيهات المحفوظة"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>{isClearingAllAlerts ? 'جاري المسح...' : 'مسح الكل'}</span>
+                    </button>
+                  )}
+                </div>
+                {alertActionError && (
+                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-[11px] font-bold text-center">
+                    {alertActionError}
+                  </div>
+                )}
                 {alerts.length === 0 ? (
                   <p className="text-xs opacity-50 text-center py-4">لا توجد تنبيهات محفوظة</p>
-                ) : alerts.map(a => (
-                  <div key={a.id} className={`p-2.5 sm:p-3.5 rounded-xl border flex items-start justify-between gap-2.5 shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                ) : alerts.map((a, idx) => (
+                  <div key={a.id || `alert-${idx}`} className={`p-2.5 sm:p-3.5 rounded-xl border flex items-start justify-between gap-2.5 shadow-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                     <div className="flex-1">
                       {isAdminOrDataEntry && (
                         <div className="flex items-center gap-1.5 mb-1">
@@ -573,16 +668,21 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                       )}
                       <p className="font-bold text-xs sm:text-sm mb-0.5 leading-relaxed">{a.note}</p>
                       <p className="text-[9px] sm:text-[10px] opacity-70 text-emerald-500 font-bold">
-                        موعد التنبيه: {new Date(a.targetTime).toLocaleString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        موعد التنبيه: <span dir="ltr">{formatEnglishDateTime(a.targetTime, '-', false)}</span>
                       </p>
                     </div>
                     <button 
-                      onClick={() => handleDeleteAlert(a.id)} 
-                      className="p-1 rounded-md hover:bg-red-500/10 text-red-500 transition-colors flex items-center gap-1 text-[11px] font-bold shrink-0 cursor-pointer"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteAlert(a.id);
+                      }}
+                      disabled={deletingAlertId === a.id || isClearingAllAlerts}
+                      className="px-2 py-1 rounded-md hover:bg-red-500/10 text-red-500 transition-colors flex items-center gap-1 text-[11px] font-bold shrink-0 cursor-pointer disabled:opacity-50"
                       title="مسح التنبيه"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>مسح</span>
+                      <span>{deletingAlertId === a.id ? 'جاري...' : 'مسح'}</span>
                     </button>
                   </div>
                 ))}
@@ -633,8 +733,8 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                         }`}>
                           {n.authorRole || n.authorName || 'ملاحظة'}
                         </span>
-                        <span className="text-[9px] sm:text-[10px] opacity-60 font-bold">
-                          {new Date(n.createdAt).toLocaleDateString('ar-EG')} - {new Date(n.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[9px] sm:text-[10px] opacity-60 font-bold" dir="ltr">
+                          {formatEnglishDate(n.createdAt, '-')} - {formatEnglishTime(n.createdAt, false, '')}
                         </span>
                         {n.updatedAt && n.updatedAt !== n.createdAt && (
                           <span className="text-[8px] text-amber-500 font-bold">(معدلة)</span>
@@ -749,22 +849,97 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                   return null;
                 }
 
+                const isStatusAlert = notif.notificationType === 'new_customer_status';
+                const isApprovedAlert = isStatusAlert && notif.status === 'approved';
+                const isRejectedAlert = isStatusAlert && notif.status === 'rejected';
+
+                const markAsRead = async () => {
+                  if (!isRead) {
+                    try {
+                      await setDoc(doc(db, 'delegate_notification_reads', `${currentUser?.name}_${notif.id}`), {
+                        delegateName: currentUser?.name,
+                        notificationId: notif.id,
+                        readAt: Date.now()
+                      });
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }
+                };
+
+                if (isStatusAlert) {
+                  return (
+                    <div
+                      key={notif.id}
+                      onClick={markAsRead}
+                      className={`p-3.5 sm:p-4 rounded-2xl border flex items-start gap-3 cursor-pointer transition-all shadow-xs ${
+                        isApprovedAlert
+                          ? isDarkMode
+                            ? 'bg-emerald-950/40 border-emerald-700/70 hover:bg-emerald-950/60'
+                            : 'bg-emerald-50/90 border-emerald-300 hover:bg-emerald-100/70'
+                          : isRejectedAlert
+                          ? isDarkMode
+                            ? 'bg-rose-950/40 border-rose-700/70 hover:bg-rose-950/60'
+                            : 'bg-rose-50/90 border-rose-300 hover:bg-rose-100/70'
+                          : isDarkMode
+                          ? 'bg-amber-950/40 border-amber-700/70 hover:bg-amber-950/60'
+                          : 'bg-amber-50/90 border-amber-300 hover:bg-amber-100/70'
+                      } ${!isRead ? 'ring-2 ring-offset-1 ring-indigo-500/60' : 'opacity-85'}`}
+                    >
+                      <div
+                        className={`p-2.5 rounded-xl shrink-0 ${
+                          isApprovedAlert
+                            ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300'
+                            : isRejectedAlert
+                            ? 'bg-rose-500/20 text-rose-600 dark:text-rose-300'
+                            : 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
+                        }`}
+                      >
+                        {isApprovedAlert ? (
+                          <CheckCircle2 className="w-5 h-5" />
+                        ) : isRejectedAlert ? (
+                          <XCircle className="w-5 h-5" />
+                        ) : (
+                          <Clock className="w-5 h-5" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white">
+                            {notif.title || 'تحديث حالة طلب تعريف محل جديد'}
+                          </h4>
+                          {notif.timestamp && (
+                            <span dir="ltr" className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 shrink-0">
+                              {formatEnglishDateTime(notif.timestamp, '', false)}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs sm:text-sm font-bold leading-relaxed whitespace-pre-wrap text-slate-800 dark:text-slate-100">
+                          {notif.text}
+                        </p>
+
+                        <div className="pt-1 flex items-center justify-between gap-2">
+                          <span
+                            className={`text-[10px] font-black ${
+                              !isRead
+                                ? 'text-indigo-600 dark:text-indigo-400'
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            }`}
+                          >
+                            {!isRead ? 'تنبيه جديد — انقر لتأكيد القراءة' : 'تمت القراءة ✓'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div 
                     key={notif.id} 
-                    onClick={async () => {
-                      if (!isRead) {
-                        try {
-                          await setDoc(doc(db, 'delegate_notification_reads', `${currentUser?.name}_${notif.id}`), {
-                            delegateName: currentUser?.name,
-                            notificationId: notif.id,
-                            readAt: Date.now()
-                          });
-                        } catch(e) {
-                          console.error(e);
-                        }
-                      }
-                    }}
+                    onClick={markAsRead}
                     className={`p-4 rounded-xl border flex items-start gap-4 cursor-pointer transition-all ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
                   >
                     <div className={`p-3 rounded-lg ${isRead ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -776,9 +951,18 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                       >
                         {notif.text}
                       </p>
-                      {!isRead && (
-                        <p className="text-[10px] text-blue-500 font-bold mt-2">انقر للقراءة</p>
-                      )}
+                      <div className="flex items-center justify-between gap-2 mt-2">
+                        {!isRead ? (
+                          <p className="text-[10px] text-blue-500 font-bold">انقر للقراءة</p>
+                        ) : (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">تمت القراءة ✓</p>
+                        )}
+                        {notif.timestamp && (
+                          <span dir="ltr" className="text-[10px] font-mono font-bold text-slate-400">
+                            {formatEnglishDateTime(notif.timestamp, '', false)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -895,7 +1079,7 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
                         </p>
                         {isCompleted && (
                           <p className="text-[10px] text-emerald-600 font-bold mt-1">
-                            مكتملة في: {new Date(completionTime).toLocaleString('ar-EG')}
+                            مكتملة في: <span dir="ltr">{formatEnglishDateTime(completionTime, '-', true)}</span>
                           </p>
                         )}
                       </div>
@@ -921,4 +1105,6 @@ export const DelegatePanelModal: React.FC<DelegatePanelModalProps> = ({ onClose,
     </div>
   );
 };
+
+export default DelegatePanelModal;
 

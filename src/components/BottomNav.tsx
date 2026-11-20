@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle, FileSpreadsheet, Target } from 'lucide-react';
+import { FileText, BarChart2, Package, MapPin, History, RotateCcw, Layers, Shield, AlertTriangle, FileSpreadsheet, Target, TrendingUp } from 'lucide-react';
 import { AppTab } from '../types';
 
 interface BottomNavProps {
@@ -8,6 +8,7 @@ interface BottomNavProps {
   isDarkMode: boolean;
   setShowQuickAdd?: (show: boolean) => void;
   isAdmin?: boolean;
+  isStrictAdmin?: boolean;
   canAccessItemTracking?: boolean;
   isSauceUser?: boolean;
 }
@@ -18,6 +19,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   isDarkMode, 
   setShowQuickAdd, 
   isAdmin, 
+  isStrictAdmin,
   canAccessItemTracking,
   isSauceUser 
 }) => {
@@ -43,9 +45,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         ...(!isSauceUser ? [{ id: 'additional_target', label: 'الاضافي', icon: Target }] : []),
         ...(canAccessItemTracking ? [{ id: 'item_tracking', label: 'الأصناف', icon: Layers }] : []),
         { id: 'products', label: 'المنتجات', icon: Package },
+        ...((isStrictAdmin ?? isAdmin) ? [{ id: 'forecast', label: 'فوركاست', icon: TrendingUp }] : []),
         { id: 'returns', label: 'المرتجعات', icon: RotateCcw },
         { id: 'qc', label: 'QC', icon: AlertTriangle },
-        ...(isAdmin ? [{ id: 'admin', label: 'الإدارة', icon: Shield }] : []),
+        ...((isStrictAdmin ?? isAdmin) ? [{ id: 'admin', label: 'الإدارة', icon: Shield }] : []),
       ];
 
   return (

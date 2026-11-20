@@ -21,6 +21,7 @@ import {
   getTodayEndOfDayIso
 } from '../lib/broadcastService';
 import { useSales } from '../context/SalesContext';
+import { formatEnglishDate, formatEnglishTime } from '../utils/dateUtils';
 
 interface AdminBroadcastModalProps {
   isOpen: boolean;
@@ -256,10 +257,10 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                 {history.map((alert) => {
                   const isExpired = new Date(alert.expires_at).getTime() <= Date.now();
                   const timeFormatted = alert.created_at
-                    ? new Date(alert.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })
+                    ? formatEnglishTime(alert.created_at, false, '')
                     : '';
                   const dateFormatted = alert.created_at
-                    ? new Date(alert.created_at).toLocaleDateString('ar-IQ')
+                    ? formatEnglishDate(alert.created_at, '')
                     : '';
 
                   return (

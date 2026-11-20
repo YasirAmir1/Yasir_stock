@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatEnglishDate } from '../utils/dateUtils';
 import {
   X,
   Database,
@@ -1020,8 +1021,8 @@ export const SupabaseManagerModal: React.FC<SupabaseManagerModalProps> = ({
                               <td className="p-3 font-bold text-emerald-600 dark:text-emerald-400">
                                 {Number(r.target_kg || 0).toLocaleString()} كغم
                               </td>
-                              <td className="p-3 text-slate-400 text-[11px]">
-                                {r.created_at ? new Date(r.created_at).toLocaleDateString('ar-IQ') : '—'}
+                              <td className="p-3 text-slate-400 text-[11px]" dir="ltr">
+                                {r.created_at ? formatEnglishDate(r.created_at, '—') : '—'}
                               </td>
                             </tr>
                           ))}

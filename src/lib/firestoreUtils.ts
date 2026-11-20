@@ -17,6 +17,14 @@ export const setGlobalQuotaExceeded = () => {
   } catch {}
 };
 
+export const clearGlobalQuotaExceeded = () => {
+  try {
+    sessionStorage.removeItem('fs_quota_exceeded');
+    sessionStorage.removeItem('fs_quota_exceeded_time');
+    localStorage.removeItem('fs_quota_exceeded_time');
+  } catch {}
+};
+
 export const isGlobalQuotaExceeded = (): boolean => {
   try {
     const val = sessionStorage.getItem('fs_quota_exceeded');

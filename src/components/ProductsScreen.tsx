@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useSales, getCategoryPriorityIndex } from '../context/SalesContext';
+import { useSales, getCategoryPriorityIndex, getBaghdadDateAndSeconds } from '../context/SalesContext';
 import { useDebounce } from '../hooks/useDebounce';
 import { ProductItem, GiftPromotion } from '../types';
 import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw, Loader2 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } fr
 import { showConfirm } from '../utils/dialogService';
 import { GiftsManagementTable } from './GiftsManagementTable';
 import { StoreNotificationsModal } from './StoreNotificationsModal';
+import { AdminProductDemandPanel } from './AdminProductDemandPanel';
 
 export interface PriceChangeStatus {
   hasAnyChange: boolean;
@@ -161,7 +162,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     deleteInventoryLog,
     processOrder,
     todaySalesByProductName = {},
-    getProductLiveStock
+    getProductLiveStock,
+    allSalesEntries = [],
+    setActiveTab
   } = useSales();
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
@@ -470,7 +473,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   };
 
   const isAdmin = currentUser?.isAdmin || currentUser?.name === 'الأدمن' || currentUser?.email === 'yasiramirit@gmail.com';
-  const isRafat = currentUser?.username?.toLowerCase() === 'rafatdata' || currentUser?.role === 'dataEntry' || currentUser?.name === 'رأفت جمال';
+  const isRafat = Boolean(
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.roleName?.includes('مدخل') ||
+    currentUser?.name?.includes('مدخل') ||
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال'
+  );
   const isNewInvoice = !!prefilledEntryData;
 
   // Gift Promotion Notification Alert State
@@ -1077,7 +1087,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         pieceWeightKg: pieceWeightKg,
         totalWeightKg: totalW,
         delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
-        dateString: new Date().toISOString().split('T')[0],
+        dateString: getBaghdadDateAndSeconds().todayStr,
         customerName: trimmedCustomerName,
         customerCode: String(customerCode || '').trim(),
         customerAddress: String(customerAddress || '').trim(),
@@ -1100,8 +1110,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     }
 
     // 2 & 3. Validate earned gifts and append them as separate rows without price/code
-    const today = new Date().toISOString().split('T')[0];
-    const baghdadToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' });
+    const baghdadToday = getBaghdadDateAndSeconds().todayStr;
+    const today = baghdadToday;
     const invoiceType = priceMode === 'wholesale' ? 'جملة' : 'مفرد';
     const norm = (s: string) => (s || '').trim().toLowerCase();
 
@@ -3011,7 +3021,48 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         isSauceUser={isSauceUser}
         isAdmin={isAdminUser}
         onDeleteLog={deleteInventoryLog}
+        userLastReadTimestamp={userLastReadTimestamp}
+        onMarkAllRead={handleOpenStoreNotifications}
       />
+
+      {/* Admin Forecast Link Banner */}
+      {isAdmin && !isRafat && (
+        <div
+          className={`mt-8 p-4 sm:p-5 rounded-3xl border flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md ${
+            isDarkMode
+              ? 'bg-slate-900/90 border-emerald-500/40 text-white'
+              : 'bg-emerald-50/90 border-emerald-300 text-slate-900'
+          }`}
+          dir="rtl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center font-black shadow-md shrink-0">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-black text-sm sm:text-base text-emerald-700 dark:text-emerald-300">
+                  لوحة وجدول «فوركاست» (المنتجات الأكثر طلباً)
+                </h4>
+                <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  صفحة جديدة للأدمن 🔒
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                تم تحويل جدول تحليل المبيعات والطلب الأسبوعي بالكارتون وقرارات الشراء إلى صفحة مستقلة خاصة بالأدمن بعنوان «فوركاست».
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('forecast')}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-2 shrink-0"
+          >
+            <TrendingUp className="w-4 h-4" />
+            الانتقال لصفحة فوركاست 📊
+          </button>
+        </div>
+      )}
     </div>
   );
 };

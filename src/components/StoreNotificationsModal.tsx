@@ -12,7 +12,8 @@ import {
   Sparkles,
   Trash2,
   Truck,
-  ArrowLeft
+  ArrowLeft,
+  CheckCheck
 } from 'lucide-react';
 
 interface StoreNotificationsModalProps {
@@ -24,6 +25,8 @@ interface StoreNotificationsModalProps {
   isSauceUser?: boolean;
   isAdmin?: boolean;
   onDeleteLog?: (logId: string) => Promise<void>;
+  userLastReadTimestamp?: number;
+  onMarkAllRead?: () => void;
 }
 
 export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = ({
@@ -34,7 +37,9 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
   productsList = [],
   isSauceUser = false,
   isAdmin = false,
-  onDeleteLog
+  onDeleteLog,
+  userLastReadTimestamp = 0,
+  onMarkAllRead
 }) => {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
@@ -78,39 +83,13 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
       setExpandedLogId(null);
     } else {
       setExpandedLogId(logId);
-      // Track view time for expiry logic (only for regular delegates; admins keep full history)
-      if (!isAdmin) {
-        const storageKey = `opened_log_${logId}`;
-        if (!localStorage.getItem(storageKey)) {
-          localStorage.setItem(storageKey, Date.now().toString());
-        }
-      }
     }
   };
 
-  // Sort all logs descending by timestamp
-  // For Admin: display ALL logs (including old operations) without 1-hour expiration
-  // For Delegates: filter out logs opened more than 1 hour ago
+  // All logs sorted descending by timestamp (no 1-hour auto-hiding so logs remain accessible)
   const sortedLogs = useMemo(() => {
-    if (isAdmin) {
-      return [...inventoryLogs].sort((a, b) => b.timestamp - a.timestamp);
-    }
-
-    const now = Date.now();
-    const oneHourMs = 1 * 60 * 60 * 1000;
-    
-    return [...inventoryLogs].filter(log => {
-      const storageKey = `opened_log_${log.id}`;
-      const openedAt = localStorage.getItem(storageKey);
-      
-      if (openedAt) {
-        // If opened, check if it's been more than 1 hour
-        return (now - parseInt(openedAt)) <= oneHourMs;
-      }
-      // If not opened, show it
-      return true;
-    }).sort((a, b) => b.timestamp - a.timestamp);
-  }, [inventoryLogs, isAdmin]);
+    return [...inventoryLogs].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }, [inventoryLogs]);
 
   if (!isOpen) return null;
 
@@ -135,7 +114,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
               <Boxes className="w-6 h-6 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white">
                   إشعارات المخزن والتحديثات
                 </h3>
@@ -146,23 +125,37 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
                 {isAdmin 
                   ? 'سجل وتفاصيل كافة عمليات رفع الجرد (الحديثة والقديمة) وتتبع وصول المنتجات' 
-                  : 'سجل وتفاصيل عمليات رفع الجرد وتتبع وصول المنتجات الحديثة'}
+                  : 'سجل وتفاصيل عمليات رفع الجرد وتتبع وصول المنتجات الحديثة والمخزون'}
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${
-              isDarkMode 
-                ? 'text-slate-400 hover:text-white hover:bg-slate-800' 
-                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/70'
-            }`}
-            title="إغلاق النافذة"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onMarkAllRead && (
+              <button
+                type="button"
+                onClick={onMarkAllRead}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+                title="تحديد كافة الإشعارات كمقروءة وإيقاف التنبيه"
+              >
+                <CheckCheck className="w-4 h-4" />
+                <span className="hidden sm:inline">قراءة الكل</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                isDarkMode 
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800' 
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/70'
+              }`}
+              title="إغلاق النافذة"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body Content */}
@@ -175,17 +168,18 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                 <History className="w-12 h-12 mx-auto mb-3 opacity-30 text-emerald-500" />
                 <p className="font-black text-sm">لم يتم تسجيل أي عملية رفع جرد بعد</p>
                 <p className="text-xs mt-1 text-slate-400">
-                  عند استخدام زر "رفع جرد" في صفحة المنتجات، سيتم توثيق كل عملية جرد وتوقيتها هنا تلقائياً.
+                  عند استخدام زر "رفع جرد" في صفحة المنتجات، سيتم توثيق كل عملية جرد وتوقيتها هنا تلقائياً لجميع المستخدمين.
                 </p>
               </div>
             ) : (
               sortedLogs.map((log, idx) => {
                 const isExpanded = expandedLogId === log.id;
+                const isUnread = (log.timestamp || 0) > userLastReadTimestamp;
                 const eligibleRestocked = isAdmin 
                   ? (log.restockedProducts || []) 
                   : (log.restockedProducts || []).filter(isEligibleForDelegate);
 
-                // حساب إجمالي الكراتين الواصلة حديثاً في عملية الجرد هذه
+                // حساب إجمالي الكراتين الواصلة أو المتاحة في عملية الجرد هذه
                 const totalArrivedCartons = eligibleRestocked.reduce((acc, p) => {
                   const curr = Math.floor(Number(p.stockCartons || 0));
                   const prev = p.previousStock !== undefined ? Math.floor(Number(p.previousStock)) : 0;
@@ -199,9 +193,9 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                   <div
                     key={log.id || idx}
                     className={`rounded-2xl border transition-all overflow-hidden ${
-                      isDarkMode 
-                        ? 'bg-slate-800/80 border-slate-700/80 hover:border-slate-600' 
-                        : 'bg-white border-slate-200 shadow-sm hover:border-slate-300'
+                      isUnread 
+                        ? (isDarkMode ? 'bg-emerald-950/30 border-emerald-500/50 shadow-md shadow-emerald-950/50' : 'bg-emerald-50/80 border-emerald-300 shadow-md shadow-emerald-100')
+                        : (isDarkMode ? 'bg-slate-800/80 border-slate-700/80 hover:border-slate-600' : 'bg-white border-slate-200 shadow-sm hover:border-slate-300')
                     }`}
                   >
                     {/* Summary Header Row */}
@@ -210,7 +204,11 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                       onClick={() => handleExpandLog(log.id)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black shrink-0 shadow-inner">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black shrink-0 shadow-inner ${
+                          isUnread 
+                            ? 'bg-emerald-600 text-white shadow-emerald-600/30 animate-pulse' 
+                            : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                        }`}>
                           <CheckCircle2 className="w-5 h-5" />
                         </div>
 
@@ -219,22 +217,27 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                             <h4 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
                               عملية رفع جرد #{sortedLogs.length - idx}
                             </h4>
+                            {isUnread && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 shadow-xs animate-bounce">
+                                جديد 🔔
+                              </span>
+                            )}
                             {eligibleRestocked.length > 0 ? (
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-xs flex items-center gap-1">
                                   <Sparkles className="w-3 h-3" />
-                                  <span>{eligibleRestocked.length} منتج وصل حديثاً</span>
+                                  <span>{eligibleRestocked.length} منتج متاح بالمخزن</span>
                                 </span>
                                 {totalArrivedCartons > 0 && (
                                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-mono flex items-center gap-1">
                                     <Truck className="w-3 h-3" />
-                                    <span>+{totalArrivedCartons.toLocaleString('en-US')} كارتون وارد</span>
+                                    <span>+{totalArrivedCartons.toLocaleString('en-US')} كارتون</span>
                                   </span>
                                 )}
                               </div>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                مطابقة كميات
+                                جرد ومطابقة
                               </span>
                             )}
                           </div>
@@ -294,8 +297,8 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                           <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                             <Truck className="w-4 h-4 text-emerald-500" />
                             {isAdmin 
-                              ? 'الكميات الواصلة الجديدة لكل منتج في هذا الجرد (سجل كامل للأدمن):' 
-                              : 'الكميات الواصلة الجديدة للمنتجات المتوفرة للمندوبين:'}
+                              ? 'الكميات والأصناف في عملية الجرد هذه (سجل كامل للأدمن):' 
+                              : 'المنتجات والأصناف المتوفرة للمندوبين في هذا الجرد:'}
                           </span>
                           <span className="text-emerald-600 dark:text-emerald-400 font-mono font-black">
                             {eligibleRestocked.length} منتج
@@ -304,7 +307,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
 
                         {eligibleRestocked.length === 0 ? (
                           <p className="text-xs text-slate-400 font-bold italic py-2 text-center">
-                            تم تحديث ومطابقة كميات المخزون لكافة الأصناف بنجاح دون وصول كميات إضافية جديدة.
+                            تم تحديث ومطابقة كميات المخزون لكافة الأصناف بنجاح.
                           </p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -313,7 +316,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                               const prevStock = prod.previousStock !== undefined ? Math.floor(Number(prod.previousStock)) : 0;
                               const arrivedCartons = prod.addedCartons !== undefined 
                                 ? Math.floor(Number(prod.addedCartons)) 
-                                : (currStock > prevStock ? currStock - prevStock : currStock);
+                                : (currStock > prevStock ? currStock - prevStock : 0);
                               const isBrandNew = prevStock === 0;
 
                               return (
@@ -325,7 +328,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                                       : 'bg-white border-slate-200 shadow-sm hover:border-emerald-400'
                                   }`}
                                 >
-                                  {/* Top row: Name & Arrived Badge (without product image) */}
+                                  {/* Top row: Name & Arrived Badge */}
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0 flex-1">
                                       <p className="font-black text-xs sm:text-sm text-slate-900 dark:text-white truncate" title={prod.productName}>
@@ -336,15 +339,15 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
                                       </p>
                                     </div>
 
-                                    {/* Prominent Arrived Cartons Badge */}
+                                    {/* Prominent Cartons Badge */}
                                     <div className="text-left shrink-0">
                                       <div className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-mono font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 flex items-center gap-1">
                                         <Truck className="w-3.5 h-3.5 shrink-0" />
-                                        <span>+{arrivedCartons.toLocaleString('en-US')}</span>
+                                        <span>{currStock.toLocaleString('en-US')}</span>
                                         <span className="text-[10px] font-bold">كارتون</span>
                                       </div>
                                       <span className="block text-[9px] text-emerald-600 dark:text-emerald-400 font-black text-center mt-0.5">
-                                        واصل جديد
+                                        {arrivedCartons > 0 ? `+${arrivedCartons} وارد جديد` : 'متوفر بالمخزن'}
                                       </span>
                                     </div>
                                   </div>
@@ -368,7 +371,7 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
 
                                     <div className="flex items-center gap-1">
                                       <ArrowLeft className="w-3 h-3 text-slate-400 shrink-0" />
-                                      <span className="text-slate-700 dark:text-slate-300 font-black">الحالي بالمخزن:</span>
+                                      <span className="text-slate-700 dark:text-slate-300 font-black">الحالي:</span>
                                       <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-xs">
                                         {currStock.toLocaleString('en-US')}
                                       </span>
@@ -390,16 +393,31 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
         </div>
 
         {/* Modal Footer */}
-        <div className={`p-3.5 sm:p-4 border-t flex items-center justify-end gap-3 ${
+        <div className={`p-3.5 sm:p-4 border-t flex items-center justify-between gap-3 ${
           isDarkMode ? 'bg-slate-800/80 border-slate-800' : 'bg-slate-50 border-slate-200'
         }`}>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-black transition-all cursor-pointer"
-          >
-            إغلاق
-          </button>
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+            إجمالي عمليات الجرد المحفوظة: <span className="font-mono font-black text-emerald-600">{inventoryLogs.length}</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onMarkAllRead && (
+              <button
+                type="button"
+                onClick={onMarkAllRead}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-black transition-all cursor-pointer"
+              >
+                تحديد الكل كمقروء
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-black transition-all cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
         </div>
       </div>
     </div>

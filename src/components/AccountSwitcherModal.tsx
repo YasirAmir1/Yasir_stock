@@ -94,3 +94,5 @@ export const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     </div>
   );
 };
+
+export default AccountSwitcherModal;

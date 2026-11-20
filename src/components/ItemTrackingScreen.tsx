@@ -306,32 +306,52 @@ export const ItemTrackingScreen: React.FC = () => {
     const unsubTargets = safeOnSnapshot(
       collection(db, 'report11_targets'),
       (snapshot: any) => {
-        const list: MonthlyItemTarget[] = [];
+        const rawList: MonthlyItemTarget[] = [];
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as MonthlyItemTarget;
           if (data && data.delegateName && data.categoryName) {
-            list.push({ ...data, id: docSnap.id });
+            rawList.push({ ...data, id: docSnap.id });
           }
         });
-        if (list.length === 0) {
+        if (rawList.length === 0) {
           try {
             const cachedMonthly = localStorage.getItem('cache_report11_targets');
             if (cachedMonthly) {
               const parsed = JSON.parse(cachedMonthly);
               if (Array.isArray(parsed) && parsed.length > 0) {
                 parsed.forEach((m: any) => {
-                  list.push({
+                  rawList.push({
+                    id: m.id,
                     delegateName: m.delegateName,
                     categoryName: m.categoryName,
                     monthlyTarget: Number(m.monthlyTarget) || 0,
-                    monthlySales: Number(m.monthlySales) || 0
+                    monthlySales: Number(m.monthlySales) || 0,
+                    updatedAt: m.updatedAt
                   });
                 });
               }
             }
           } catch {}
         }
-        setMonthlyItemTargets(list);
+        const dedupedMap = new Map<string, MonthlyItemTarget>();
+        rawList.forEach((item) => {
+          const key = `${normalizeArabic(item.delegateName)}__${normalizeArabic(item.categoryName)}`;
+          const existing = dedupedMap.get(key);
+          if (!existing) {
+            dedupedMap.set(key, item);
+            return;
+          }
+          const existingTs = existing.updatedAt ? Date.parse(existing.updatedAt) || 0 : 0;
+          const itemTs = item.updatedAt ? Date.parse(item.updatedAt) || 0 : 0;
+          if (itemTs > existingTs) {
+            dedupedMap.set(key, item);
+          } else if (itemTs === existingTs) {
+            const existingSum = (Number(existing.monthlyTarget) || 0) + (Number(existing.monthlySales) || 0);
+            const itemSum = (Number(item.monthlyTarget) || 0) + (Number(item.monthlySales) || 0);
+            if (itemSum > existingSum) dedupedMap.set(key, item);
+          }
+        });
+        setMonthlyItemTargets(Array.from(dedupedMap.values()));
       },
       (err: any) => console.error('Error fetching report11_targets:', err),
       'ItemTracking-report11-targets'

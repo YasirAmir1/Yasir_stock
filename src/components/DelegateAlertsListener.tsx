@@ -5,6 +5,7 @@ import { useSales } from '../context/SalesContext';
 import { DebtItem } from '../types';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { playNotificationSound } from '../utils/soundAlert';
+import { isNotificationForDelegate } from '../utils/notificationUtils';
 
 interface AlertData {
   id: string;
@@ -103,19 +104,34 @@ export const DelegateAlertsListener: React.FC = () => {
             if (change.type === 'added' && !knownNotifIds.current.has(change.doc.id)) {
               knownNotifIds.current.add(change.doc.id);
               const notifData = change.doc.data();
+
+              // Ignore targeted notifications meant for other representatives
+              if (!isNotificationForDelegate(notifData, currentUser)) {
+                return;
+              }
               
               // Play audio alert chime!
               playNotificationSound();
 
+              const isStatusAlert = notifData.notificationType === 'new_customer_status';
+              const toastTitle = isStatusAlert
+                ? notifData.title || 'تحديث حالة طلب تعريف محل جديد'
+                : 'إشعار جديد من الإدارة 📢';
+              const toastType = isStatusAlert
+                ? notifData.status === 'rejected'
+                  ? 'info'
+                  : 'success'
+                : 'milestone_100';
+
               addToast({
-                title: 'إشعار جديد من الإدارة 📢',
+                title: toastTitle,
                 message: notifData.text || 'وصلك إشعار وتوجيه جديد من الإدارة',
-                type: 'milestone_100'
+                type: toastType
               });
 
               if ('Notification' in window && Notification.permission === 'granted') {
                 try {
-                  new Notification('إشعار جديد من الإدارة 📢', {
+                  new Notification(toastTitle, {
                     body: notifData.text || 'وصلك إشعار وتوجيه جديد من الإدارة',
                     icon: '/favicon.ico'
                   });

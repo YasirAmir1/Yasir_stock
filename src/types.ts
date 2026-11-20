@@ -1,4 +1,4 @@
-export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'report_11' | 'additional_target' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking';
+export type AppTab = 'entry' | 'old_invoices' | 'routes' | 'report_11' | 'additional_target' | 'products' | 'returns' | 'qc' | 'admin' | 'item_tracking' | 'forecast';
 
 export interface AdditionalTargetConfig {
   id?: string;
@@ -337,6 +337,73 @@ export interface RouteItem {
   tempAssignedDay?: string;
   overrideExpiresAt?: number;
   originalPath?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  shopLocation?: string;
+  repLocationSaved?: boolean;
+  visitedToday?: boolean;
+  tier?: 'gold' | 'silver' | 'bronze';
+}
+
+export interface ShopLocationRecord {
+  id: string;
+  routeId: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress?: string;
+  customerType?: 'مفرد' | 'جملة';
+  path?: string;
+  delegateName: string;
+  delegateCode?: string;
+  latitude: number;
+  longitude: number;
+  shopLocation?: string;
+  accuracyMeters?: number;
+  savedBy: string;
+  savedByCode?: string;
+  savedAt: string;
+  timestamp: number;
+  dateString: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface NewCustomerDefinition {
+  id: string;
+  shopSignName: string;          // اسم المشتري (بالقطعة الخارجية)
+  buyerFullName: string;         // الاسم الثلاثي للمشتري
+  buyerAddress: string;          // عنوان المشتري
+  phone1: string;                // رقم هاتف الزبون 1
+  phone2: string;                // رقم هاتف الزبون 2
+  customerType: 'مفرد' | 'جملة'; // نوع المشتري (مفرد/جملة)
+  latitude: number;              // خط العرض GPS
+  longitude: number;             // خط الطول GPS
+  gpsLocation: string;           // نص الإحداثيات
+  exteriorSignImage: string;     // صورة اللوحة الخارجية
+  idCardFrontImage?: string;     // صورة هوية الزبون (الوجه الأمامي - للجملة)
+  idCardBackImage?: string;      // صورة هوية الزبون (الظهر الخلفي - للجملة)
+  delegateName: string;          // اسم المندوب المرسل
+  delegateCode?: string;         // كود المندوب
+  submittedByUsername?: string;  // اسم المستخدم المرسل
+  status?: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  approvedAt?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  timestamp: number;
+  createdAt: string;
+  dateString: string;
+}
+
+export interface RepLiveLocation {
+  rep_id: string;
+  rep_name?: string;
+  delegate_code?: string;
+  latitude: number;
+  longitude: number;
+  is_active: boolean;
+  updated_at: string;
 }
 
 export interface DebtItem {
@@ -408,5 +475,52 @@ export interface BroadcastAlert {
   acknowledged?: boolean;
 }
 
+export interface UnsuccessfulVisit {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress?: string;
+  customerType?: string;
+  delegateName: string;
+  delegateCode?: string;
+  routeDay: string;              // اليوم / المسار (مثال: الثلاثاء)
+  date: string;                  // التاريخ بالإنجليزية (YYYY-MM-DD أو DD/MM/YYYY)
+  timeFormatted: string;          // وقت التسجيل بتوقيت بغداد (مثال: 10:45 AM)
+  timestamp: number;             // وقت التسجيل بالميلي ثانية
+  refrigeratorPhoto?: string;    // رابط / كود الصورة للبراد المضغوط (Base64)
+  reason: string;                // سبب عدم نجاح الزيارة
+  latitude?: number | null;             // إحداثيات الموقع عند تسجيل الزيارة
+  longitude?: number | null;
+  recordedBy?: string;           // اسم المستخدم المسجل
+  createdAt: string;             // ISO Date String
+}
 
+export interface EndOfDayUnvisitedShop {
+  id: string;                    // Unique key per date + customer + delegate
+  routeId?: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress?: string;
+  customerType?: string;
+  phone?: string;
+  delegateName: string;
+  delegateCode?: string;
+  routeDay: string;              // مسار اليوم (مثال: الخميس)
+  dateString: string;            // تاريخ بغداد YYYY-MM-DD
+  latitude?: number | null;
+  longitude?: number | null;
+  hasMapLocation: boolean;
+  closureReason: 'in_progress_unvisited' | 'closing_time_expired' | 'delegate_completed_sales';
+  recordedAt: string;            // ISO timestamp
+}
 
+export interface DailyUnvisitedSnapshot {
+  id: string;                    // YYYY-MM-DD (Baghdad date)
+  dateString: string;
+  routeDay: string;
+  closingTime?: string;
+  shops: EndOfDayUnvisitedShop[];
+  dismissedShopIds?: string[];   // Admin-deleted shop IDs so auto-sync does not re-add them
+  updatedAt: string;
+  timestamp: number;
+}

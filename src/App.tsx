@@ -6,28 +6,45 @@ import { AppLogo } from './components/AppLogo';
 import { ScrollToTopButton } from './components/ScrollToTopButton';
 import { DelegateAlertsListener } from './components/DelegateAlertsListener';
 import { BroadcastAlertsListener } from './components/BroadcastAlertsListener';
+import { RepresentativeLiveTracker } from './components/RepresentativeLiveTracker';
 import { UnreadBadge } from './components/UnreadBadge';
 import { BottomNav } from './components/BottomNav';
 import { GlobalDialogModal } from './components/GlobalDialogModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { ScreenErrorBoundary } from './components/ScreenErrorBoundary';
+import { HeaderDelegateActivityBar } from './components/HeaderDelegateActivityBar';
+import { CalculatorModal } from './components/CalculatorModal';
 
-// Resilient code-splitting with auto-retry and chunk recovery
+// Silent hover-prefetch helper so speculative preloads never cause unhandled rejections
+const prefetchModule = (loader: () => Promise<unknown>) => {
+  try {
+    loader().catch(() => {});
+  } catch {}
+};
+
+// Resilient code-splitting with health-checked progressive retry and chunk recovery
 function lazyWithRetry<T extends React.ComponentType<any>>(
   componentImport: () => Promise<{ default: T }>,
-  retries = 3,
-  delayMs = 400
+  retries = 5
 ): React.LazyExoticComponent<T> {
+  const delays = [500, 1000, 1500, 2500, 3500];
   return lazy(() =>
     new Promise<{ default: T }>((resolve, reject) => {
-      const attempt = (remaining: number) => {
+      const attempt = (remaining: number, attemptIdx: number) => {
         componentImport()
           .then(resolve)
-          .catch((error) => {
-            console.warn(`[Module Loader] Dynamic import failed (${remaining} attempts left):`, error);
+          .catch(async (error) => {
             if (remaining > 0) {
-              setTimeout(() => attempt(remaining - 1), delayMs);
+              const waitMs = delays[Math.min(attemptIdx, delays.length - 1)] || 1500;
+              await new Promise((r) => setTimeout(r, waitMs));
+              try {
+                await fetch('/api/health', { cache: 'no-store' });
+              } catch {
+                // Server may still be waking up; continue retry attempt
+              }
+              attempt(remaining - 1, attemptIdx + 1);
             } else {
+              console.error('[Module Loader] Dynamic import failed after retries:', error);
               // Try an automatic reload once if chunk became stale
               try {
                 const reloadKey = 'chunk_reload_lock';
@@ -43,7 +60,7 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
             }
           });
       };
-      attempt(retries);
+      attempt(retries, 0);
     })
   );
 }
@@ -59,14 +76,14 @@ const OldInvoicesScreen = lazyWithRetry(() => import('./components/OldInvoicesSc
 const ReturnsScreen = lazyWithRetry(() => import('./components/ReturnsScreen').then(m => ({ default: m.ReturnsScreen })));
 const QCScreen = lazyWithRetry(() => import('./components/QCScreen').then(m => ({ default: m.QCScreen })));
 const ItemTrackingScreen = lazyWithRetry(() => import('./components/ItemTrackingScreen').then(m => ({ default: m.ItemTrackingScreen })));
+const ForecastScreen = lazyWithRetry(() => import('./components/ForecastScreen').then(m => ({ default: m.ForecastScreen })));
 
 // Code-split heavy on-demand modals and widgets
-const CalculatorModal = lazyWithRetry(() => import('./components/CalculatorModal').then(m => ({ default: m.CalculatorModal })));
-const DelegatePanelModal = lazyWithRetry(() => import('./components/DelegatePanelModal').then(m => ({ default: m.DelegatePanelModal })));
-const AccountSwitcherModal = lazyWithRetry(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.AccountSwitcherModal })));
-const SupabaseManagerModal = lazyWithRetry(() => import('./components/SupabaseManagerModal').then(m => ({ default: m.SupabaseManagerModal })));
+const DelegatePanelModal = lazyWithRetry(() => import('./components/DelegatePanelModal').then(m => ({ default: m.default || m.DelegatePanelModal })));
+const AccountSwitcherModal = lazyWithRetry(() => import('./components/AccountSwitcherModal').then(m => ({ default: m.default || m.AccountSwitcherModal })));
+const SupabaseManagerModal = lazyWithRetry(() => import('./components/SupabaseManagerModal').then(m => ({ default: m.default || m.SupabaseManagerModal })));
 import './utils/dialogService';
-import { getFormattedWeekday } from './utils/dateUtils';
+import { getFormattedWeekday, formatEnglishDate, formatEnglishTime } from './utils/dateUtils';
 import {
   RotateCcw,
   FileText,
@@ -89,6 +106,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Database,
+  TrendingUp,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -107,6 +125,11 @@ const MainAppContent: React.FC = () => {
     showQuickAdd,
     setShowQuickAdd,
     delegateAccounts,
+    delegatesList,
+    salesEntries,
+    allSalesEntries,
+    selectedDelegate,
+    setSelectedDelegate,
     fetchUnifiedDataFromFirestore,
     refreshAllData,
     isDataRefreshing,
@@ -149,17 +172,37 @@ const MainAppContent: React.FC = () => {
     currentUser?.username?.toLowerCase() === 'محمد الصلصات'
   );
 
-  // Strictly enforce that mohammedsauce is always on products or item_tracking, and delegates cannot access admin tabs
+  const isDataEntryUser = Boolean(
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.roleName?.includes('مدخل') ||
+    currentUser?.name?.includes('مدخل') ||
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال'
+  );
+
+  const isStrictAdmin = Boolean(
+    (currentUser?.isAdmin || currentUser?.name === 'الأدمن') &&
+    !isDataEntryUser &&
+    !isSauceUser
+  );
+
+  // Strictly enforce that mohammedsauce is always on products or item_tracking, and delegates/dataEntry cannot access restricted admin tabs
   useEffect(() => {
     if (isSauceUser && activeTab !== 'products' && activeTab !== 'item_tracking') {
       setActiveTab('item_tracking');
-    } else if (!currentUser?.isAdmin && (activeTab === 'old_invoices' || activeTab === 'admin')) {
+    } else if (!currentUser?.isAdmin && (activeTab === 'old_invoices' || activeTab === 'admin' || activeTab === 'forecast')) {
       setActiveTab('report_11');
+    } else if (!isStrictAdmin && (activeTab === 'admin' || activeTab === 'forecast')) {
+      setActiveTab('entry');
     }
-  }, [isSauceUser, currentUser?.isAdmin, activeTab, setActiveTab]);
+  }, [isSauceUser, currentUser?.isAdmin, isStrictAdmin, activeTab, setActiveTab]);
 
   const handleTabChange = (tab: string) => {
-    if (!currentUser?.isAdmin && (tab === 'old_invoices' || tab === 'admin')) {
+    if (!currentUser?.isAdmin && (tab === 'old_invoices' || tab === 'admin' || tab === 'forecast')) {
+      return;
+    }
+    if (!isStrictAdmin && (tab === 'admin' || tab === 'forecast')) {
       return;
     }
     setIsLoading(true);
@@ -191,14 +234,14 @@ const MainAppContent: React.FC = () => {
       className={`min-h-screen flex flex-col dir-rtl transition-colors duration-300 w-full max-w-[100vw] ${isDarkMode ? 'dark bg-[#020617] text-slate-100' : 'bg-slate-100 text-slate-900'}`}
     >
       {isLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/15 dark:bg-black/55 backdrop-blur-md">
           <div className="relative w-32 h-32 flex items-center justify-center animate-pulse">
             {/* Background circle */}
-            <div className="absolute w-32 h-32 border-[12px] border-slate-200 rounded-full"></div>
+            <div className="absolute w-32 h-32 border-[12px] border-slate-200 dark:border-slate-700 rounded-full"></div>
             {/* Gradient progress circle */}
             <div className="absolute w-32 h-32 border-[12px] border-transparent border-t-emerald-400 border-r-emerald-700 rounded-full animate-[spin_1s_ease-in-out_infinite] drop-shadow-lg"></div>
             {/* Text */}
-            <span className="text-xs font-black text-slate-700 leading-none text-center">كالة تكريت</span>
+            <span className="text-xs font-black text-slate-700 dark:text-slate-100 leading-none text-center">كالة تكريت</span>
           </div>
         </div>
       )}
@@ -260,19 +303,18 @@ const MainAppContent: React.FC = () => {
       <ToastContainer />
       <DelegateAlertsListener />
       <BroadcastAlertsListener />
+      <RepresentativeLiveTracker />
 
       {/* Scroll to Top Floating Button */}
       <ScrollToTopButton />
 
-      {/* Calculator Modal - Lazy Loaded */}
+      {/* Calculator Modal */}
       {showCalculatorModal && (
         <ScreenErrorBoundary fallbackTitle="تعذر فتح الحاسبة">
-          <Suspense fallback={null}>
-            <CalculatorModal
-              isOpen={showCalculatorModal}
-              onClose={() => setShowCalculatorModal(false)}
-            />
-          </Suspense>
+          <CalculatorModal
+            isOpen={showCalculatorModal}
+            onClose={() => setShowCalculatorModal(false)}
+          />
         </ScreenErrorBoundary>
       )}
 
@@ -308,7 +350,7 @@ const MainAppContent: React.FC = () => {
       )}
 
       {/* Supabase Manager Modal - Lazy Loaded */}
-      {showSupabaseModal && (
+      {isStrictAdmin && showSupabaseModal && (
         <ScreenErrorBoundary fallbackTitle="تعذر فتح إدارة السحابة">
           <Suspense fallback={null}>
             <SupabaseManagerModal
@@ -403,7 +445,7 @@ const MainAppContent: React.FC = () => {
                               <div className="absolute top-7 left-0 z-50 w-44 p-2.5 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
                                   <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
                                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                      آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                      آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? <span dir="ltr">{formatEnglishDate(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp, 'غير متوفر')}</span> : 'غير متوفر'}
                                   </p>
                                   <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
                               </div>
@@ -453,7 +495,7 @@ const MainAppContent: React.FC = () => {
                             <div className="absolute top-7 right-0 z-50 w-48 p-3 rounded-xl shadow-xl border text-right text-xs bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
                                 <p className="font-black text-slate-900 dark:text-white mb-1">{currentUser?.delegateName || currentUser?.name}</p>
                                 <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                    آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? new Date(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp!).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                    آخر تحديث: {(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp) ? <span dir="ltr">{formatEnglishDate(delegateAccounts?.find(a => a.username?.toLowerCase() === currentUser?.username?.toLowerCase() || a.delegateName === currentUser?.name)?.targetSetTimestamp || currentUser?.targetSetTimestamp, 'غير متوفر')}</span> : 'غير متوفر'}
                                 </p>
                                 <button onClick={() => setShowTooltip(false)} className="mt-2 text-[9px] text-red-500 font-bold w-full text-center">إغلاق</button>
                             </div>
@@ -467,7 +509,7 @@ const MainAppContent: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowDelegateModal(true)}
-                  onMouseEnter={() => import('./components/DelegatePanelModal')}
+                  onMouseEnter={() => prefetchModule(() => import('./components/DelegatePanelModal'))}
                   className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                     isDarkMode
                       ? 'bg-slate-800 text-blue-300 hover:bg-slate-700 border-slate-700'
@@ -477,7 +519,14 @@ const MainAppContent: React.FC = () => {
                 >
                   <div className="relative flex items-center justify-center">
                     <Bell className={`w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0 ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
-                    <UnreadBadge delegateName={currentUser.name} isAdmin={currentUser.isAdmin} role={currentUser.role} onCountChange={setUnreadCount} />
+                    <UnreadBadge
+                      delegateName={currentUser.name}
+                      delegateCode={currentUser.delegateCode}
+                      username={currentUser.username}
+                      isAdmin={currentUser.isAdmin}
+                      role={currentUser.role}
+                      onCountChange={setUnreadCount}
+                    />
                   </div>
                 </button>
               )}
@@ -486,7 +535,6 @@ const MainAppContent: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowCalculatorModal(true)}
-                onMouseEnter={() => import('./components/CalculatorModal')}
                 className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                   isDarkMode
                     ? 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border-slate-700'
@@ -511,7 +559,7 @@ const MainAppContent: React.FC = () => {
                     ? 'bg-slate-800 text-indigo-300 hover:bg-slate-700 border-slate-700'
                     : 'bg-indigo-100 text-indigo-950 hover:bg-indigo-200 border-indigo-300'
                 }`}
-                title={`تحديث فوري للبيانات - آخر تحديث: ${new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}`}
+                title={`تحديث فوري للبيانات - آخر تحديث: ${formatEnglishTime(new Date(), false)}`}
               >
                 <div className="relative flex items-center justify-center">
                   <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 shrink-0 ${isNetworkDelayed || isDataRefreshing ? 'animate-spin' : 'hover:rotate-180 transition-transform duration-500'}`} />
@@ -536,7 +584,7 @@ const MainAppContent: React.FC = () => {
               </div>
 
               {/* Supabase Backend & Storage Manager Button */}
-              {(currentUser.isAdmin || currentUser.name === 'الأدمن') && !isSauceUser && (
+              {isStrictAdmin && (
                 <button
                   type="button"
                   onClick={() => setShowSupabaseModal(true)}
@@ -559,7 +607,7 @@ const MainAppContent: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('admin')}
-                  onMouseEnter={() => import('./components/AdminScreen')}
+                  onMouseEnter={() => prefetchModule(() => import('./components/AdminScreen'))}
                   className={`p-2 sm:p-2.5 rounded-xl border font-black flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer ${
                     activeTab === 'admin'
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
@@ -608,6 +656,18 @@ const MainAppContent: React.FC = () => {
           </div>
         </div>
 
+        {/* Admin-only Live Delegate Last-Hour Activity Indicator Bar */}
+        {isStrictAdmin && (
+          <HeaderDelegateActivityBar
+            delegatesList={delegatesList}
+            allSalesEntries={allSalesEntries}
+            salesEntries={salesEntries}
+            isDarkMode={isDarkMode}
+            selectedDelegate={selectedDelegate}
+            onSelectDelegate={setSelectedDelegate}
+          />
+        )}
+
         {/* Navigation Tabs (Pinned inside desktop sticky header) */}
         <div
           className={`transition-colors border-b hidden sm:flex ${
@@ -620,7 +680,7 @@ const MainAppContent: React.FC = () => {
           {!isSauceUser && (
             <button
               onClick={() => handleTabChange('entry')}
-              onMouseEnter={() => import('./components/EntryScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/EntryScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'entry'
                   ? isDarkMode
@@ -640,7 +700,7 @@ const MainAppContent: React.FC = () => {
           {currentUser?.isAdmin && !isSauceUser && (
             <button
               onClick={() => handleTabChange('old_invoices')}
-              onMouseEnter={() => import('./components/OldInvoicesScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/OldInvoicesScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'old_invoices'
                   ? isDarkMode
@@ -659,7 +719,7 @@ const MainAppContent: React.FC = () => {
           {!isSauceUser && (
             <button
               onClick={() => handleTabChange('routes')}
-              onMouseEnter={() => import('./components/RoutesScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/RoutesScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'routes'
                   ? isDarkMode
@@ -678,9 +738,7 @@ const MainAppContent: React.FC = () => {
           {!isSauceUser && (
             <button
               onClick={() => handleTabChange('report_11')}
-              onMouseEnter={() => {
-                import('./components/Report11Screen');
-              }}
+              onMouseEnter={() => prefetchModule(() => import('./components/Report11Screen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'report_11'
                   ? isDarkMode
@@ -699,9 +757,7 @@ const MainAppContent: React.FC = () => {
           {!isSauceUser && (
             <button
               onClick={() => handleTabChange('additional_target')}
-              onMouseEnter={() => {
-                import('./components/AdditionalTargetScreen');
-              }}
+              onMouseEnter={() => prefetchModule(() => import('./components/AdditionalTargetScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
                 activeTab === 'additional_target'
                   ? isDarkMode
@@ -721,7 +777,7 @@ const MainAppContent: React.FC = () => {
           {isAllowedItemTracking && (
             <button
               onClick={() => handleTabChange('item_tracking')}
-              onMouseEnter={() => import('./components/ItemTrackingScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/ItemTrackingScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'item_tracking'
                   ? isDarkMode
@@ -743,7 +799,7 @@ const MainAppContent: React.FC = () => {
               setShowQuickAdd(false);
               handleTabChange('products');
             }}
-            onMouseEnter={() => import('./components/ProductsScreen')}
+            onMouseEnter={() => prefetchModule(() => import('./components/ProductsScreen'))}
             className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
               activeTab === 'products'
                 ? isDarkMode
@@ -758,6 +814,29 @@ const MainAppContent: React.FC = () => {
             <span>المنتجات</span>
           </button>
 
+          {/* FORECAST TAB (فوركاست) - STRICTLY ADMIN ONLY */}
+          {isStrictAdmin && (
+            <button
+              onClick={() => {
+                setShowQuickAdd(false);
+                handleTabChange('forecast');
+              }}
+              onMouseEnter={() => prefetchModule(() => import('./components/ForecastScreen'))}
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[70px] ${
+                activeTab === 'forecast'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <TrendingUp className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'forecast' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+              <span>فوركاست</span>
+            </button>
+          )}
+
           {/* RETURNS TAB (المرتجعات) */}
           {!isSauceUser && (
             <button
@@ -765,7 +844,7 @@ const MainAppContent: React.FC = () => {
                 setShowQuickAdd(false);
                 handleTabChange('returns');
               }}
-              onMouseEnter={() => import('./components/ReturnsScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/ReturnsScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'returns'
                   ? isDarkMode
@@ -788,7 +867,7 @@ const MainAppContent: React.FC = () => {
                 setShowQuickAdd(false);
                 handleTabChange('qc');
               }}
-              onMouseEnter={() => import('./components/QCScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/QCScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[60px] ${
                 activeTab === 'qc'
                   ? isDarkMode
@@ -811,7 +890,7 @@ const MainAppContent: React.FC = () => {
             !isSauceUser && (
             <button
               onClick={() => handleTabChange('admin')}
-              onMouseEnter={() => import('./components/AdminScreen')}
+              onMouseEnter={() => prefetchModule(() => import('./components/AdminScreen'))}
               className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
                 activeTab === 'admin'
                   ? isDarkMode
@@ -928,11 +1007,12 @@ const MainAppContent: React.FC = () => {
                 {activeTab === 'report_11' && <Report11Screen />}
                 {activeTab === 'additional_target' && !isSauceUser && <AdditionalTargetScreen />}
                 {activeTab === 'products' && <ProductsScreen />}
+                {activeTab === 'forecast' && isStrictAdmin && <ForecastScreen />}
                 {activeTab === 'returns' && <ReturnsScreen />}
                 {activeTab === 'qc' && <QCScreen />}
                 {activeTab === 'item_tracking' && isAllowedItemTracking && <ItemTrackingScreen />}
                 {activeTab === 'admin' && (
-                  currentUser.username?.toLowerCase() !== 'rafatdata' && currentUser.role !== 'dataEntry' ? (
+                  isStrictAdmin ? (
                     <AdminScreen />
                   ) : (
                     <EntryScreen />
@@ -951,6 +1031,7 @@ const MainAppContent: React.FC = () => {
         isDarkMode={isDarkMode} 
         setShowQuickAdd={setShowQuickAdd} 
         isAdmin={currentUser?.isAdmin}
+        isStrictAdmin={isStrictAdmin}
         canAccessItemTracking={isAllowedItemTracking}
         isSauceUser={isSauceUser}
       />

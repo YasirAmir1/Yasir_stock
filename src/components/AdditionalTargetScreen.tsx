@@ -175,6 +175,16 @@ export const AdditionalTargetScreen: React.FC = () => {
     currentUser?.username?.toLowerCase() === 'rafatdata'
   );
 
+  const isDataEntry = Boolean(
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.roleName?.includes('مدخل') ||
+    currentUser?.name?.includes('مدخل') ||
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال'
+  );
+  const isStrictAdmin = Boolean(isAdmin && !isDataEntry);
+
   // Active Date Filter (Defaults to today in YYYY-MM-DD format)
   const [activeDate, setActiveDate] = useState<string>(() => {
     const today = new Date();
@@ -1724,7 +1734,7 @@ export const AdditionalTargetScreen: React.FC = () => {
               />
             </div>
 
-            {isAdmin && (
+            {isStrictAdmin && (
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Excel Upload Input */}
                 <input
@@ -1764,7 +1774,8 @@ export const AdditionalTargetScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* 1.1 Supabase Storage Buckets Verification Banner */}
+        {/* 1.1 Supabase Storage Buckets Verification Banner (Strict Admin Only) */}
+        {isStrictAdmin && (
         <div
           className={`p-3.5 sm:p-4 rounded-2xl border shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3.5 ${
             isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-200'
@@ -1840,6 +1851,7 @@ export const AdditionalTargetScreen: React.FC = () => {
             </button>
           )}
         </div>
+        )}
 
         {/* 1.2 Isolated Target Categories Navigation (Segmented Controller) */}
         <div className="space-y-2">
@@ -2361,6 +2373,7 @@ export const AdditionalTargetScreen: React.FC = () => {
                   delegatesAnalysis={delegatesAnalysis}
                   isDarkMode={isDarkMode}
                   isAdmin={isAdmin}
+                  canManageExcel={isStrictAdmin}
                   handleOpenConfigModal={handleOpenConfigModal}
                   downloadFamilyTemplate={downloadFamilyTemplate}
                   handleFamilyMilkUpload={handleFamilyMilkUpload}
@@ -2461,6 +2474,7 @@ export const AdditionalTargetScreen: React.FC = () => {
                   delegatesAnalysis={delegatesAnalysis}
                   isDarkMode={isDarkMode}
                   isAdmin={isAdmin}
+                  canManageExcel={isStrictAdmin}
                   handleOpenConfigModal={handleOpenConfigModal}
                   downloadSmallTemplate={downloadSmallTemplate}
                   handleSmallMilkUpload={handleSmallMilkUpload}
@@ -2601,7 +2615,7 @@ export const AdditionalTargetScreen: React.FC = () => {
                         }}
                       />
 
-                      {isAdmin && (
+                      {isStrictAdmin && (
                         <>
                           {/* 1. Import Willie Data Button */}
                           <button
@@ -3277,7 +3291,7 @@ export const AdditionalTargetScreen: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {isAdmin && (
+                    {isStrictAdmin && (
                       <>
                         <button
                           onClick={() => excelUploadRef.current?.click()}

@@ -216,6 +216,139 @@
         "updatedBy": { "type": "string" }
       },
       "required": ["delegate", "date", "customTime"]
+    },
+    "rep_live_location": {
+      "title": "Representative Live Location",
+      "description": "Real-time GPS coordinates for active field representatives",
+      "type": "object",
+      "properties": {
+        "rep_id": { "type": "string" },
+        "rep_name": { "type": "string" },
+        "delegate_code": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "is_active": { "type": "boolean" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["rep_id", "latitude", "longitude", "is_active", "updated_at"]
+    },
+    "route": {
+      "title": "Customer Route Item",
+      "description": "Customer route assignment with optional GPS coordinates and daily visit state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "path": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "shopLocation": { "type": "string" },
+        "visitedToday": { "type": "boolean" }
+      },
+      "required": ["id", "customerCode", "customerName", "delegateName", "path"]
+    },
+    "rep_shop_location": {
+      "title": "Representative Saved Shop Location",
+      "description": "One-time GPS shop location captured by representative from shop actions modal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "routeId": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerType": { "type": "string" },
+        "path": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "delegateCode": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "shopLocation": { "type": "string" },
+        "accuracyMeters": { "type": "number" },
+        "savedBy": { "type": "string" },
+        "savedByCode": { "type": "string" },
+        "savedAt": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "dateString": { "type": "string" }
+      },
+      "required": ["id", "customerName", "latitude", "longitude", "savedBy", "timestamp"]
+    },
+    "new_customer_definition": {
+      "title": "New Customer Definition Request",
+      "description": "New shop registration request submitted by field representatives for admin review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopSignName": { "type": "string" },
+        "buyerFullName": { "type": "string" },
+        "buyerAddress": { "type": "string" },
+        "phone1": { "type": "string" },
+        "phone2": { "type": "string" },
+        "customerType": { "type": "string", "enum": ["مفرد", "جملة"] },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "gpsLocation": { "type": "string" },
+        "exteriorSignImage": { "type": "string" },
+        "idCardFrontImage": { "type": "string" },
+        "idCardBackImage": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "delegateCode": { "type": "string" },
+        "submittedByUsername": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "rejectionReason": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "dateString": { "type": "string" }
+      },
+      "required": ["id", "shopSignName", "buyerFullName", "buyerAddress", "phone1", "phone2", "customerType", "latitude", "longitude", "exteriorSignImage", "delegateName", "timestamp"]
+    },
+    "unsuccessful_visit": {
+      "title": "Unsuccessful Customer Visit",
+      "description": "Records of unsuccessful visits to shops with refrigerator photo and reason",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerType": { "type": "string" },
+        "delegateName": { "type": "string" },
+        "delegateCode": { "type": "string" },
+        "routeDay": { "type": "string" },
+        "date": { "type": "string" },
+        "timeFormatted": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "refrigeratorPhoto": { "type": "string" },
+        "reason": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "recordedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "customerName", "delegateName", "reason", "timestamp"]
+    },
+    "daily_unvisited_snapshot": {
+      "title": "Daily End-of-Day Unvisited Shops Snapshot",
+      "description": "End-of-day record of route shops that remained without invoice and without unsuccessful visit (red on map) for admin review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "dateString": { "type": "string" },
+        "routeDay": { "type": "string" },
+        "closingTime": { "type": "string" },
+        "shops": { "type": "array" },
+        "dismissedShopIds": { "type": "array" },
+        "updatedAt": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "dateString", "routeDay", "shops", "timestamp"]
     }
   },
   "firestore": {
@@ -326,6 +459,54 @@
     "/delegate_custom_lock_times/{delegateName}": {
       "schema": "delegate_custom_lock_time",
       "description": "Per-delegate custom lock deadlines set by Admin",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/rep_live_locations/{repId}": {
+      "schema": "rep_live_location",
+      "description": "Live GPS location tracking for active field representatives",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/routes/{routeId}": {
+      "schema": "route",
+      "description": "Customer delivery routes and GPS coordinates",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/rep_shop_locations/{locationId}": {
+      "schema": "rep_shop_location",
+      "description": "One-time saved shop GPS locations recorded by representatives",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/new_customer_definitions/{definitionId}": {
+      "schema": "new_customer_definition",
+      "description": "New shop definitions submitted by field representatives",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/unsuccessful_visits/{visitId}": {
+      "schema": "unsuccessful_visit",
+      "description": "Unsuccessful shop visits logged by representatives",
+      "allow": {
+        "read": "true",
+        "write": "true"
+      }
+    },
+    "/daily_unvisited_shops/{dateId}": {
+      "schema": "daily_unvisited_snapshot",
+      "description": "End-of-day snapshots of unvisited red shops per date for admin review",
       "allow": {
         "read": "true",
         "write": "true"

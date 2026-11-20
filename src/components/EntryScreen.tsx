@@ -1646,7 +1646,7 @@ export const EntryScreen: React.FC = () => {
 
   return (
     <PullToRefresh onRefresh={async () => { await refreshAllData(); await new Promise(r => setTimeout(r, 500)); }}>
-      <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900">
+      <div className="p-3 sm:p-4 max-w-5xl mx-auto space-y-4 dir-rtl text-slate-900 dark:text-slate-100">
       <DelegateLoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
       {/* Comprehensive Live Daily Performance Card */}
       <div className={`w-full rounded-2xl shadow-sm border transition-all duration-300 overflow-hidden ${
@@ -2197,29 +2197,29 @@ export const EntryScreen: React.FC = () => {
       <div className="space-y-2 pt-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
+            <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-sm sm:text-base">
              فواتير اليوم :  ({currentGroupedCount})
             </h3>
             
-            <div className="flex bg-slate-200 rounded-lg p-0.5 border border-slate-300 mr-2">
+            <div className="flex bg-slate-200 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-300 dark:border-slate-700 mr-2">
               <button
                 type="button"
                 onClick={() => setSavedEntriesFilterPriceMode('الكل')}
-                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'الكل' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'الكل' ? 'bg-white dark:bg-slate-900 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
               >
                 الكل
               </button>
               <button
                 type="button"
                 onClick={() => setSavedEntriesFilterPriceMode('retail')}
-                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'retail' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'retail' ? 'bg-white dark:bg-slate-900 shadow-sm text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
               >
                 مفرد
               </button>
               <button
                 type="button"
                 onClick={() => setSavedEntriesFilterPriceMode('wholesale')}
-                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'wholesale' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-3 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all ${savedEntriesFilterPriceMode === 'wholesale' ? 'bg-white dark:bg-slate-900 shadow-sm text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
               >
                 جملة
               </button>
@@ -2230,7 +2230,7 @@ export const EntryScreen: React.FC = () => {
 
                 <button
                     onClick={handleExportCSV}
-                    className="px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                    className="px-2.5 py-1.5 bg-blue-100 dark:bg-blue-950/60 hover:bg-blue-200 dark:hover:bg-blue-900/70 text-blue-800 dark:text-blue-200 rounded-lg border border-blue-300 dark:border-blue-800 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
                     title="تصدير الادخالات كملف Excel شامل الهدايا"
                 >
                     <Download className="w-4 h-4" />
@@ -2238,7 +2238,7 @@ export const EntryScreen: React.FC = () => {
                 </button>
                 <button
                     onClick={() => setShowCustomExportModal(true)}
-                    className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-lg border border-purple-300 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                    className="px-2.5 py-1.5 bg-purple-100 dark:bg-purple-950/60 hover:bg-purple-200 dark:hover:bg-purple-900/70 text-purple-800 dark:text-purple-200 rounded-lg border border-purple-300 dark:border-purple-800 flex items-center gap-1.5 text-xs font-bold transition-colors shadow-sm cursor-pointer"
                 >
                     <Download className="w-4 h-4" />
                     <span>تصدير مخصص</span>
@@ -2370,11 +2370,11 @@ export const EntryScreen: React.FC = () => {
 
         {/* Delegate Filter Buttons for Admin */}
         {currentUser?.isAdmin && uniqueDelegatesForFilter.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
-            <span className="text-xs font-bold text-slate-700">تصفية حسب المندوب:</span>
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">تصفية حسب المندوب:</span>
             <button
               onClick={() => setSavedEntriesFilterDelegate('الكل')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${savedEntriesFilterDelegate === 'الكل' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${savedEntriesFilterDelegate === 'الكل' ? 'bg-slate-800 dark:bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
             >
               الكل
             </button>
@@ -2382,7 +2382,7 @@ export const EntryScreen: React.FC = () => {
               <button
                 key={`filter_${delegate}`}
                 onClick={() => setSavedEntriesFilterDelegate(delegate)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${savedEntriesFilterDelegate === delegate ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${savedEntriesFilterDelegate === delegate ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
               >
                 {delegate}
               </button>
@@ -2391,7 +2391,7 @@ export const EntryScreen: React.FC = () => {
         )}
 
         {safeSavedEntries.length === 0 ? (
-          <div className="p-4 bg-slate-100 border border-slate-300 rounded-xl text-center text-xs text-slate-600 font-bold">
+          <div className="p-4 bg-slate-100 dark:bg-slate-800/70 border border-slate-300 dark:border-slate-700 rounded-xl text-center text-xs text-slate-600 dark:text-slate-300 font-bold">
             لا توجد مبيعات محفوظة اليوم
           </div>
         ) : Object.keys(groupedEntries).length === 0 ? (
@@ -2858,7 +2858,7 @@ export const EntryScreen: React.FC = () => {
                                       <button
                                         type="button"
                                         onClick={handleCancelEdit}
-                                        className="p-1 rounded bg-amber-200/60 hover:bg-amber-300 text-slate-800 cursor-pointer"
+                                        className="p-1 rounded bg-amber-200/60 dark:bg-amber-900/50 hover:bg-amber-300 dark:hover:bg-amber-800/70 text-slate-800 dark:text-amber-200 cursor-pointer"
                                       >
                                         <X className="w-4 h-4" />
                                       </button>
@@ -3321,7 +3321,7 @@ export const EntryScreen: React.FC = () => {
                     ))}
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setShowCustomExportModal(false)} className="flex-1 px-4 py-2 bg-slate-200 text-slate-800 rounded-lg font-bold">إلغاء</button>
+                    <button onClick={() => setShowCustomExportModal(false)} className="flex-1 px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg font-bold transition-colors">إلغاء</button>
                     <button onClick={handleCustomExport} className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-bold">تصدير</button>
                 </div>
             </div>

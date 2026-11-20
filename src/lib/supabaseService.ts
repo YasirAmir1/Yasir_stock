@@ -1063,6 +1063,45 @@ export async function uploadProductImageToStorage(
 }
 
 /**
+ * Upload New Customer Definition media (exterior sign / ID front & back) to Supabase Storage without touching invoices table
+ */
+export async function uploadNewCustomerMediaToStorage(
+  fileOrBlob: File | Blob,
+  tag: string
+): Promise<SupabaseUploadResult> {
+  try {
+    const timestamp = Date.now();
+    const rand = Math.random().toString(36).slice(2, 6);
+    const cleanTag = sanitizeFileName(tag) || `shop_${timestamp}`;
+    const filePath = `new-customer-definitions/${cleanTag}_${timestamp}_${rand}.jpg`;
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET_SALES)
+      .upload(filePath, fileOrBlob, {
+        cacheControl: '86400',
+        upsert: true,
+        contentType: fileOrBlob.type || 'image/jpeg',
+      });
+
+    if (error || !data) {
+      return { success: false, error: error?.message || 'فشل رفع الصورة' };
+    }
+
+    const { data: urlData } = supabase.storage.from(BUCKET_SALES).getPublicUrl(data.path);
+    return {
+      success: true,
+      publicUrl: urlData.publicUrl,
+      path: data.path,
+      bucket: BUCKET_SALES,
+      fileSize: fileOrBlob.size,
+      uploadedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'خطأ أثناء رفع الصورة' };
+  }
+}
+
+/**
  * Upload General Excel to 'sales-bucket'
  */
 export async function uploadExcelToSupabaseStorage(

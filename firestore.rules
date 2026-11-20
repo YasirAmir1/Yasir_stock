@@ -42,6 +42,22 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+    match /rep_shop_locations/{locId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /new_customer_definitions/{defId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /unsuccessful_visits/{visitId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /daily_unvisited_shops/{dateId} {
+      allow read: if true;
+      allow write: if true;
+    }
     match /{document=**} {
       allow read: if true;
       allow write: if true;

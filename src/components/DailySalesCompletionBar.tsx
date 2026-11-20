@@ -7,15 +7,22 @@ import { formatWithCommas } from '../utils/numberUtils';
 import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X, User } from 'lucide-react';
 import { REPORT_11_CATEGORIES, isMatchingReport11Category, calculateRemainingWorkingDaysInMonth } from './Report11Screen';
 import { Report11Config } from '../types';
+import { deactivateRepLiveLocation, getRepTrackingId } from '../lib/fleetTrackingService';
+import { formatEnglishTime } from '../utils/dateUtils';
 
 export const formatTo12HourArabic = (timeStr?: string): string => {
   if (!timeStr) return '';
   try {
-    const [hStr, mStr] = timeStr.split(':');
+    const [hStr, mRaw] = timeStr.split(':');
     let h = parseInt(hStr, 10);
-    const m = mStr || '00';
+    const mPart = (mRaw || '00').trim().split(' ')[0];
+    const m = mPart.padStart(2, '0');
     if (isNaN(h)) return timeStr;
-    const ampm = h >= 12 ? 'م' : 'ص';
+    const isPM = timeStr.toUpperCase().includes('PM') || timeStr.includes('م');
+    const isAM = timeStr.toUpperCase().includes('AM') || timeStr.includes('ص');
+    if (isPM && h < 12) h += 12;
+    if (isAM && h === 12) h = 0;
+    const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12;
     h = h ? h : 12;
     return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
@@ -231,18 +238,18 @@ export const DailySalesCompletionBar: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Format targetAutoLockTime for Arabic display (e.g. 15:00 -> 03:00 م)
+  // Format targetAutoLockTime for English 12h display (e.g. 15:00 -> 03:00 PM)
   const formattedTargetTime = useMemo(() => {
     try {
       const [hStr, mStr] = targetAutoLockTime.split(':');
       let h = parseInt(hStr || '15', 10);
       const m = mStr || '00';
-      const ampm = h >= 12 ? 'م' : 'ص';
+      const ampm = h >= 12 ? 'PM' : 'AM';
       h = h % 12;
       h = h ? h : 12;
       return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
     } catch {
-      return '3:00 م';
+      return '03:00 PM';
     }
   }, [targetAutoLockTime]);
 
@@ -419,6 +426,7 @@ export const DailySalesCompletionBar: React.FC = () => {
             autoCompleted: true,
             systemType: 'APP',
           }, { merge: true });
+          deactivateRepLiveLocation(getRepTrackingId({ name: delName }, delName), delName);
           count++;
         }
       });
@@ -451,6 +459,9 @@ export const DailySalesCompletionBar: React.FC = () => {
         completedAt: new Date().toISOString(),
         autoCompleted: true,
       });
+
+      // Immediately hide rep live pin when day sales complete
+      deactivateRepLiveLocation(getRepTrackingId({ name: delegateName }, delegateName), delegateName);
 
       // Archive delegate's today invoices into sales_entries_archive
       try {
@@ -502,6 +513,9 @@ export const DailySalesCompletionBar: React.FC = () => {
         completedAt: new Date().toISOString(),
         systemType: 'APP',
       });
+
+      // Immediately stop geolocation watcher and hide rep pin from Admin map
+      deactivateRepLiveLocation(getRepTrackingId(currentUser, activeDelegateName), activeDelegateName);
 
       // Archive delegate's today invoices into sales_entries_archive
       try {
@@ -609,14 +623,14 @@ export const DailySalesCompletionBar: React.FC = () => {
         if (!isNaN(minutesVal) && minutesVal > 0) {
           const expireAtTimestamp = nowMs + Math.round(minutesVal * 60 * 1000);
           const expDate = new Date(expireAtTimestamp);
-          const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+          const computed24h = expDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Baghdad' });
 
           await setDoc(customTimerRef, {
             delegate: del,
             date: today,
             durationMinutes: minutesVal,
             expireAtTimestamp: expireAtTimestamp,
-            customTime: computed12h,
+            customTime: computed24h,
             active: true,
             updatedAt: new Date().toISOString(),
             updatedBy: currentUser?.name || 'الأدمن',
@@ -642,6 +656,7 @@ export const DailySalesCompletionBar: React.FC = () => {
             completedAt: new Date().toISOString(),
             systemType: 'APP',
           }, { merge: true });
+          deactivateRepLiveLocation(getRepTrackingId({ name: del }, del), del);
         } else {
           // If un-checked (open sales), delete completion record so sales and invoice entry open!
           await deleteDoc(completionRef);
@@ -686,15 +701,9 @@ export const DailySalesCompletionBar: React.FC = () => {
     }
   };
 
-  // Helper to format completion timestamp
+  // Helper to format completion timestamp in English
   const formatCompletionTime = (isoStr?: string) => {
-    if (!isoStr) return '';
-    try {
-      const d = new Date(isoStr);
-      return d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch {
-      return '';
-    }
+    return formatEnglishTime(isoStr, false, '');
   };
 
   // Resilient delegate matching
@@ -973,21 +982,21 @@ export const DailySalesCompletionBar: React.FC = () => {
         </div>
       )}
 
-      {/* Activation Modal (إدارة وتفعيل مبيعات ومؤقتات المندوبين) - Crisp White Theme */}
+      {/* Activation Modal (إدارة وتفعيل مبيعات ومؤقتات المندوبين) */}
       {showActivationModal && canManageActivation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
-          <div className="w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl bg-white border-2 border-slate-200 text-slate-900 space-y-4 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+          <div className="w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 space-y-4 max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3 shrink-0">
-              <h3 className="text-base font-black flex items-center gap-2 text-amber-600">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <h3 className="text-base font-black flex items-center gap-2 text-amber-600 dark:text-amber-400">
                 <span>⚙️ إدارة وتفعيل مبيعات ومؤقتات المندوبين</span>
               </h3>
-              <button onClick={() => setShowActivationModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer">
+              <button onClick={() => setShowActivationModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs font-bold text-slate-600 shrink-0 leading-relaxed">
+            <p className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0 leading-relaxed">
               يمكن للأدمن تحديد مؤقت خاص لانتهاء المبيعات لأي مندوب، وتمرير فتح المبيعات وإدخال الفواتير حتى التوقيت المحدد:
             </p>
 
@@ -1001,21 +1010,21 @@ export const DailySalesCompletionBar: React.FC = () => {
                     key={del}
                     className={`p-3.5 rounded-2xl border-2 space-y-2.5 transition-all shadow-xs ${
                       isCompleted
-                        ? 'bg-emerald-50/90 border-emerald-300'
+                        ? 'bg-emerald-50/90 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-700/70'
                         : customTime
-                        ? 'bg-amber-50/90 border-amber-300'
-                        : 'bg-white border-slate-200 hover:border-amber-300'
+                        ? 'bg-amber-50/90 dark:bg-amber-950/35 border-amber-300 dark:border-amber-700/70'
+                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-amber-300 dark:hover:border-amber-500/70'
                     }`}
                   >
                     {/* Header Row: Delegate Name & Completion Toggle */}
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-2">
                       <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span className="font-black text-sm text-slate-900">{del}</span>
+                        <User className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="font-black text-sm text-slate-900 dark:text-white">{del}</span>
                       </div>
 
                       <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <span className={`text-[11px] font-black ${isCompleted ? 'text-emerald-700' : 'text-slate-600'}`}>
+                        <span className={`text-[11px] font-black ${isCompleted ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300'}`}>
                           {isCompleted ? 'المبيعات مكتملة ✓' : 'المبيعات مفتوحة 🔓'}
                         </span>
                         <input
@@ -1032,18 +1041,18 @@ export const DailySalesCompletionBar: React.FC = () => {
 
                     {/* Custom Timer Input & Presets */}
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                        <span className="flex items-center gap-1 text-amber-800">
-                          <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        <span className="flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                           <span>مؤقت تنازلي بالدقائق لانتهاء مبيعات المندوب:</span>
                         </span>
                         {customTime ? (
-                          <span className="text-amber-900 font-mono font-black bg-amber-100/90 px-2.5 py-0.5 rounded-lg border border-amber-300 flex items-center gap-1">
+                          <span className="text-amber-900 dark:text-amber-200 font-mono font-black bg-amber-100/90 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-lg border border-amber-300 dark:border-amber-700 flex items-center gap-1">
                             <span>ينتهي:</span>
-                            <span className="text-amber-950 font-black">{formatTo12HourArabic(customTime)}</span>
+                            <span className="text-amber-950 dark:text-amber-100 font-black">{formatTo12HourArabic(customTime)}</span>
                           </span>
                         ) : (
-                          <span className="text-slate-500 text-[10px]">
+                          <span className="text-slate-500 dark:text-slate-400 text-[10px]">
                             التوقيت العام ({formattedTargetTime})
                           </span>
                         )}
@@ -1051,7 +1060,7 @@ export const DailySalesCompletionBar: React.FC = () => {
 
                       <div className="flex flex-wrap items-center gap-2">
                         {/* Number of minutes input */}
-                        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-300 focus-within:border-amber-500">
+                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border-2 border-slate-300 dark:border-slate-600 focus-within:border-amber-500">
                           <input
                             type="number"
                             min="1"
@@ -1064,16 +1073,16 @@ export const DailySalesCompletionBar: React.FC = () => {
                               if (val && Number(val) > 0) {
                                 const expMs = Date.now() + Number(val) * 60 * 1000;
                                 const expDate = new Date(expMs);
-                                const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
-                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed12h }));
+                                const computed24h = expDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Baghdad' });
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed24h }));
                                 setSelectedActivationDelegates(prev => ({ ...prev, [del]: false }));
                               } else if (!val) {
                                 setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: '' }));
                               }
                             }}
-                            className="w-20 p-1.5 text-sm font-black font-mono text-center focus:outline-none bg-transparent text-slate-900"
+                            className="w-20 p-1.5 text-sm font-black font-mono text-center focus:outline-none bg-transparent text-slate-900 dark:text-white"
                           />
-                          <span className="pl-2 text-xs font-black text-slate-600">دقيقة</span>
+                          <span className="pl-2 text-xs font-black text-slate-600 dark:text-slate-300">دقيقة</span>
                         </div>
 
                         {/* Quick Presets for minutes */}
@@ -1086,14 +1095,14 @@ export const DailySalesCompletionBar: React.FC = () => {
                                 setSelectedDelegateMinutes(prev => ({ ...prev, [del]: mins }));
                                 const expMs = Date.now() + mins * 60 * 1000;
                                 const expDate = new Date(expMs);
-                                const computed12h = expDate.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
-                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed12h }));
+                                const computed24h = expDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Baghdad' });
+                                setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: computed24h }));
                                 setSelectedActivationDelegates(prev => ({ ...prev, [del]: false }));
                               }}
                               className={`px-2.5 py-1.5 rounded-xl text-xs font-black font-mono border transition-all cursor-pointer ${
                                 Number(selectedDelegateMinutes[del]) === mins
                                   ? 'bg-amber-500 text-slate-950 border-2 border-amber-600 shadow-xs'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600'
                               }`}
                             >
                               +{mins} د
@@ -1107,7 +1116,7 @@ export const DailySalesCompletionBar: React.FC = () => {
                                 setSelectedDelegateMinutes(prev => ({ ...prev, [del]: '' }));
                                 setSelectedDelegateCustomTimes(prev => ({ ...prev, [del]: '' }));
                               }}
-                              className="px-2.5 py-1.5 rounded-xl text-xs font-black bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 transition-colors cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-black bg-rose-100 dark:bg-rose-950/60 hover:bg-rose-200 dark:hover:bg-rose-900/70 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700 transition-colors cursor-pointer"
                               title="إلغاء المؤقت التنازلي وتطبيق التوقيت العام"
                             >
                               إلغاء المؤقت
@@ -1122,11 +1131,11 @@ export const DailySalesCompletionBar: React.FC = () => {
             </div>
 
             {/* Bottom Actions */}
-            <div className="flex gap-2 pt-3 border-t border-slate-200 shrink-0">
+            <div className="flex gap-2 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowActivationModal(false)}
-                className="flex-1 py-2.5 rounded-xl font-black text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl font-black text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
               >
                 إلغاء
               </button>

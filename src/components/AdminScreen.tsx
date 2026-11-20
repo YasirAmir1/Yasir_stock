@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useSales, DEFAULT_CATEGORIES_LIST, getFixedDelegatePhone } from '../context/SalesContext';
-import { RouteItem } from '../types';
+import { RouteItem, SalesEntry, ShopLocationRecord } from '../types';
 import { db } from '../lib/firebase';
 import { collection, writeBatch, doc, getDocs, setDoc, query, deleteDoc, where } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas } from '../utils/numberUtils';
 import { PullToRefresh } from './PullToRefresh';
 import { CollapsibleCard } from './admin/CollapsibleCard';
+import { AdminSavedLocationsMap, CustomerSalesSummary } from './admin/AdminSavedLocationsMap';
+import { formatShopLocationString } from '../lib/fleetTrackingService';
 import { showConfirm } from '../utils/dialogService';
+import { formatEnglishDateTime } from '../utils/dateUtils';
 import {
   Lock,
   Unlock,
@@ -41,7 +44,8 @@ import {
   Tablet,
   SlidersHorizontal,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  MapPin
 } from 'lucide-react';
 import { SupabaseManagerModal } from './SupabaseManagerModal';
 
@@ -172,6 +176,349 @@ export const AdminScreen: React.FC = () => {
     );
     return unsub;
   }, []);
+
+  // --- Saved Shop Locations (rep_shop_locations) & Admin Excel/Map State ---
+  const [savedShopLocations, setSavedShopLocations] = useState<ShopLocationRecord[]>([]);
+  const [showSavedLocationsMap, setShowSavedLocationsMap] = useState<boolean>(false);
+  const [isExportingSalesAndLocations, setIsExportingSalesAndLocations] = useState<boolean>(false);
+  const [exportSalesLocStatus, setExportSalesLocStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isGlobalQuotaExceeded()) return;
+    const q = query(collection(db, 'rep_shop_locations'));
+    const unsub = safeOnSnapshot(
+      q,
+      (snap: any) => {
+        const list: ShopLocationRecord[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          const lat = Number(data?.latitude);
+          const lng = Number(data?.longitude);
+          if (!Number.isNaN(lat) && !Number.isNaN(lng) && lat !== 0 && lng !== 0) {
+            list.push({
+              id: d.id,
+              routeId: data?.routeId || d.id,
+              customerCode: data?.customerCode || '',
+              customerName: data?.customerName || '',
+              customerAddress: data?.customerAddress || '',
+              customerType: data?.customerType === 'جملة' ? 'جملة' : 'مفرد',
+              path: data?.path || '',
+              delegateName: data?.delegateName || data?.savedBy || '',
+              delegateCode: data?.delegateCode || '',
+              latitude: lat,
+              longitude: lng,
+              accuracyMeters: typeof data?.accuracyMeters === 'number' ? data.accuracyMeters : undefined,
+              savedBy: data?.savedBy || data?.delegateName || '',
+              savedByCode: data?.savedByCode || '',
+              savedAt: data?.savedAt || '',
+              timestamp: Number(data?.timestamp) || 0,
+              dateString: data?.dateString || '',
+            });
+          }
+        });
+        list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setSavedShopLocations(list);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'admin_rep_shop_locations'),
+      'admin_rep_shop_locations'
+    );
+    return unsub;
+  }, []);
+
+  const salesStatsByCustomer = useMemo(() => {
+    const map = new Map<string, CustomerSalesSummary>();
+    const combinedMap = new Map<string, SalesEntry>();
+    [...rawSavedEntries, ...allSalesEntries].forEach((entry) => {
+      if (entry && entry.id && entry.status !== 'cancelled') {
+        combinedMap.set(entry.id, entry);
+      }
+    });
+
+    const invoiceTracker = new Map<string, Set<string>>();
+
+    combinedMap.forEach((entry) => {
+      const codeKey = (entry.customerCode || '').trim().toLowerCase();
+      const nameKey = (entry.customerName || '').trim().toLowerCase();
+      const keys: string[] = [];
+      if (codeKey) keys.push(`code:${codeKey}`);
+      if (nameKey) keys.push(`name:${nameKey}`);
+
+      const invKey = entry.invoiceId || `${entry.dateString}_${entry.customerName}_${entry.delegateName}_${entry.timestamp}`;
+
+      keys.forEach((k) => {
+        const existing = map.get(k) || {
+          invoicesCount: 0,
+          totalWeightKg: 0,
+          totalQuantity: 0,
+          lastDate: '',
+        };
+        let invSet = invoiceTracker.get(k);
+        if (!invSet) {
+          invSet = new Set<string>();
+          invoiceTracker.set(k, invSet);
+        }
+        if (!invSet.has(invKey)) {
+          invSet.add(invKey);
+          existing.invoicesCount += 1;
+        }
+        existing.totalWeightKg += Number(entry.totalWeightKg) || 0;
+        existing.totalQuantity += Number(entry.quantity) || 0;
+        if (entry.dateString && (!existing.lastDate || entry.dateString > existing.lastDate)) {
+          existing.lastDate = entry.dateString;
+        }
+        map.set(k, existing);
+      });
+    });
+
+    return map;
+  }, [allSalesEntries, rawSavedEntries]);
+
+  const handleExportAllSalesAndLocationsExcel = async () => {
+    setIsExportingSalesAndLocations(true);
+    setExportSalesLocStatus('جاري تجميع كافة بيانات المبيعات ومواقع المحلات المحفوظة...');
+    try {
+      // 1. Gather all sales entries (memory + Firestore active & archive)
+      const salesById = new Map<string, SalesEntry>();
+      [...rawSavedEntries, ...allSalesEntries].forEach((entry) => {
+        if (entry && entry.id) salesById.set(entry.id, entry);
+      });
+
+      const locationsById = new Map<string, ShopLocationRecord>();
+      savedShopLocations.forEach((loc) => locationsById.set(loc.id, loc));
+
+      if (!isGlobalQuotaExceeded()) {
+        const [activeRes, archiveRes, locsRes] = await Promise.allSettled([
+          getDocs(collection(db, 'sales_entries')),
+          getDocs(collection(db, 'sales_entries_archive')),
+          getDocs(collection(db, 'rep_shop_locations')),
+        ]);
+
+        if (activeRes.status === 'fulfilled') {
+          activeRes.value.forEach((d) => {
+            const data = d.data() as SalesEntry;
+            salesById.set(d.id, { ...data, id: d.id });
+          });
+        }
+        if (archiveRes.status === 'fulfilled') {
+          archiveRes.value.forEach((d) => {
+            const data = d.data() as SalesEntry;
+            salesById.set(d.id, { ...data, id: d.id });
+          });
+        }
+        if (locsRes.status === 'fulfilled') {
+          locsRes.value.forEach((d) => {
+            const data = d.data() as any;
+            const lat = Number(data?.latitude);
+            const lng = Number(data?.longitude);
+            if (!Number.isNaN(lat) && !Number.isNaN(lng) && lat !== 0 && lng !== 0) {
+              locationsById.set(d.id, {
+                id: d.id,
+                routeId: data?.routeId || d.id,
+                customerCode: data?.customerCode || '',
+                customerName: data?.customerName || '',
+                customerAddress: data?.customerAddress || '',
+                customerType: data?.customerType === 'جملة' ? 'جملة' : 'مفرد',
+                path: data?.path || '',
+                delegateName: data?.delegateName || data?.savedBy || '',
+                delegateCode: data?.delegateCode || '',
+                latitude: lat,
+                longitude: lng,
+                accuracyMeters: typeof data?.accuracyMeters === 'number' ? data.accuracyMeters : undefined,
+                savedBy: data?.savedBy || data?.delegateName || '',
+                savedByCode: data?.savedByCode || '',
+                savedAt: data?.savedAt || '',
+                timestamp: Number(data?.timestamp) || 0,
+                dateString: data?.dateString || '',
+              });
+            }
+          });
+        }
+      }
+
+      const allLocationsList = Array.from(locationsById.values()).sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      );
+      const allSalesList = Array.from(salesById.values()).sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      );
+
+      // Lookup maps for matching sales entries with saved shop locations
+      const locByCode = new Map<string, ShopLocationRecord>();
+      const locByName = new Map<string, ShopLocationRecord>();
+      allLocationsList.forEach((loc) => {
+        const cKey = (loc.customerCode || '').trim().toLowerCase();
+        const nKey = (loc.customerName || '').trim().toLowerCase();
+        if (cKey) locByCode.set(cKey, loc);
+        if (nKey) locByName.set(nKey, loc);
+      });
+
+      const findLocationForSale = (entry: SalesEntry): ShopLocationRecord | undefined => {
+        const cKey = (entry.customerCode || '').trim().toLowerCase();
+        if (cKey && locByCode.has(cKey)) return locByCode.get(cKey);
+        const nKey = (entry.customerName || '').trim().toLowerCase();
+        if (nKey && locByName.has(nKey)) return locByName.get(nKey);
+        return undefined;
+      };
+
+      // Aggregate per-customer sales for the locations sheet
+      const statsByCode = new Map<string, { invoices: Set<string>; weight: number; lastDate: string }>();
+      const statsByName = new Map<string, { invoices: Set<string>; weight: number; lastDate: string }>();
+      allSalesList.forEach((s) => {
+        if (s.status === 'cancelled') return;
+        const invKey = s.invoiceId || `${s.dateString}_${s.customerName}_${s.delegateName}_${s.timestamp}`;
+        const w = Number(s.totalWeightKg) || 0;
+        const cKey = (s.customerCode || '').trim().toLowerCase();
+        const nKey = (s.customerName || '').trim().toLowerCase();
+        if (cKey) {
+          const cur = statsByCode.get(cKey) || { invoices: new Set<string>(), weight: 0, lastDate: '' };
+          cur.invoices.add(invKey);
+          cur.weight += w;
+          if (s.dateString && s.dateString > cur.lastDate) cur.lastDate = s.dateString;
+          statsByCode.set(cKey, cur);
+        }
+        if (nKey) {
+          const cur = statsByName.get(nKey) || { invoices: new Set<string>(), weight: 0, lastDate: '' };
+          cur.invoices.add(invKey);
+          cur.weight += w;
+          if (s.dateString && s.dateString > cur.lastDate) cur.lastDate = s.dateString;
+          statsByName.set(nKey, cur);
+        }
+      });
+
+      // Sheet 1: Saved Shop Locations
+      const locationRows = allLocationsList.map((loc, idx) => {
+        const cKey = (loc.customerCode || '').trim().toLowerCase();
+        const nKey = (loc.customerName || '').trim().toLowerCase();
+        const st =
+          (cKey ? statsByCode.get(cKey) : undefined) ||
+          (nKey ? statsByName.get(nKey) : undefined);
+        return {
+          'ت': idx + 1,
+          'كود الزبون': loc.customerCode || '-',
+          'اسم المحل': loc.customerName || '-',
+          'نوع البيع': loc.customerType || 'مفرد',
+          'المسار': loc.path || '-',
+          'العنوان': loc.customerAddress || '-',
+          'مندوب الخط': loc.delegateName || '-',
+          'حُفظ بواسطة المندوب': loc.savedBy || loc.delegateName || '-',
+          'موقع المحل': loc.shopLocation || formatShopLocationString(loc.latitude, loc.longitude),
+          'خط العرض (Latitude)': Number(loc.latitude.toFixed(6)),
+          'خط الطول (Longitude)': Number(loc.longitude.toFixed(6)),
+          'دقة GPS (متر)': loc.accuracyMeters ?? '-',
+          'تاريخ الحفظ': loc.dateString || '-',
+          'وقت الحفظ': formatEnglishDateTime(loc.savedAt, '-'),
+          'عدد فواتير المبيعات': st ? st.invoices.size : 0,
+          'إجمالي وزن المبيعات (كجم)': st ? Number(st.weight.toFixed(2)) : 0,
+          'آخر تاريخ بيع': st?.lastDate || '-',
+        };
+      });
+
+      // Sheet 2: All Sales Entries + Joined Location Data
+      const salesRows = allSalesList.map((s, idx) => {
+        const matchedLoc = findLocationForSale(s);
+        return {
+          'ت': idx + 1,
+          'رقم الفاتورة': s.invoiceId || s.id,
+          'التاريخ': s.dateString || '-',
+          'المندوب': s.delegateName || '-',
+          'كود الزبون': s.customerCode || '-',
+          'اسم المحل / الزبون': s.customerName || '-',
+          'نوع المحل': s.customerType || (s.priceMode === 'wholesale' ? 'جملة' : 'مفرد'),
+          'عنوان الزبون': s.customerAddress || matchedLoc?.customerAddress || '-',
+          'رقم الهاتف': s.customerPhone || '-',
+          'الصنف': s.categoryName || '-',
+          'المنتج': s.productName || '-',
+          'الكمية': Number(s.quantity) || 0,
+          'وحدة الإدخال': s.entryUnit === 'carton' ? 'كارتون' : 'قطعة',
+          'الكمية المدخلة': Number(s.enteredQuantity ?? s.quantity) || 0,
+          'وزن القطعة (كجم)': Number(s.pieceWeightKg) || 0,
+          'الوزن الكلي (كجم)': Number((Number(s.totalWeightKg) || 0).toFixed(2)),
+          'بونص / هدية': s.isGift ? 'نعم' : 'لا',
+          'الحالة': s.status === 'cancelled' ? 'ملغاة' : 'فعالة',
+          'حالة موقع المحل': matchedLoc ? 'محفوظ من المندوب' : 'غير محدد',
+          'موقع المحل': matchedLoc
+            ? matchedLoc.shopLocation || formatShopLocationString(matchedLoc.latitude, matchedLoc.longitude)
+            : '-',
+          'خط العرض (Latitude)': matchedLoc ? Number(matchedLoc.latitude.toFixed(6)) : '',
+          'خط الطول (Longitude)': matchedLoc ? Number(matchedLoc.longitude.toFixed(6)) : '',
+          'المندوب الذي حفظ الموقع': matchedLoc ? matchedLoc.savedBy || matchedLoc.delegateName : '-',
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      wb.Workbook = { Views: [{ RTL: true }] };
+
+      const wsLocations = XLSX.utils.json_to_sheet(
+        locationRows.length > 0
+          ? locationRows
+          : [{ 'ملاحظة': 'لا توجد مواقع محلات محفوظة من قبل المناديب حتى الآن' }]
+      );
+      wsLocations['!cols'] = [
+        { wch: 6 },
+        { wch: 14 },
+        { wch: 26 },
+        { wch: 10 },
+        { wch: 18 },
+        { wch: 24 },
+        { wch: 18 },
+        { wch: 20 },
+        { wch: 24 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 22 },
+        { wch: 16 },
+        { wch: 20 },
+        { wch: 14 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsLocations, 'مواقع المحلات المحفوظة');
+
+      const wsSales = XLSX.utils.json_to_sheet(
+        salesRows.length > 0
+          ? salesRows
+          : [{ 'ملاحظة': 'لا توجد بيانات مبيعات مسجلة حالياً' }]
+      );
+      wsSales['!cols'] = [
+        { wch: 6 },
+        { wch: 18 },
+        { wch: 13 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 25 },
+        { wch: 10 },
+        { wch: 24 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 26 },
+        { wch: 10 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 18 },
+        { wch: 24 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 20 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsSales, 'بيانات المبيعات والمواقع');
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `كافة_المبيعات_ومواقع_المحلات_${todayStr}.xlsx`);
+
+      setExportSalesLocStatus(
+        `تم تصدير ملف Excel بنجاح (${salesRows.length} سجل مبيعات، و ${allLocationsList.length} موقع محل محفوظ).`
+      );
+    } catch (err) {
+      console.error('Error exporting sales and locations excel:', err);
+      setExportSalesLocStatus('حدث خطأ أثناء تصدير ملف Excel. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsExportingSalesAndLocations(false);
+    }
+  };
 
   const [dailyTaskDelegate, setDailyTaskDelegate] = useState<string>('');
   const [dailyTaskText, setDailyTaskText] = useState<string>('');
@@ -555,6 +902,81 @@ export const AdminScreen: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Saved Shop Locations (Leaflet Map) & Full Sales/Locations Excel Export */}
+      <div className="bg-white dark:bg-slate-900 border-2 border-teal-500/35 dark:border-teal-700/80 rounded-2xl p-4 sm:p-5 text-slate-800 dark:text-white space-y-4 shadow-sm dark:shadow-md transition-colors">
+        <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-teal-200">
+                مراجعة المواقع الجغرافية للمحلات وتصدير كافة المبيعات (Excel &amp; Leaflet):
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                تصدير ملف إكسل شامل لجميع المبيعات مع مواقع المحلات، وعرض جميع دبابيس المواقع التي حددها المندوبون على الخريطة التفاعلية.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-xl bg-teal-50 dark:bg-teal-950/70 border border-teal-200 dark:border-teal-800 text-teal-800 dark:text-teal-300 text-[11px] font-black">
+              المواقع المحفوظة: {savedShopLocations.length}
+            </span>
+            <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px] font-black">
+              سجلات المبيعات: {allSalesEntries.length}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleExportAllSalesAndLocationsExcel}
+            disabled={isExportingSalesAndLocations}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 active:scale-95 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>
+              {isExportingSalesAndLocations
+                ? 'جاري تجهيز ملف Excel...'
+                : 'تصدير كافة بيانات المبيعات والمواقع المحفوظة (Excel)'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowSavedLocationsMap((prev) => !prev)}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer ${
+              showSavedLocationsMap
+                ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                : 'bg-teal-600 hover:bg-teal-500 text-white'
+            }`}
+          >
+            <MapIcon className="w-4 h-4" />
+            <span>
+              {showSavedLocationsMap
+                ? 'إخفاء خريطة مواقع المحلات المحفوظة (Leaflet)'
+                : `عرض جميع مواقع المحلات المحفوظة على الخريطة (Leaflet) (${savedShopLocations.length})`}
+            </span>
+          </button>
+        </div>
+
+        {exportSalesLocStatus && (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-200 text-center">
+            {exportSalesLocStatus}
+          </div>
+        )}
+
+        {showSavedLocationsMap && (
+          <AdminSavedLocationsMap
+            locations={savedShopLocations}
+            salesStatsByCustomer={salesStatsByCustomer}
+            isDarkMode={isDarkMode}
+          />
+        )}
       </div>
 
 

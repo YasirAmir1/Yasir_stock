@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, doc, setDoc, deleteDoc, writeBatch, query, where, getDocs, getDoc, runTransaction, increment } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, writeBatch, query, where, getDocs, getDoc, runTransaction, increment, orderBy, limit } from 'firebase/firestore';
 import { db, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { isQuotaExceededError, cleanFirestoreData, setGlobalQuotaExceeded, isGlobalQuotaExceeded, safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUtils';
 import localData from '../../data.json';
 import * as XLSX from 'xlsx';
 import { parseArabicDigits, parseArabicNumber, getInvoiceKey } from '../utils/numberUtils';
+import { formatEnglishDate } from '../utils/dateUtils';
 import { playSuccessChimeSound } from '../utils/audioUtils';
+import { parseCoordinate, parseShopLocationString, formatShopLocationString, syncCustomerRowsToSupabase, markCustomerVisitedToday, resolveShopLocationInputsBatch } from '../lib/fleetTrackingService';
 import {
   UserAccount,
   DelegateTarget,
@@ -326,6 +328,8 @@ interface SalesContextType {
   isFirestoreQuotaExceeded: boolean;
   powerSavingSyncConfig: PowerSavingSyncConfig;
   updatePowerSavingSyncConfig: (config: Partial<PowerSavingSyncConfig>) => Promise<void>;
+  geofenceRadiusMeters: number;
+  updateGeofenceRadiusMeters: (meters: number) => Promise<boolean>;
   batteryLevel: number | null;
   isBatteryCharging: boolean | null;
   toggleDarkMode: () => void;
@@ -409,7 +413,7 @@ interface SalesContextType {
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
 
 export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const todayDateString = new Date().toISOString().split('T')[0];
+  const todayDateString = getBaghdadDateAndSeconds().todayStr;
 
   const [selectedDate, setSelectedDate] = useState<string>(todayDateString);
 
@@ -437,6 +441,23 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     } catch {}
     return DEFAULT_POWER_SAVING_SYNC_CONFIG;
+  });
+
+  const DEFAULT_GEOFENCE_RADIUS_METERS = 100;
+  const sanitizeGeofenceRadiusMeters = (val: unknown): number => {
+    const parsed = Math.round(Number(val));
+    if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_GEOFENCE_RADIUS_METERS;
+    return Math.min(parsed, 50000);
+  };
+
+  const [geofenceRadiusMeters, setGeofenceRadiusMeters] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('cache_geofence_radius_meters');
+      if (saved) {
+        return sanitizeGeofenceRadiusMeters(saved);
+      }
+    } catch {}
+    return DEFAULT_GEOFENCE_RADIUS_METERS;
   });
 
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
@@ -608,6 +629,41 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return 'report_11';
   });
 
+  const normalizeNameKey = (val: string) =>
+    String(val || '')
+      .replace(/[\u064B-\u065F\u0670]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  const normalizeCodeKey = (val: string) =>
+    String(val || '')
+      .trim()
+      .replace(/\.0+$/, '')
+      .toLowerCase();
+
+  const saveImagesBackupMap = (items: ProductItem[]) => {
+    try {
+      const existingRaw = localStorage.getItem('app_product_images_backup');
+      const map: Record<string, string> = existingRaw ? JSON.parse(existingRaw) : {};
+      items.forEach((p) => {
+        if (p.imageUrl && p.imageUrl.length < 8000) {
+          if (p.productCode && !/^prd-\d+$/i.test(p.productCode.trim())) {
+            map[`code:${normalizeCodeKey(p.productCode)}`] = p.imageUrl;
+          }
+          if (p.productName) {
+            map[`name:${p.productName.trim().toLowerCase()}`] = p.imageUrl;
+            map[`norm:${normalizeNameKey(p.productName)}`] = p.imageUrl;
+          }
+        }
+      });
+      localStorage.setItem('app_product_images_backup', JSON.stringify(map));
+    } catch {}
+  };
+
   const DEFAULT_PRODUCTS_LIST: ProductItem[] = [
     { id: 'p1', productName: 'قشطة عربية فاخرة', unitsPerCarton: 12, totalPieces: 120, totalUnits: 120, totalCartons: 10, cartonQuantity: 12, categoryName: 'قشطة', productCode: 'QSH-001', pieceWeightKg: 0.200 },
   ];
@@ -754,6 +810,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setTimeout(processProductChunk, 5);
               } else {
                 setProductsList(products);
+                saveImagesBackupMap(products);
                 try { localStorage.setItem('app_products_catalog', JSON.stringify(products)); } catch {}
               }
             };
@@ -764,6 +821,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               if (item) products.push(item);
             });
             setProductsList(products);
+            saveImagesBackupMap(products);
             try { localStorage.setItem('app_products_catalog', JSON.stringify(products)); } catch {}
           }
         },
@@ -803,6 +861,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               tempAssignedDay: data.tempAssignedDay || data.assigned_day || '',
               overrideExpiresAt: Number(data.overrideExpiresAt || data.override_expires_at) || 0,
               originalPath: data.originalPath || data.path || '',
+              latitude: parseCoordinate(data.latitude),
+              longitude: parseCoordinate(data.longitude),
+              repLocationSaved: Boolean(data.repLocationSaved),
+              visitedToday: Boolean(data.visitedToday ?? data.visited_today),
             } as RouteItem;
           };
 
@@ -901,13 +963,37 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const unsubTargets = safeOnSnapshot(
         collection(db, 'report11_targets'),
         (snapshot: any) => {
-          const list: Report11CategoryTarget[] = [];
+          const normCat = (cat: string) => {
+            const c = normalizeArabicText(cat);
+            if (c === 'زبادي' || c === 'خاثر' || c === 'البان' || c === 'ماست') return 'لبن';
+            if (c === 'كل انواع الجبن العادي' || c === 'جبن1') return 'جبن 1';
+            if (c === 'مقرمش وبركر وبيتزا جاهز') return 'بيتزا جاهز وبركر ومقرمش';
+            if (c.includes('خضراوات') || c.includes('خضروات') || c.includes('فنكر') || c.includes('فنجر')) return 'خضراوات مجمدة و فنكر';
+            return c;
+          };
+          const dedupedMap = new Map<string, Report11CategoryTarget>();
           snapshot.forEach((docSnap: any) => {
             const data = docSnap.data() as Report11CategoryTarget;
             if (data && data.delegateName && data.categoryName) {
-              list.push({ ...data, id: docSnap.id });
+              const item: Report11CategoryTarget = { ...data, id: docSnap.id };
+              const key = `${normalizeArabicText(data.delegateName)}__${normCat(data.categoryName)}`;
+              const existing = dedupedMap.get(key);
+              if (!existing) {
+                dedupedMap.set(key, item);
+              } else {
+                const tsNew = Date.parse(String(item.updatedAt || '')) || 0;
+                const tsOld = Date.parse(String(existing.updatedAt || '')) || 0;
+                if (tsNew > tsOld) {
+                  dedupedMap.set(key, item);
+                } else if (tsNew === tsOld) {
+                  const sumNew = (Number(item.monthlyTarget) || 0) + (Number(item.monthlySales) || 0);
+                  const sumOld = (Number(existing.monthlyTarget) || 0) + (Number(existing.monthlySales) || 0);
+                  if (sumNew > sumOld) dedupedMap.set(key, item);
+                }
+              }
             }
           });
+          const list = Array.from(dedupedMap.values());
           setReport11Targets(list);
           try { localStorage.setItem('cache_report11_targets', JSON.stringify(list)); } catch {}
         },
@@ -951,10 +1037,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const todaySalesByProductName = useMemo(() => {
     const map: Record<string, number> = {};
     const today = new Date().toISOString().split('T')[0];
+    const lastUploadTime = Number(localStorage.getItem('last_inventory_upload_timestamp') || 0);
     
     // Use allSalesEntries which is already synced with Firestore
     allSalesEntries.forEach(entry => {
       if (entry.dateString === today && entry.status !== 'cancelled') {
+        if (entry.timestamp && entry.timestamp < lastUploadTime) {
+          return;
+        }
         const name = (entry.productName || '').trim().toLowerCase();
         if (name) {
           map[name] = (map[name] || 0) + (Number(entry.quantity) || 0);
@@ -1009,21 +1099,77 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const worksheet = workbook.Sheets[firstSheetName];
       const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
-      const existingImages = new globalThis.Map<string, string>();
+      // Fetch authoritative existing products from Firestore first so images are preserved
+      // even if local React state or localStorage lacked them
+      let oldProductsSnap: any = null;
+      const firestoreProducts: ProductItem[] = [];
+      try {
+        oldProductsSnap = await getDocs(collection(db, 'products_catalog'));
+        oldProductsSnap.forEach((d: any) => {
+          const item = d.data() as ProductItem;
+          if (item) {
+            firestoreProducts.push({ ...item, id: d.id });
+          }
+        });
+      } catch (snapErr) {
+        console.warn('Could not pre-fetch Firestore products before import:', snapErr);
+      }
+
+      const existingImagesByCode = new globalThis.Map<string, string>();
+      const existingImagesByName = new globalThis.Map<string, string>();
+      const existingImagesByNormName = new globalThis.Map<string, string>();
       const existingProductsByCode = new globalThis.Map<string, ProductItem>();
       const existingProductsByName = new globalThis.Map<string, ProductItem>();
-      productsList.forEach(p => {
-        if (p.productCode) {
-          const codeKey = String(p.productCode).trim().toLowerCase();
-          existingProductsByCode.set(codeKey, p);
-          if (p.imageUrl) existingImages.set(String(p.productCode).trim(), p.imageUrl);
+      const existingProductsByNormName = new globalThis.Map<string, ProductItem>();
+
+      // Seed image maps from persistent backup first (lowest priority)
+      try {
+        const backupRaw = localStorage.getItem('app_product_images_backup');
+        if (backupRaw) {
+          const backupMap = JSON.parse(backupRaw) as Record<string, string>;
+          Object.entries(backupMap).forEach(([k, url]) => {
+            if (!url) return;
+            if (k.startsWith('code:')) existingImagesByCode.set(k.slice(5), url);
+            else if (k.startsWith('name:')) existingImagesByName.set(k.slice(5), url);
+            else if (k.startsWith('norm:')) existingImagesByNormName.set(k.slice(5), url);
+          });
+        }
+      } catch {}
+
+      const registerExistingProduct = (p: ProductItem) => {
+        const codeStr = String(p.productCode || '').trim();
+        const isAutoCode = /^prd-\d+$/i.test(codeStr);
+        if (codeStr && !isAutoCode) {
+          const codeKey = normalizeCodeKey(codeStr);
+          const prevByCode = existingProductsByCode.get(codeKey);
+          if (!prevByCode || (!prevByCode.imageUrl && p.imageUrl)) {
+            existingProductsByCode.set(codeKey, p);
+          }
+          if (p.imageUrl) {
+            existingImagesByCode.set(codeKey, p.imageUrl);
+          }
         }
         if (p.productName) {
-          const nameKey = String(p.productName).trim().toLowerCase();
-          existingProductsByName.set(nameKey, p);
-          if (p.imageUrl && !existingImages.has(nameKey)) existingImages.set(nameKey, p.imageUrl);
+          const exactNameKey = String(p.productName).trim().toLowerCase();
+          const normNameKey = normalizeNameKey(p.productName);
+          const prevByName = existingProductsByName.get(exactNameKey);
+          if (!prevByName || (!prevByName.imageUrl && p.imageUrl)) {
+            existingProductsByName.set(exactNameKey, p);
+          }
+          const prevByNorm = existingProductsByNormName.get(normNameKey);
+          if (!prevByNorm || (!prevByNorm.imageUrl && p.imageUrl)) {
+            existingProductsByNormName.set(normNameKey, p);
+          }
+          if (p.imageUrl) {
+            existingImagesByName.set(exactNameKey, p.imageUrl);
+            existingImagesByNormName.set(normNameKey, p.imageUrl);
+          }
         }
-      });
+      };
+
+      // Register both local state and Firestore snapshot (Firestore overwrites if it has images)
+      productsList.forEach(registerExistingProduct);
+      firestoreProducts.forEach(registerExistingProduct);
 
       const parsedProducts: ProductItem[] = jsonData.map((row, index) => {
         const productName = String(
@@ -1037,7 +1183,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           `منتج ${index + 1}`
         ).trim();
 
-        const productCodeRaw = 
+        const explicitProductCode =
           row['كود المنتج'] ??
           row['كود'] ??
           row['الكود'] ??
@@ -1051,9 +1197,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           row['Product Code'] ??
           row['ProductCode'] ??
           row['Item Code'] ??
-          row['ItemCode'] ??
-          `PRD-${100 + index}`;
-        const productCode = String(productCodeRaw).trim();
+          row['ItemCode'];
+        const hasExplicitCode = explicitProductCode !== undefined && explicitProductCode !== null && String(explicitProductCode).trim() !== '';
+        const productCode = String(hasExplicitCode ? explicitProductCode : `PRD-${100 + index}`).trim();
 
         const cartonQuantityVal = 
           row['عدد بالكارتون'] ??
@@ -1128,27 +1274,39 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           0;
         const stockCartonsNum = parseArabicNumber(stockCartonsVal);
 
-        let imageUrl = String(row['صورة'] ?? row['صورة المنتج'] ?? row['Image'] ?? '').trim();
+        const codeKey = normalizeCodeKey(productCode);
+        const exactNameKey = productName.trim().toLowerCase();
+        const normNameKey = normalizeNameKey(productName);
+        const isAutoCode = !hasExplicitCode || /^prd-\d+$/i.test(productCode);
+
+        // If existing product found by code or normalized name, reuse its id & imageUrl
+        const matchedExisting =
+          (!isAutoCode ? existingProductsByCode.get(codeKey) : undefined) ||
+          existingProductsByName.get(exactNameKey) ||
+          existingProductsByNormName.get(normNameKey);
+
+        let imageUrl = String(
+          row['صورة'] ?? row['صورة المنتج'] ?? row['رابط الصورة'] ?? row['Image'] ?? row['imageUrl'] ?? ''
+        ).trim();
         if (!imageUrl) {
-          if (existingImages.has(productCode)) {
-            imageUrl = existingImages.get(productCode)!;
-          } else if (existingImages.has(productName.toLowerCase())) {
-            imageUrl = existingImages.get(productName.toLowerCase())!;
-          }
+          imageUrl =
+            matchedExisting?.imageUrl ||
+            (!isAutoCode ? existingImagesByCode.get(codeKey) : undefined) ||
+            existingImagesByName.get(exactNameKey) ||
+            existingImagesByNormName.get(normNameKey) ||
+            '';
         }
 
         const totalPieces = stockCartonsNum * unitsPerCarton;
         const isAvailableBool = row['isAvailable'] !== false;
         const isVisibleBool = isAvailableBool && totalPieces >= (6 * unitsPerCarton);
 
-        // If existing product found by code or name, reuse its id to maintain consistency
-        const matchedExisting = (productCode ? existingProductsByCode.get(productCode.toLowerCase()) : undefined) ||
-          existingProductsByName.get(productName.toLowerCase());
         const prodId = matchedExisting ? matchedExisting.id : `prod_${Date.now()}_${index}`;
 
         let prevRetail = matchedExisting?.previousRetailPrice;
         let prevWholesale = matchedExisting?.previousWholesalePrice;
         let priceUpdatedAt = matchedExisting?.priceUpdatedAt;
+        const imageUpdatedAt = matchedExisting?.imageUpdatedAt;
 
         if (matchedExisting) {
           const oldRetail = Number(matchedExisting.retailPrice) || 0;
@@ -1184,6 +1342,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           previousRetailPrice: prevRetail,
           previousWholesalePrice: prevWholesale,
           priceUpdatedAt: priceUpdatedAt,
+          imageUpdatedAt: imageUpdatedAt,
           imageUrl,
           isAvailable: isAvailableBool,
           isVisible: isVisibleBool,
@@ -1257,15 +1416,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
           }
 
-          // توثيق وصول الكمية الجديدة للمنتج في سجل الإشعارات
-          if (addedCartons > 0 && newProd.isAvailable !== false) {
+          // توثيق وصول وتواجد المنتجات في سجل الإشعارات (حتى لو كانت مطابقة للكميات السابقة)
+          if (newCartons > 0 && newProd.isAvailable !== false) {
             restockedList.push({
               productName: newProd.productName,
               productCode: newProd.productCode,
               categoryName: newProd.categoryName,
               stockCartons: newCartons,
               previousStock: Math.max(0, previousStock),
-              addedCartons: addedCartons,
+              addedCartons: Math.max(0, addedCartons),
               imageUrl: newProd.imageUrl || '',
               pieceWeightKg: newProd.pieceWeightKg,
               isAvailable: newProd.isAvailable,
@@ -1295,10 +1454,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           hour12: true
         });
 
-        const logId = `inv_log_${Date.now()}`;
+        const uploadTimestamp = Date.now();
+        try {
+          localStorage.setItem('last_inventory_upload_timestamp', String(uploadTimestamp));
+        } catch {}
+
+        const logId = `inv_log_${uploadTimestamp}`;
         const newInventoryLog: InventoryLogRecord = {
           id: logId,
-          timestamp: Date.now(),
+          timestamp: uploadTimestamp,
           dateFormatted,
           uploaderName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'مسؤول المخزن',
           totalProductsCount: cleanedProducts.length,
@@ -1337,12 +1501,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
         setInventoryStockByCode(prev => ({ ...prev, ...newStockByCode }));
 
+        // Persist lightweight backup map of product images
+        saveImagesBackupMap(cleanedProducts);
+
         try {
           try {
             localStorage.setItem('app_products_catalog', JSON.stringify(cleanedProducts));
           } catch (storageErr) {
-            // If quota exceeded, fallback to ultra-clean items without images
-            const ultraClean = cleanedProducts.map(p => ({ ...p, imageUrl: '' }));
+            // If quota exceeded, fallback to ultra-clean items without large inline images
+            const ultraClean = cleanedProducts.map(p => ({
+              ...p,
+              imageUrl: p.imageUrl && p.imageUrl.length < 2000 ? p.imageUrl : ''
+            }));
             localStorage.setItem('app_products_catalog', JSON.stringify(ultraClean));
           }
           localStorage.setItem('inventory_stock_by_code', JSON.stringify(newStockByCode));
@@ -1363,31 +1533,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           console.error('Error saving inventory settings to Firestore:', err);
         }
         
-        // Save to Firestore using chunked batches to handle >500 limits, and clear old products first
+        // Save to Firestore using chunked batches: upsert new products FIRST so onSnapshot never sees empty catalog,
+        // then remove obsolete docs no longer present in the uploaded inventory.
         try {
-          // 1. Delete old products
-          const oldProductsSnap = await getDocs(collection(db, 'products_catalog'));
-          if (!oldProductsSnap.empty) {
-            let deleteBatch = writeBatch(db);
-            let deleteCount = 0;
-            for (const oldDoc of oldProductsSnap.docs) {
-              deleteBatch.delete(oldDoc.ref);
-              deleteCount++;
-              if (deleteCount === 450) {
-                await deleteBatch.commit();
-                deleteBatch = writeBatch(db);
-                deleteCount = 0;
-              }
-            }
-            if (deleteCount > 0) {
-              await deleteBatch.commit();
-            }
-          }
+          const newIds = new Set(cleanedProducts.map(p => p.id));
 
-          // 2. Add new products in chunks
+          // 1. Upsert all imported products in chunks
           let insertBatch = writeBatch(db);
           let insertCount = 0;
-          for (const prod of parsedProducts) {
+          for (const prod of cleanedProducts) {
             const docRef = doc(db, 'products_catalog', prod.id);
             insertBatch.set(docRef, cleanFirestoreData(prod));
             insertCount++;
@@ -1399,6 +1553,27 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
           if (insertCount > 0) {
             await insertBatch.commit();
+          }
+
+          // 2. Delete only obsolete docs that are not part of the new inventory
+          const snapForCleanup = oldProductsSnap || await getDocs(collection(db, 'products_catalog'));
+          if (snapForCleanup && !snapForCleanup.empty) {
+            let deleteBatch = writeBatch(db);
+            let deleteCount = 0;
+            for (const oldDoc of snapForCleanup.docs) {
+              if (!newIds.has(oldDoc.id)) {
+                deleteBatch.delete(oldDoc.ref);
+                deleteCount++;
+                if (deleteCount === 450) {
+                  await deleteBatch.commit();
+                  deleteBatch = writeBatch(db);
+                  deleteCount = 0;
+                }
+              }
+            }
+            if (deleteCount > 0) {
+              await deleteBatch.commit();
+            }
           }
         } catch (err) {
           console.error('Error saving imported products to Firestore:', err);
@@ -1430,6 +1605,93 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setUserMessage('ملف المسارات فارغ أو لا يحتوي على بيانات صالحة.');
         return;
       }
+
+      // Collect location cells from Excel to batch-resolve any short Google Maps links (e.g. maps.app.goo.gl)
+      const locationColMatchers = [
+        'موقع المحل',
+        'الموقع الجغرافي',
+        'احداثيات المحل',
+        'إحداثيات المحل',
+        'الاحداثيات',
+        'الإحداثيات',
+        'رابط الموقع',
+        'موقع gps',
+        'gps',
+        'coordinates',
+        'location',
+        'google maps',
+      ];
+      const rawLocValuesToResolve: string[] = [];
+      jsonData.forEach((row: any) => {
+        const keys = Object.keys(row);
+        for (const m of locationColMatchers) {
+          if (row[m] !== undefined && row[m] !== null && String(row[m]).trim() !== '') {
+            rawLocValuesToResolve.push(String(row[m]).trim());
+            return;
+          }
+        }
+        for (const k of keys) {
+          const cleanK = k.trim().toLowerCase();
+          for (const m of locationColMatchers) {
+            if ((cleanK === m.toLowerCase() || cleanK.includes(m.toLowerCase())) && row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+              rawLocValuesToResolve.push(String(row[k]).trim());
+              return;
+            }
+          }
+        }
+      });
+
+      const resolvedLinksMap = await resolveShopLocationInputsBatch(rawLocValuesToResolve);
+
+      // Preserve existing pinned shop coordinates (from rep_shop_locations & existing routes) if new Excel rows omit them
+      const preservedCoordsByCode = new Map<string, { latitude: number; longitude: number; shopLocation?: string; repLocationSaved?: boolean }>();
+      const preservedCoordsByName = new Map<string, { latitude: number; longitude: number; shopLocation?: string; repLocationSaved?: boolean }>();
+      let oldRoutesSnap: any = null;
+      try {
+        const [routesSnapRes, repLocsSnapRes] = await Promise.allSettled([
+          getDocs(collection(db, 'routes')),
+          getDocs(collection(db, 'rep_shop_locations')),
+        ]);
+        if (routesSnapRes.status === 'fulfilled') {
+          oldRoutesSnap = routesSnapRes.value;
+          routesSnapRes.value.forEach((docSnap: any) => {
+            const d = docSnap.data();
+            const lat = parseCoordinate(d?.latitude);
+            const lng = parseCoordinate(d?.longitude);
+            if (lat !== null && lng !== null) {
+              const info = {
+                latitude: lat,
+                longitude: lng,
+                shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
+                repLocationSaved: Boolean(d?.repLocationSaved),
+              };
+              const cCode = String(d?.customerCode || '').trim();
+              if (cCode && !preservedCoordsByCode.has(cCode)) preservedCoordsByCode.set(cCode, info);
+              const nName = normalizeArabicText(d?.customerName);
+              if (nName && !preservedCoordsByName.has(nName)) preservedCoordsByName.set(nName, info);
+            }
+          });
+        }
+        if (repLocsSnapRes.status === 'fulfilled') {
+          repLocsSnapRes.value.forEach((docSnap: any) => {
+            const d = docSnap.data();
+            const lat = parseCoordinate(d?.latitude);
+            const lng = parseCoordinate(d?.longitude);
+            if (lat !== null && lng !== null) {
+              const info = {
+                latitude: lat,
+                longitude: lng,
+                shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
+                repLocationSaved: true,
+              };
+              const cCode = String(d?.customerCode || '').trim();
+              if (cCode) preservedCoordsByCode.set(cCode, info);
+              const nName = normalizeArabicText(d?.customerName);
+              if (nName) preservedCoordsByName.set(nName, info);
+            }
+          });
+        }
+      } catch {}
 
       const parsedRoutes: RouteItem[] = jsonData.map((row: any, idx: number) => {
         const keys = Object.keys(row);
@@ -1467,8 +1729,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ]);
 
         let customerAddress = findVal([
-          'العنوان', 'عنوان الزبون', 'المنطقة', 'الموقع', 'Address'
+          'العنوان', 'عنوان الزبون', 'المنطقة', 'Address'
         ]);
+        if (!customerAddress && row['الموقع'] && parseShopLocationString(row['الموقع']).latitude === null) {
+          customerAddress = String(row['الموقع']).trim();
+        }
 
         let path = findVal([
           'المسار', 'خط السير', 'اليوم', 'يوم المسار', 'Path', 'Route', 'Day'
@@ -1485,6 +1750,16 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let customerType = findVal([
           'نوع الزبون', 'النوع', 'فئة الزبون', 'Customer Type', 'Type'
         ]);
+
+        const rawLocationCell = findVal(locationColMatchers);
+        const parsedLoc =
+          (rawLocationCell && resolvedLinksMap[rawLocationCell]) ||
+          parseShopLocationString(rawLocationCell);
+        const rawLat = findVal(['خط العرض', 'latitude', 'lat']);
+        const rawLng = findVal(['خط الطول', 'longitude', 'lng', 'lon']);
+        let latitude = parsedLoc.latitude ?? parseCoordinate(rawLat);
+        let longitude = parsedLoc.longitude ?? parseCoordinate(rawLng);
+        let repLocationSaved = false;
 
         // Positional fallbacks if headers were missing or custom
         if (!customerName && keys.length > 0) {
@@ -1515,6 +1790,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!path) path = 'مسار 1';
         customerType = customerType === 'جملة' ? 'جملة' : 'مفرد';
 
+        const preserved =
+          preservedCoordsByCode.get(customerCode) ||
+          preservedCoordsByName.get(normalizeArabicText(customerName));
+        if (preserved) {
+          if (latitude === null || longitude === null) {
+            latitude = preserved.latitude;
+            longitude = preserved.longitude;
+          }
+          if (preserved.repLocationSaved) {
+            repLocationSaved = true;
+          }
+        }
+
         return {
           id: `route_${Date.now()}_${idx}`,
           customerName,
@@ -1526,6 +1814,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           delegateCode,
           customerPhone,
           position: idx + 1,
+          latitude,
+          longitude,
+          shopLocation: latitude !== null && longitude !== null ? formatShopLocationString(latitude, longitude) : undefined,
+          repLocationSaved,
+          visitedToday: false,
         } as RouteItem;
       });
 
@@ -1537,8 +1830,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Batch save to Firestore in safe chunks (400 items per batch)
       try {
-        const oldRoutesSnap = await getDocs(collection(db, 'routes'));
-        if (!oldRoutesSnap.empty) {
+        if (!oldRoutesSnap) {
+          oldRoutesSnap = await getDocs(collection(db, 'routes'));
+        }
+        if (oldRoutesSnap && !oldRoutesSnap.empty) {
           let delBatch = writeBatch(db);
           let delCount = 0;
           for (const docSnap of oldRoutesSnap.docs) {
@@ -1570,6 +1865,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (insCount > 0) {
           await insBatch.commit();
         }
+        await syncCustomerRowsToSupabase(parsedRoutes);
       } catch (err) {
         console.error('Error saving routes to Firestore:', err);
       }
@@ -1613,6 +1909,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Update local state immediately
     setProductsList(prev => {
       const next = prev.map(p => p.id === id ? { ...p, ...cleaned } : p);
+      saveImagesBackupMap(next);
       try {
         localStorage.setItem('app_products_catalog', JSON.stringify(next));
       } catch {}
@@ -2370,6 +2667,103 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Synchronize geofence proximity distance (default 100m) across all devices in real-time via Firestore
+  useEffect(() => {
+    if (isFirestoreQuotaExceeded || isGlobalQuotaExceeded()) return;
+
+    const unsub = safeOnSnapshot(
+      doc(db, 'app_settings', 'geofence_distance'),
+      (snapshot: any) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data && data.radiusMeters !== undefined && data.radiusMeters !== null) {
+            const cleanMeters = sanitizeGeofenceRadiusMeters(data.radiusMeters);
+            setGeofenceRadiusMeters(cleanMeters);
+            try {
+              localStorage.setItem('cache_geofence_radius_meters', String(cleanMeters));
+            } catch {}
+          }
+        }
+      },
+      (err: any) => {
+        logFirestoreErrorGracefully(err, 'geofence_distance');
+      },
+      'geofence_distance'
+    );
+
+    return () => {
+      try { unsub(); } catch {}
+    };
+  }, [isFirestoreQuotaExceeded]);
+
+  const updateGeofenceRadiusMeters = async (meters: number): Promise<boolean> => {
+    const isDataEntryUser = Boolean(
+      currentUser?.role === 'dataEntry' ||
+      currentUser?.username?.toLowerCase() === 'rafatdata' ||
+      currentUser?.roleName?.includes('مدخل') ||
+      currentUser?.name?.includes('مدخل') ||
+      currentUser?.name === 'رأفت جمال' ||
+      currentUser?.delegateName === 'رأفت جمال'
+    );
+    const isStrictAdminUser = Boolean(
+      (currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن') &&
+      currentUser?.role !== 'delegate' &&
+      !isDataEntryUser
+    );
+    if (!isStrictAdminUser) {
+      return false;
+    }
+
+    const parsed = Math.round(Number(meters));
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      addToast({
+        title: 'قيمة غير صالحة',
+        message: 'يرجى إدخال مسافة صحيحة بالمتر (1 متر فأكثر).',
+        type: 'reminder',
+      });
+      return false;
+    }
+
+    const cleanMeters = Math.min(parsed, 50000);
+    setGeofenceRadiusMeters(cleanMeters);
+    try {
+      localStorage.setItem('cache_geofence_radius_meters', String(cleanMeters));
+    } catch {}
+
+    const payload = {
+      radiusMeters: cleanMeters,
+      updatedAt: Date.now(),
+      updatedBy: currentUser?.name || 'الأدمن',
+    };
+
+    if (!isFirestoreQuotaExceeded && navigator.onLine) {
+      try {
+        await setDoc(doc(db, 'app_settings', 'geofence_distance'), payload, { merge: true });
+        addToast({
+          title: 'تم تحديث مسافة الشرط 📍',
+          message: `تم حفظ مسافة السماح (${cleanMeters} متر) وتطبيقها على التطبيق بالكامل.`,
+          type: 'success',
+        });
+        return true;
+      } catch (err) {
+        console.error('Failed to save geofence_distance to Firestore:', err);
+        addToast({
+          title: 'تعذر المزامنة السحابية',
+          message: `تم حفظ المسافة (${cleanMeters} متر) محلياً، وسيتم إعادة المحاولة عند استقرار الاتصال.`,
+          type: 'info',
+        });
+        return true;
+      }
+    } else {
+      addToast({
+        title: 'حفظ محلي',
+        message: `تم حفظ مسافة السماح (${cleanMeters} متر) على هذا الجهاز.`,
+        type: 'info',
+      });
+      return true;
+    }
+  };
+
   // Adaptive background data sync and polling interval based on power saving mode & tablet battery settings
   useEffect(() => {
     if (!navigator.onLine) return;
@@ -2422,21 +2816,46 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const isDelegateUser = !currentUser?.isAdmin && !isSauceUser && Boolean(currentUser?.name);
 
-      // Scoped query: Delegate users only fetch their own sales archive
+      // Scoped & bounded query: avoid downloading tens of thousands of historical archive docs on startup
+      // Full history is paginated via cursor-based Infinite Scroll in OldInvoicesScreen
       const archiveQuery = isDelegateUser
-        ? query(collection(db, 'sales_entries_archive'), where('delegateName', '==', currentUser.name))
-        : collection(db, 'sales_entries_archive');
+        ? query(
+            collection(db, 'sales_entries_archive'),
+            where('delegateName', '==', currentUser.name),
+            orderBy('timestamp', 'desc'),
+            limit(400)
+          )
+        : query(
+            collection(db, 'sales_entries_archive'),
+            orderBy('timestamp', 'desc'),
+            limit(600)
+          );
 
-      // 1. Asynchronously fetch archive in the background
+      // 1. Asynchronously fetch recent archive in the background and merge into state
       getDocs(archiveQuery)
         .then((snap) => {
           if (isCancelled) return;
-          snap.forEach((doc) => {
-            const data = doc.data() as SalesEntry;
-            if (data && data.id) {
-              archiveMap.set(data.id, data);
+          const loadedArchive: SalesEntry[] = [];
+          snap.forEach((docSnap) => {
+            const raw = docSnap.data() as SalesEntry;
+            const entry = { ...raw, id: raw?.id || docSnap.id } as SalesEntry;
+            if (entry.id) {
+              archiveMap.set(entry.id, entry);
+              loadedArchive.push(entry);
             }
           });
+          if (loadedArchive.length > 0) {
+            setAllSalesEntries((prev) => {
+              const merged = new globalThis.Map<string, SalesEntry>();
+              loadedArchive.forEach((e) => {
+                if (e.id) merged.set(e.id, e);
+              });
+              prev.forEach((e) => {
+                if (e?.id) merged.set(e.id, e);
+              });
+              return Array.from(merged.values());
+            });
+          }
         })
         .catch((err) => {
           handleFirestoreError(err, 'sales_entries_archive');
@@ -2550,6 +2969,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     localStorage.setItem('app_is_dark_mode', String(isDarkMode));
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', isDarkMode);
+      document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
+    }
   }, [isDarkMode]);
 
   const checkAndTriggerMilestoneToasts = (
@@ -2890,6 +3313,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Play subtle audio chime sound & trigger local notification toast
     playSuccessChimeSound();
     const custName = newEntriesData[0]?.customerName || 'الزبون';
+    const custCode = newEntriesData[0]?.customerCode || '';
+    markCustomerVisitedToday(custCode, custName);
     addToast({
       title: 'تم حفظ الفاتورة بنجاح 🧾✨',
       message: `زبون: ${custName} • الوزن: ${addedWeight.toFixed(1)} كغم (${newEntriesData.length} أصناف)`,
@@ -3321,8 +3746,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return {
       isLocked,
       daysRemaining,
-      setDateStr: new Date(setTimestamp).toLocaleDateString('ar-EG'),
-      unlockDateStr: new Date(setTimestamp + THIRTY_ONE_DAYS_MS).toLocaleDateString('ar-EG'),
+      setDateStr: formatEnglishDate(setTimestamp, 'غير محدد'),
+      unlockDateStr: formatEnglishDate(setTimestamp + THIRTY_ONE_DAYS_MS, 'متاح'),
       setTimestamp,
     };
   };
@@ -4116,6 +4541,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isFirestoreQuotaExceeded,
         powerSavingSyncConfig,
         updatePowerSavingSyncConfig,
+        geofenceRadiusMeters,
+        updateGeofenceRadiusMeters,
         batteryLevel,
         isBatteryCharging,
         syncFailureAlert,

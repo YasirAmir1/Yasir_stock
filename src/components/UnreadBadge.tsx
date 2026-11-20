@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logFirestoreErrorGracefully, safeOnSnapshot } from '../lib/firestoreUtils';
+import { isNotificationForDelegate } from '../utils/notificationUtils';
 
 export const UnreadBadge: React.FC<{ 
   delegateName: string; 
+  delegateCode?: string;
+  username?: string;
   isAdmin?: boolean; 
   role?: string;
   onCountChange?: (count: number) => void;
-}> = ({ delegateName, isAdmin, role, onCountChange }) => {
+}> = ({ delegateName, delegateCode, username, isAdmin, role, onCountChange }) => {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -59,9 +62,11 @@ export const UnreadBadge: React.FC<{
       let count = 0;
       const twelveHoursMs = 12 * 60 * 60 * 1000;
       const now = Date.now();
+      const userIdentity = { name: delegateName, delegateCode, username };
       
-      // Check notifications
+      // Check notifications matching this delegate (or global broadcasts)
       for (const n of notifs) {
+        if (!isNotificationForDelegate(n, userIdentity)) continue;
         const readAt = reads[n.id];
         if (!readAt) {
           count++; // Unread
@@ -81,7 +86,9 @@ export const UnreadBadge: React.FC<{
     const unsubNotifs = safeOnSnapshot(
       collection(db, 'admin_notifications'), 
       (snap: any) => {
-        notifs = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        notifs = snap.docs
+          .map((d: any) => ({ id: d.id, ...d.data() }))
+          .filter((n: any) => isNotificationForDelegate(n, { name: delegateName, delegateCode, username }));
         updateCount();
       },
       (err: any) => logFirestoreErrorGracefully(err, 'admin_notifications'),
@@ -129,7 +136,7 @@ export const UnreadBadge: React.FC<{
       unsubTask();
       unsubTaskRead();
     };
-  }, [delegateName, isAdminOrDataEntry]);
+  }, [delegateName, delegateCode, username, isAdminOrDataEntry]);
 
   if (unreadCount === 0) return null;
 

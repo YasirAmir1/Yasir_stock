@@ -14,6 +14,7 @@ export const FamilyMilkTable: React.FC<{
   familyMilkUploadRef: React.RefObject<HTMLInputElement>;
   setLockedModalDelegateName: (name: string) => void;
   setShowLockedConditionModal: (show: boolean) => void;
+  canManageExcel?: boolean;
 }> = ({
   delegatesAnalysis,
   isDarkMode,
@@ -23,7 +24,8 @@ export const FamilyMilkTable: React.FC<{
   handleFamilyMilkUpload,
   familyMilkUploadRef,
   setLockedModalDelegateName,
-  setShowLockedConditionModal
+  setShowLockedConditionModal,
+  canManageExcel = true
 }) => {
   return (
     <div
@@ -38,7 +40,8 @@ export const FamilyMilkTable: React.FC<{
             ملخص أداء المندوبين وحوافز الحليب (كبير)
           </h3>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        {canManageExcel && (
+          <div className="flex items-center gap-2 flex-wrap">
           <input
             type="file"
             ref={familyMilkUploadRef}
@@ -66,7 +69,8 @@ export const FamilyMilkTable: React.FC<{
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>نموذج إكسل</span>
           </button>
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md">
@@ -143,6 +147,7 @@ export const SmallMilkTable: React.FC<{
   smallMilkUploadRef: React.RefObject<HTMLInputElement>;
   setLockedModalDelegateName: (name: string) => void;
   setShowLockedConditionModal: (show: boolean) => void;
+  canManageExcel?: boolean;
 }> = ({
   delegatesAnalysis,
   isDarkMode,
@@ -152,7 +157,8 @@ export const SmallMilkTable: React.FC<{
   handleSmallMilkUpload,
   smallMilkUploadRef,
   setLockedModalDelegateName,
-  setShowLockedConditionModal
+  setShowLockedConditionModal,
+  canManageExcel = true
 }) => {
   return (
     <div
@@ -167,7 +173,8 @@ export const SmallMilkTable: React.FC<{
             ملخص أداء المندوبين وحوافز الحليب (صغير)
           </h3>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        {canManageExcel && (
+          <div className="flex items-center gap-2 flex-wrap">
           <input
             type="file"
             ref={smallMilkUploadRef}
@@ -195,7 +202,8 @@ export const SmallMilkTable: React.FC<{
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>نموذج إكسل</span>
           </button>
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md">

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Bell, CheckCircle2, Clock, ShieldAlert, Sparkles, X, Volume2 } from 'lucide-react';
 import { BroadcastAlert } from '../types';
 import { playBroadcastAlertToneAndVibrate } from '../utils/soundAlert';
+import { formatEnglishTime } from '../utils/dateUtils';
 
 interface RepresentativeBroadcastAlertModalProps {
   alert: BroadcastAlert | null;
@@ -24,7 +25,7 @@ export const RepresentativeBroadcastAlertModal: React.FC<RepresentativeBroadcast
   if (!alert) return null;
 
   const createdAtFormatted = alert.created_at
-    ? new Date(alert.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })
+    ? formatEnglishTime(alert.created_at, false, '')
     : '';
 
   return (
