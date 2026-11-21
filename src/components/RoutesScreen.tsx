@@ -751,6 +751,7 @@ export const RoutesScreen: React.FC = () => {
 
   // Excel Manager section: shop location table, inline editing, and location-only Excel upload
   const [excelLocFilter, setExcelLocFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [excelDelegateFilter, setExcelDelegateFilter] = useState<string>('');
   const [excelSearch, setExcelSearch] = useState<string>('');
   const [excelDisplayLimit, setExcelDisplayLimit] = useState<number>(30);
   const [isUploadingLocationsExcel, setIsUploadingLocationsExcel] = useState<boolean>(false);
@@ -5855,12 +5856,40 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       {/* Admin Only: Download & Upload Routes Section with Shop Details & Locations */}
       {isStrictAdmin && (() => {
-        const mappedShopsCount = filteredRoutes.filter(
+        const excelDelegateMap = new Map<string, { name: string; count: number }>();
+        filteredRoutes.forEach((r) => {
+          const rawName = String(r.delegateName || '').trim();
+          const normName = normalizeArabic(rawName);
+          if (!rawName || !normName || isHiddenDelegateForFilter(rawName)) return;
+          const existing = excelDelegateMap.get(normName);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            excelDelegateMap.set(normName, { name: rawName, count: 1 });
+          }
+        });
+        const excelDelegateOptions = Array.from(excelDelegateMap.values()).sort(
+          (a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ar')
+        );
+
+        const selectedExcelDelNorm = normalizeArabic(excelDelegateFilter);
+        const excelDelegateFilteredRoutes = selectedExcelDelNorm
+          ? filteredRoutes.filter((r) => {
+              const rDelNorm = normalizeArabic(r.delegateName);
+              return (
+                rDelNorm === selectedExcelDelNorm ||
+                rDelNorm.includes(selectedExcelDelNorm) ||
+                selectedExcelDelNorm.includes(rDelNorm)
+              );
+            })
+          : filteredRoutes;
+
+        const mappedShopsCount = excelDelegateFilteredRoutes.filter(
           (r) => parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null
         ).length;
-        const unmappedShopsCount = filteredRoutes.length - mappedShopsCount;
+        const unmappedShopsCount = excelDelegateFilteredRoutes.length - mappedShopsCount;
 
-        const excelTableRoutes = filteredRoutes.filter((r) => {
+        const excelTableRoutes = excelDelegateFilteredRoutes.filter((r) => {
           const hasLoc = parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null;
           if (excelLocFilter === 'mapped' && !hasLoc) return false;
           if (excelLocFilter === 'unmapped' && hasLoc) return false;
@@ -5903,7 +5932,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-words mt-0.5">
-                    المسارات المفلترة: {routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({filteredRoutes.length} محل | محدد الموقع: {mappedShopsCount} • بدون موقع: {unmappedShopsCount})
+                    المسارات المفلترة: {excelDelegateFilter || routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({excelDelegateFilteredRoutes.length} محل | محدد الموقع: {mappedShopsCount} • بدون موقع: {unmappedShopsCount})
                   </p>
                 </div>
               </div>
@@ -5977,50 +6006,100 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
             </div>
 
             {/* Filter & Search inside Excel Manager */}
-            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {[
-                  { id: 'all' as const, label: `الكل (${filteredRoutes.length})` },
-                  { id: 'mapped' as const, label: `محدد الموقع 📍 (${mappedShopsCount})` },
-                  { id: 'unmapped' as const, label: `بدون موقع (${unmappedShopsCount})` },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      setExcelLocFilter(opt.id);
+            <div className="space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { id: 'all' as const, label: `الكل (${excelDelegateFilteredRoutes.length})` },
+                    { id: 'mapped' as const, label: `محدد الموقع 📍 (${mappedShopsCount})` },
+                    { id: 'unmapped' as const, label: `بدون موقع (${unmappedShopsCount})` },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setExcelLocFilter(opt.id);
+                        setExcelDisplayLimit(30);
+                      }}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                        excelLocFilter === opt.id
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : isDarkMode
+                          ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={excelSearch}
+                    onChange={(e) => {
+                      setExcelSearch(e.target.value);
                       setExcelDisplayLimit(30);
                     }}
-                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
-                      excelLocFilter === opt.id
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    placeholder="بحث سريع داخل جدول المواقع..."
+                    className={`w-full pr-8 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
+                      isDarkMode
+                        ? 'bg-slate-900 border-slate-700 text-white'
+                        : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Delegate Filter inside Excel Manager (تحت فلتر الكل ومحدد الموقع) */}
+              {excelDelegateOptions.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-emerald-200/70 dark:border-slate-700/70">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-600 dark:text-slate-300 ml-1 shrink-0">
+                    <User className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                    <span>المندوب:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExcelDelegateFilter('');
+                      setExcelDisplayLimit(30);
+                    }}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer whitespace-nowrap ${
+                      !excelDelegateFilter
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
                         : isDarkMode
                         ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {opt.label}
+                    كل المندوبين ({filteredRoutes.length})
                   </button>
-                ))}
-              </div>
-
-              <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-                <input
-                  type="text"
-                  value={excelSearch}
-                  onChange={(e) => {
-                    setExcelSearch(e.target.value);
-                    setExcelDisplayLimit(30);
-                  }}
-                  placeholder="بحث سريع داخل جدول المواقع..."
-                  className={`w-full pr-8 pl-3 py-1.5 rounded-xl border text-xs font-bold ${
-                    isDarkMode
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                />
-              </div>
+                  {excelDelegateOptions.map((del) => {
+                    const isSelected = normalizeArabic(excelDelegateFilter) === normalizeArabic(del.name);
+                    return (
+                      <button
+                        key={del.name}
+                        type="button"
+                        onClick={() => {
+                          setExcelDelegateFilter(isSelected ? '' : del.name);
+                          setExcelDisplayLimit(30);
+                        }}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer whitespace-nowrap ${
+                          isSelected
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {del.name} ({del.count})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Shop Information & Location Table (أمام كل محل) */}
