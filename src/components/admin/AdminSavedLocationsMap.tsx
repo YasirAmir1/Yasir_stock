@@ -292,15 +292,28 @@ export const AdminSavedLocationsMap: React.FC<AdminSavedLocationsMapProps> = ({
     mapInstanceRef.current = map;
     markersLayerRef.current = markersLayer;
 
+    let isDisposed = false;
     const resizeTimer = window.setTimeout(() => {
-      map.invalidateSize();
+      if (isDisposed || mapInstanceRef.current !== map || !container.isConnected) return;
+      const internalMap = map as unknown as { _mapPane?: HTMLElement };
+      if (!internalMap._mapPane) return;
+      try {
+        map.invalidateSize();
+      } catch {
+        // Ignore if map was torn down concurrently
+      }
     }, 180);
 
     return () => {
+      isDisposed = true;
       window.clearTimeout(resizeTimer);
       markersLayer.clearLayers();
       markerByIdRef.current.clear();
-      map.remove();
+      try {
+        map.remove();
+      } catch {
+        // Ignore cleanup error if already removed
+      }
       mapInstanceRef.current = null;
       markersLayerRef.current = null;
       hasAutoFittedRef.current = false;

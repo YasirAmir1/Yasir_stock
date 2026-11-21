@@ -173,11 +173,13 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     currentUser?.name === 'رأفت جمال' ||
     currentUser?.delegateName === 'رأفت جمال'
   );
-  const isStrictlyAdminForGeofence = Boolean(
-    canManageGeofence &&
+  const isStrictAdminOnMap = Boolean(
     !repViewOnly &&
     !isDataEntryUser &&
     (currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن')
+  );
+  const isStrictlyAdminForGeofence = Boolean(
+    canManageGeofence && isStrictAdminOnMap
   );
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -210,6 +212,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const [isSavingCoord, setIsSavingCoord] = useState<boolean>(false);
   const [geofenceInput, setGeofenceInput] = useState<string>(() => String(geofenceRadiusMeters || 100));
   const [isSavingGeofence, setIsSavingGeofence] = useState<boolean>(false);
+  const [focusedRepId, setFocusedRepId] = useState<string | null>(null);
 
   useEffect(() => {
     setGeofenceInput(String(geofenceRadiusMeters || 100));
@@ -470,9 +473,11 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
 
   // Initialize Leaflet Map centered on Tikrit, Saladin Governorate
   useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return;
+    const container = mapContainerRef.current;
+    if (!container || mapInstanceRef.current) return;
 
-    const map = L.map(mapContainerRef.current, {
+    let isDisposed = false;
+    const map = L.map(container, {
       center: TIKRIT_CENTER,
       zoom: DEFAULT_ZOOM,
       zoomControl: true,
@@ -498,16 +503,29 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     repsLayerRef.current = repsLayer;
 
     // Ensure proper tile rendering inside dynamically expanded containers
-    setTimeout(() => {
-      map.invalidateSize();
+    const resizeTimer = window.setTimeout(() => {
+      if (isDisposed || mapInstanceRef.current !== map || !container.isConnected) return;
+      const internalMap = map as unknown as { _mapPane?: HTMLElement };
+      if (!internalMap._mapPane) return;
+      try {
+        map.invalidateSize();
+      } catch {
+        // Ignore if map was torn down concurrently
+      }
     }, 250);
 
     return () => {
+      isDisposed = true;
+      window.clearTimeout(resizeTimer);
       shopMarkersRef.current.clear();
       shopMarkerMetaRef.current.clear();
       repMarkersRef.current.clear();
       repMarkerMetaRef.current.clear();
-      map.remove();
+      try {
+        map.remove();
+      } catch {
+        // Ignore cleanup error if already removed
+      }
       mapInstanceRef.current = null;
       routePathLayerRef.current = null;
       shopsLayerRef.current = null;
@@ -809,6 +827,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const handleRecenterTikrit = () => {
     const map = mapInstanceRef.current;
     if (!map) return;
+    setFocusedRepId(null);
     try {
       map.fitBounds(SALADIN_BOUNDS, { padding: [16, 16], animate: true });
     } catch {
@@ -819,6 +838,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const handleFitAllPoints = () => {
     const map = mapInstanceRef.current;
     if (!map) return;
+    setFocusedRepId(null);
     const points: L.LatLngTuple[] = [
       ...visibleLiveReps.map((r): L.LatLngTuple => [r.latitude, r.longitude]),
       ...mappedCustomers.map((c): L.LatLngTuple => [c.lat, c.lng]),
@@ -829,6 +849,28 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     }
     const bounds = L.latLngBounds(points);
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: true });
+  };
+
+  const handleFocusRepLocation = (rep: RepLiveLocation) => {
+    const map = mapInstanceRef.current;
+    const internalMap = map as unknown as { _mapPane?: HTMLElement } | null;
+    if (!map || !internalMap?._mapPane) return;
+    if (!Number.isFinite(rep.latitude) || !Number.isFinite(rep.longitude)) return;
+
+    setFocusedRepId(rep.rep_id);
+    try {
+      map.flyTo([rep.latitude, rep.longitude], 16, {
+        animate: true,
+        duration: 0.85,
+      });
+    } catch {
+      map.setView([rep.latitude, rep.longitude], 16, { animate: true });
+    }
+
+    const repMarker = repMarkersRef.current.get(rep.rep_id);
+    if (repMarker) {
+      repMarker.openPopup();
+    }
   };
 
   return (
@@ -1087,6 +1129,50 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
               <span>حفظ</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Strict Admin-Only Quick Zoom to Live Representative Location */}
+      {isStrictAdminOnMap && (
+        <div
+          className={`px-3 py-2 border-b flex flex-wrap items-center gap-2 text-xs ${
+            isDarkMode ? 'bg-slate-900/90 border-slate-800 text-slate-200' : 'bg-sky-50/70 border-sky-200/80 text-slate-800'
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5 font-black text-[11px] text-sky-700 dark:text-sky-300 shrink-0">
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>تقريب لموقع المندوب الحالي:</span>
+          </span>
+          {visibleLiveReps.length === 0 ? (
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              لا يوجد مندوب نشط بموقع GPS حالياً
+            </span>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              {visibleLiveReps.map((rep) => {
+                const repLabel = rep.rep_name || rep.rep_id;
+                const isFocused = focusedRepId === rep.rep_id;
+                return (
+                  <button
+                    key={rep.rep_id}
+                    type="button"
+                    onClick={() => handleFocusRepLocation(rep)}
+                    title={`تقريب الخريطة إلى موقع ${repLabel}`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all cursor-pointer active:scale-95 whitespace-nowrap shadow-xs ${
+                      isFocused
+                        ? 'bg-sky-600 text-white ring-2 ring-sky-400/60 shadow-sky-600/30'
+                        : isDarkMode
+                          ? 'bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-sky-700/60'
+                          : 'bg-white hover:bg-sky-100 text-sky-800 border border-sky-300'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${isFocused ? 'bg-emerald-300 animate-ping' : 'bg-emerald-500'}`} />
+                    <span>{repLabel}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

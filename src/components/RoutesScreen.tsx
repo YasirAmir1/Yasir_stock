@@ -1210,10 +1210,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-between items-center gap-2">
-              <div className="flex items-center gap-2">
-                <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-lg text-center">الديون المستحقة</h3>
+        <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+              <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0">
+                <h3 className="text-emerald-800 dark:text-emerald-200 font-black text-base sm:text-lg whitespace-nowrap">الديون المستحقة</h3>
                 {representativeOverdueDebts.length > 0 && (
                   <button
                     type="button"
@@ -1223,38 +1223,43 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       setIsCountdownPaused(false);
                     }}
                     data-testid="open-overdue-debts-modal-btn"
-                    className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-lg text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-xl text-[11px] sm:text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0"
                     title="تنبيه الديون المتأخرة المستحقة (> 1 يوم)"
                   >
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 animate-pulse" />
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 animate-pulse shrink-0" />
                     <span>تنبيه الديون المتأخرة</span>
-                    <span className="bg-rose-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
+                    <span className="bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black leading-none">
                       {representativeOverdueDebts.length}
                     </span>
                   </button>
                 )}
               </div>
-              <div className="flex gap-2">
-                {(currentUser?.isAdmin || isDataEntry) && (
-                    <button onClick={exportDebtsToExcel} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">تصدير Excel</button>
-                )}
-                {currentUser?.isAdmin && !isRafatJamal && (
-                    <label className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-lg cursor-pointer text-xs font-bold hover:bg-emerald-700">
-                    <Upload className="w-4 h-4" />
-                    استيراد
-                    <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
-                    </label>
-                )}
-              </div>
+              {((currentUser?.isAdmin || isDataEntry) || (currentUser?.isAdmin && !isRafatJamal)) && (
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto shrink-0">
+                  {(currentUser?.isAdmin || isDataEntry) && (
+                      <button onClick={exportDebtsToExcel} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-blue-600 text-white rounded-xl sm:rounded-lg text-xs font-black sm:font-bold hover:bg-blue-700 active:scale-95 transition-all whitespace-nowrap cursor-pointer">
+                        <Download className="w-3.5 h-3.5 shrink-0" />
+                        <span>تصدير Excel</span>
+                      </button>
+                  )}
+                  {currentUser?.isAdmin && !isRafatJamal && (
+                      <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-emerald-600 text-white rounded-xl sm:rounded-lg cursor-pointer text-xs font-black sm:font-bold hover:bg-emerald-700 active:scale-95 transition-all whitespace-nowrap">
+                      <Upload className="w-3.5 h-3.5 shrink-0" />
+                      <span>استيراد</span>
+                      <input type="file" className="hidden" onChange={handleImportDebts} accept=".xlsx, .xls" />
+                      </label>
+                  )}
+                </div>
+              )}
             </div>
 
             {currentUser?.isAdmin && (
-                <div className="flex flex-wrap gap-2 pt-1 pb-1">
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 pt-1 pb-1">
                     {/* All Button */}
                     <button 
                       key="filter-all-delegates" 
                       onClick={() => setSelectedDelegateFilter(null)} 
-                      className={`px-3 py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-[70px] ${
+                      className={`col-span-2 sm:col-span-1 px-3 py-2 sm:py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center sm:min-w-[75px] ${
                         !selectedDelegateFilter 
                            ? 'bg-emerald-600 text-white shadow-emerald-600/30' 
                           : isDarkMode 
@@ -1280,7 +1285,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                           <button 
                             key={d.username || d.delegateCode || `debts-filter-${idx}`} 
                             onClick={() => setSelectedDelegateFilter(filterKey || null)} 
-                            className={`px-3 py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-[80px] ${
+                            className={`px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-xl text-center transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center min-w-0 sm:min-w-[80px] ${
                               isSelected 
                                 ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-500/50' 
                                 : isDarkMode 
@@ -1288,7 +1293,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
                             }`}
                           >
-                            <span className="text-xs font-black leading-tight truncate max-w-[130px]">
+                            <span className="text-xs font-black leading-tight truncate max-w-full sm:max-w-[130px]">
                               {d.delegateName || d.username}
                             </span>
                             <span className={`text-[10px] font-bold mt-0.5 leading-tight ${
@@ -5780,60 +5785,60 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
         return (
           <div
-            className={`mt-6 p-3.5 sm:p-5 rounded-2xl border shadow-sm space-y-4 ${
+            className={`mt-6 p-3.5 sm:p-5 rounded-2xl border shadow-sm space-y-4 overflow-hidden ${
               isDarkMode
                 ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-emerald-800/60 text-white'
                 : 'bg-gradient-to-br from-emerald-50/80 via-white to-slate-50 border-emerald-200 text-slate-900'
             }`}
           >
             {/* Header & Excel Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
                 <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 shrink-0">
                   <FileSpreadsheet className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm sm:text-base font-black flex items-center gap-2 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm sm:text-base font-black flex items-center gap-2 flex-wrap leading-snug">
                     <span>إدارة ملفات المسارات (Excel) ومواقع المحلات</span>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs">
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs shrink-0">
                       للأدمن فقط
                     </span>
                   </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold truncate">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-words mt-0.5">
                     المسارات المفلترة: {routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({filteredRoutes.length} محل | محدد الموقع: {mappedShopsCount} • بدون موقع: {unmappedShopsCount})
                   </p>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto min-w-0">
                 <button
                   type="button"
                   onClick={handleDownloadFilteredRoutes}
-                  className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black"
+                  className="px-2.5 sm:px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-black text-center leading-tight min-w-0"
                   title={`تحميل المسارات مع عمود موقع المحل (${filteredRoutes.length} زبون)`}
                 >
-                  <Download className="w-4 h-4 shrink-0" />
+                  <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span>تصدير Excel</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleDownloadRoutesTemplate}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-300 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs font-black"
+                  className="px-2.5 sm:px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-300 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-black text-center leading-tight min-w-0"
                   title="تحميل نموذج إكسل شامل عمود موقع المحل"
                 >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span>نموذج Excel</span>
                 </button>
 
                 <label
-                  className={`px-3 py-2 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white rounded-xl shadow-md shadow-sky-600/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black ${
+                  className={`px-2.5 sm:px-3 py-2 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white rounded-xl shadow-md shadow-sky-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-black text-center leading-tight min-w-0 ${
                     isUploadingLocationsExcel ? 'opacity-60 pointer-events-none' : ''
                   }`}
                   title="رفع ملف إكسل لتحديث عمود (موقع المحل) للزبائن الحاليين فقط دون استبدال المسارات"
                 >
-                  <MapPin className="w-4 h-4 shrink-0" />
+                  <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span>{isUploadingLocationsExcel ? 'جاري التحديث...' : 'رفع مواقع المحلات فقط'}</span>
                   <input
                     type="file"
@@ -5844,10 +5849,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 </label>
 
                 <label
-                  className="px-3 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black"
+                  className="px-2.5 sm:px-3 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-black text-center leading-tight min-w-0"
                   title="رفع واستبدال المسارات كاملة من ملف إكسل (يدعم عمود موقع المحل)"
                 >
-                  <Upload className="w-4 h-4 shrink-0" />
+                  <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span>رفع مسارات كاملة</span>
                   <input
                     type="file"
@@ -5861,20 +5866,20 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
             {/* Guide Note for 'موقع المحل' Excel Column */}
             <div
-              className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
+              className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-start sm:items-center gap-2 min-w-0 ${
                 isDarkMode
                   ? 'bg-slate-800/70 border-slate-700 text-slate-300'
                   : 'bg-white border-emerald-200 text-slate-700'
               }`}
             >
-              <MapPin className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>
-                يحتوي ملف التصدير والنموذج على عمود <strong className="text-emerald-700 dark:text-emerald-300 font-black">«موقع المحل»</strong> (يدعم الإحداثيات مثل <span className="font-mono" dir="ltr">34.615800, 43.678600</span> أو أي رابط خرائط كوكل مثل <span className="font-mono" dir="ltr">https://maps.app.goo.gl/...</span> أو عمودي <span className="font-black">خط العرض / خط الطول</span>).
+              <MapPin className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span className="min-w-0 break-words leading-relaxed">
+                يحتوي ملف التصدير والنموذج على عمود <strong className="text-emerald-700 dark:text-emerald-300 font-black">«موقع المحل»</strong> (يدعم الإحداثيات مثل <span className="font-mono" dir="ltr">34.615800, 43.678600</span> أو أي رابط خرائط كوكل مثل <span className="font-mono break-all" dir="ltr">https://maps.app.goo.gl/...</span> أو عمودي <span className="font-black">خط العرض / خط الطول</span>).
               </span>
             </div>
 
             {/* Filter & Search inside Excel Manager */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2">
               <div className="flex items-center gap-1.5 flex-wrap">
                 {[
                   { id: 'all' as const, label: `الكل (${filteredRoutes.length})` },
@@ -5888,7 +5893,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       setExcelLocFilter(opt.id);
                       setExcelDisplayLimit(30);
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
                       excelLocFilter === opt.id
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                         : isDarkMode
@@ -5901,7 +5906,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 ))}
               </div>
 
-              <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                 <input
                   type="text"
