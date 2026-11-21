@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, query, where, getDocs, getDoc, runTransaction, increment, orderBy, limit } from 'firebase/firestore';
 import { db, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -696,6 +696,49 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return {};
   });
 
+  const [lastInventoryUploadTimestamp, setLastInventoryUploadTimestamp] = useState<number>(() => {
+    try {
+      return Number(localStorage.getItem('last_inventory_upload_timestamp') || 0);
+    } catch {
+      return 0;
+    }
+  });
+
+  const isImportingInventoryRef = useRef<boolean>(false);
+
+  const parseProductDoc = useCallback((docSnap: any): ProductItem | null => {
+    const data = typeof docSnap?.data === 'function' ? docSnap.data() : docSnap;
+    if (!data) return null;
+    const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || 12;
+    const totalUnits = Number(
+      data.totalUnits !== undefined
+        ? data.totalUnits
+        : (data.totalPieces !== undefined
+            ? data.totalPieces
+            : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
+    );
+    const totalCartons = data.totalCartons !== undefined
+      ? Number(data.totalCartons)
+      : Math.floor(totalUnits / unitsPerCarton);
+
+    return {
+      ...data,
+      id: docSnap.id || data.id,
+      productName: String(data.productName || '').trim(),
+      productCode: String(data.productCode || '').trim(),
+      categoryName: String(data.categoryName || 'عام').trim(),
+      unitsPerCarton,
+      cartonQuantity: unitsPerCarton,
+      totalPieces: totalUnits,
+      totalUnits,
+      totalCartons,
+      stockCartons: totalCartons,
+      pieceWeightKg: Number(data.pieceWeightKg) || 0.2,
+      retailPrice: Number(data.retailPrice) || 0,
+      wholesalePrice: Number(data.wholesalePrice) || 0,
+    } as ProductItem;
+  }, []);
+
   const [report11Targets, setReport11Targets] = useState<Report11CategoryTarget[]>(() => {
     try {
       const cached = localStorage.getItem('cache_report11_targets');
@@ -755,52 +798,21 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     // Phase 2 (Order 1): Load & sanitize Products (T+100ms) with non-blocking chunking
+    let productsSnapshotGen = 0;
     const tProducts = setTimeout(() => {
       if (isCancelled) return;
       const unsubProducts = safeOnSnapshot(
         collection(db, 'products_catalog'),
         (snapshot: any) => {
-          if (isCancelled) return;
+          if (isCancelled || isImportingInventoryRef.current) return;
+          const currentGen = ++productsSnapshotGen;
           const docs = snapshot.docs || [];
           const products: ProductItem[] = [];
-
-          const parseProductDoc = (docSnap: any) => {
-            const data = docSnap.data() as any;
-            if (!data) return null;
-            const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || 12;
-            const totalUnits = Number(
-              data.totalUnits !== undefined 
-                ? data.totalUnits 
-                : (data.totalPieces !== undefined 
-                    ? data.totalPieces 
-                    : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
-            );
-            const totalCartons = data.totalCartons !== undefined 
-              ? Number(data.totalCartons) 
-              : Math.floor(totalUnits / unitsPerCarton);
-
-            return {
-              ...data,
-              id: docSnap.id,
-              productName: String(data.productName || '').trim(),
-              productCode: String(data.productCode || '').trim(),
-              categoryName: String(data.categoryName || 'عام').trim(),
-              unitsPerCarton,
-              cartonQuantity: unitsPerCarton,
-              totalPieces: totalUnits,
-              totalUnits,
-              totalCartons,
-              stockCartons: totalCartons,
-              pieceWeightKg: Number(data.pieceWeightKg) || 0.2,
-              retailPrice: Number(data.retailPrice) || 0,
-              wholesalePrice: Number(data.wholesalePrice) || 0,
-            } as ProductItem;
-          };
 
           if (docs.length > 150) {
             let pIdx = 0;
             const processProductChunk = () => {
-              if (isCancelled) return;
+              if (isCancelled || currentGen !== productsSnapshotGen || isImportingInventoryRef.current) return;
               const limit = Math.min(pIdx + 150, docs.length);
               for (; pIdx < limit; pIdx++) {
                 const item = parseProductDoc(docs[pIdx]);
@@ -808,7 +820,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               }
               if (pIdx < docs.length) {
                 setTimeout(processProductChunk, 5);
-              } else {
+              } else if (currentGen === productsSnapshotGen && !isImportingInventoryRef.current) {
                 setProductsList(products);
                 saveImagesBackupMap(products);
                 try { localStorage.setItem('app_products_catalog', JSON.stringify(products)); } catch {}
@@ -927,6 +939,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           });
           logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setInventoryLogs(logs);
+          if (logs.length > 0 && Number(logs[0]?.timestamp) > 0) {
+            const latestLogTs = Number(logs[0].timestamp);
+            setLastInventoryUploadTimestamp(prev => {
+              const next = Math.max(prev, latestLogTs);
+              try { localStorage.setItem('last_inventory_upload_timestamp', String(next)); } catch {}
+              return next;
+            });
+          }
           try { localStorage.setItem('app_inventory_logs', JSON.stringify(logs)); } catch {}
         },
         (err: any) => handleFirestoreError(err, 'inventory_notifications'),
@@ -948,6 +968,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (data && data.stockByCode) {
               setInventoryStockByCode(data.stockByCode);
               try { localStorage.setItem('inventory_stock_by_code', JSON.stringify(data.stockByCode)); } catch {}
+            }
+            if (typeof data?.updatedAt === 'number' && data.updatedAt > 0) {
+              setLastInventoryUploadTimestamp(prev => {
+                const next = Math.max(prev, data.updatedAt);
+                try { localStorage.setItem('last_inventory_upload_timestamp', String(next)); } catch {}
+                return next;
+              });
             }
           }
         },
@@ -1038,38 +1065,37 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const todaySalesByProductName = useMemo(() => {
     const map: Record<string, number> = {};
-    const today = new Date().toISOString().split('T')[0];
-    const lastUploadTime = Number(localStorage.getItem('last_inventory_upload_timestamp') || 0);
-    
+    const todayBaghdad = getBaghdadDateAndSeconds().todayStr;
+
     // Use allSalesEntries which is already synced with Firestore
     allSalesEntries.forEach(entry => {
-      if (entry.dateString === today && entry.status !== 'cancelled') {
-        if (entry.timestamp && entry.timestamp < lastUploadTime) {
+      if (entry.dateString === todayBaghdad && entry.status !== 'cancelled') {
+        if (entry.timestamp && lastInventoryUploadTimestamp > 0 && entry.timestamp <= lastInventoryUploadTimestamp) {
           return;
         }
-        const name = (entry.productName || '').trim().toLowerCase();
-        if (name) {
-          map[name] = (map[name] || 0) + (Number(entry.quantity) || 0);
+        const nameKey = normalizeNameKey(entry.productName || '');
+        if (nameKey) {
+          map[nameKey] = (map[nameKey] || 0) + (Number(entry.quantity) || 0);
         }
       }
     });
     return map;
-  }, [allSalesEntries]);
+  }, [allSalesEntries, lastInventoryUploadTimestamp]);
 
-  const getProductLiveStock = (prod: ProductItem) => {
-    const name = (prod.productName || '').trim().toLowerCase();
-    const soldToday = todaySalesByProductName[name] || 0;
+  const getProductLiveStock = useCallback((prod: ProductItem) => {
+    const nameKey = normalizeNameKey(prod.productName || '');
+    const soldToday = todaySalesByProductName[nameKey] || 0;
     const unitsPerCarton = Number(prod.unitsPerCarton || prod.cartonQuantity) || 12;
-    
+
     const baselineUnits = Number(
-      prod.totalUnits !== undefined 
-        ? prod.totalUnits 
-        : (prod.totalPieces !== undefined 
-            ? prod.totalPieces 
+      prod.totalUnits !== undefined
+        ? prod.totalUnits
+        : (prod.totalPieces !== undefined
+            ? prod.totalPieces
             : ((Number(prod.totalCartons ?? prod.stockCartons ?? 0)) * unitsPerCarton))
     );
 
-    // المتبقي في المخزن = (إجمالي المخزون - المبيعات المسجلة اليوم)
+    // المتبقي في المخزن = (إجمالي المخزون - المبيعات المسجلة اليوم بعد آخر رفع جرد)
     const liveTotalUnits = Math.max(0, baselineUnits - soldToday);
     const cartons = Math.floor(liveTotalUnits / unitsPerCarton);
     const pieces = liveTotalUnits % unitsPerCarton;
@@ -1081,7 +1107,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unitsPerCarton,
       soldToday
     };
-  };
+  }, [todaySalesByProductName]);
 
   const deleteInventoryLog = async (logId: string) => {
     try {
@@ -1097,9 +1123,69 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+      const normalizeExcelHeader = (h: any): string =>
+        String(h ?? '')
+          .replace(/[\u200E\u200F\u202A-\u202E\u00A0]/g, ' ')
+          .replace(/[\r\n]+/g, ' ')
+          .replace(/[\u064B-\u065F\u0670]/g, '')
+          .replace(/[أإآٱ]/g, 'ا')
+          .replace(/ة/g, 'ه')
+          .replace(/[يى]/g, 'ي')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+
+      // Find the first worksheet that has non-empty tabular rows and detect the real header row
+      let jsonData: Record<string, any>[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        if (!ws) continue;
+        const rawMatrix = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' });
+        if (!rawMatrix || rawMatrix.length === 0) continue;
+
+        const headerHints = [
+          'اسم المنتج', 'المنتج', 'اسم الماده', 'كود المنتج', 'كود', 'المخزن',
+          'الكميه', 'كارتون', 'كرتون', 'سعر', 'الصنف', 'product', 'stock', 'code', 'qty'
+        ];
+        let headerRowIdx = -1;
+        const scanLimit = Math.min(rawMatrix.length, 15);
+        for (let r = 0; r < scanLimit; r++) {
+          const rowArr = rawMatrix[r];
+          if (!Array.isArray(rowArr)) continue;
+          const matches = rowArr.filter(cell => {
+            const normCell = normalizeExcelHeader(cell);
+            return normCell.length > 0 && headerHints.some(hint => normCell.includes(hint));
+          }).length;
+          if (matches >= 2) {
+            headerRowIdx = r;
+            break;
+          }
+        }
+        if (headerRowIdx === -1) {
+          headerRowIdx = rawMatrix.findIndex(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
+        }
+        if (headerRowIdx === -1) continue;
+
+        const headers = (rawMatrix[headerRowIdx] || []).map((h, idx) => {
+          const cleaned = String(h ?? '').replace(/[\u200E\u200F\u00A0]/g, ' ').replace(/[\r\n]+/g, ' ').trim();
+          return cleaned || `__COL_${idx}`;
+        });
+
+        const rowsFromMatrix: Record<string, any>[] = [];
+        for (let r = headerRowIdx + 1; r < rawMatrix.length; r++) {
+          const rowArr = rawMatrix[r];
+          if (!Array.isArray(rowArr) || !rowArr.some(c => String(c ?? '').trim() !== '')) continue;
+          const rowObj: Record<string, any> = {};
+          headers.forEach((h, cIdx) => {
+            rowObj[h] = rowArr[cIdx];
+          });
+          rowsFromMatrix.push(rowObj);
+        }
+        if (rowsFromMatrix.length > 0) {
+          jsonData = rowsFromMatrix;
+          break;
+        }
+      }
 
       // Fetch authoritative existing products from Firestore first so images are preserved
       // even if local React state or localStorage lacked them
@@ -1173,129 +1259,159 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       productsList.forEach(registerExistingProduct);
       firestoreProducts.forEach(registerExistingProduct);
 
-      const parsedProducts: ProductItem[] = jsonData.map((row, index) => {
-        const productName = String(
-          row['اسم المنتج'] ??
-          row['المنتج'] ??
-          row['اسم'] ??
-          row['اسم المادة'] ??
-          row['المادة'] ??
-          row['Product Name'] ??
-          row['Product'] ??
-          `منتج ${index + 1}`
-        ).trim();
+      const rawParsedProducts: ProductItem[] = jsonData.map((row, index) => {
+        const rowKeys = Object.keys(row);
+        const normKeyMap = new globalThis.Map<string, string>();
+        rowKeys.forEach(k => {
+          const nk = normalizeExcelHeader(k);
+          if (nk && !normKeyMap.has(nk)) normKeyMap.set(nk, k);
+        });
 
-        const explicitProductCode =
-          row['كود المنتج'] ??
-          row['كود'] ??
-          row['الكود'] ??
-          row['كود الصنف'] ??
-          row['رمز المنتج'] ??
-          row['رمز'] ??
-          row['الرمز'] ??
-          row['كود المادة'] ??
-          row['رمز المادة'] ??
-          row['Code'] ??
-          row['Product Code'] ??
-          row['ProductCode'] ??
-          row['Item Code'] ??
-          row['ItemCode'];
+        const findCell = (matchers: string[], excludedSubstrings: string[] = []): { found: boolean; value: any } => {
+          // 1. Exact key or normalized exact header match
+          for (const m of matchers) {
+            if (row[m] !== undefined && row[m] !== null && String(row[m]).trim() !== '') {
+              return { found: true, value: row[m] };
+            }
+            const origKey = normKeyMap.get(normalizeExcelHeader(m));
+            if (origKey && row[origKey] !== undefined && row[origKey] !== null && String(row[origKey]).trim() !== '') {
+              return { found: true, value: row[origKey] };
+            }
+          }
+          // 2. Normalized substring match (skipping explicitly excluded headers)
+          for (const m of matchers) {
+            const normM = normalizeExcelHeader(m);
+            if (!normM) continue;
+            for (const origKey of rowKeys) {
+              const normK = normalizeExcelHeader(origKey);
+              if (!normK) continue;
+              if (excludedSubstrings.some(ex => normK.includes(normalizeExcelHeader(ex)))) continue;
+              if (normK.includes(normM)) {
+                const val = row[origKey];
+                if (val !== undefined && val !== null && String(val).trim() !== '') {
+                  return { found: true, value: val };
+                }
+              }
+            }
+          }
+          return { found: false, value: undefined };
+        };
+
+        const nameCell = findCell([
+          'اسم المنتج', 'المنتج', 'اسم المادة', 'المادة', 'اسم الصنف', 'اسم', 'Product Name', 'Product', 'Item Name'
+        ]);
+        const codeCell = findCell([
+          'كود المنتج', 'كود الصنف', 'كود المادة', 'الكود', 'كود', 'رمز المنتج', 'رمز المادة', 'الرمز', 'رمز',
+          'Product Code', 'ProductCode', 'Item Code', 'ItemCode', 'SKU', 'Code'
+        ]);
+
+        const rawProductName = nameCell.found ? String(nameCell.value).trim() : '';
+        const explicitProductCode = codeCell.found ? codeCell.value : undefined;
         const hasExplicitCode = explicitProductCode !== undefined && explicitProductCode !== null && String(explicitProductCode).trim() !== '';
-        const productCode = String(hasExplicitCode ? explicitProductCode : `PRD-${100 + index}`).trim();
+        const candidateCode = String(hasExplicitCode ? explicitProductCode : `PRD-${100 + index}`).trim();
 
-        const cartonQuantityVal = 
-          row['عدد بالكارتون'] ??
-          row['عدد في الكارتون'] ??
-          row['عدد الكارتون'] ??
-          row['العدد بالكرتون'] ??
-          row['العدد بالكارتون'] ??
-          row['Carton Qty'] ??
-          row['Qty'] ??
-          12;
-        const unitsPerCarton = parseArabicNumber(cartonQuantityVal) || 12;
+        const codeKey = normalizeCodeKey(candidateCode);
+        const isAutoCode = !hasExplicitCode || /^prd-\d+$/i.test(candidateCode);
+        const exactNameKey = rawProductName.trim().toLowerCase();
+        const normNameKey = normalizeNameKey(rawProductName);
 
-        const categoryName = String(
-          row['صنف المنتج'] ??
-          row['الصنف'] ??
-          row['الفئة'] ??
-          row['Category'] ??
-          'قشطة'
-        ).trim();
-
-        const pieceWeightKg = parseArabicNumber(
-          row['وزن القطعة الواحدة'] ??
-          row['وزن القطعة'] ??
-          row['الوزن'] ??
-          row['Piece Weight'] ??
-          row['Weight'] ??
-          0.2
-        ) || 0.2;
-
-        const retailPrice = parseArabicNumber(
-          row['سعر القطعة مفرد'] ??
-          row['سعر  القطعة مفرد'] ??
-          row['سعر المفرد'] ??
-          row['Retail Price'] ??
-          0
-        );
-
-        const wholesalePrice = parseArabicNumber(
-          row['سعر القطعة جملة'] ??
-          row['سعر الجملة'] ??
-          row['Wholesale Price'] ??
-          0
-        );
-
-        // Matching all possible headers for current store cartons
-        const stockCartonsVal = 
-          row['المخزن الحالي (كارتون)'] ??
-          row['المخزن الحالي(كارتون)'] ??
-          row['المخزن الحالي (كرتون)'] ??
-          row['المخزن الحالي'] ??
-          row['عدد الكارتون المتوفر بالمخزن'] ??
-          row['عدد كارتون بالمخزن'] ??
-          row['كارتون بالمخزن'] ??
-          row['الكمية (كارتون)'] ??
-          row['الكمية بالكارتون'] ??
-          row['الكمية (كرتون)'] ??
-          row['الكمية بالكرتون'] ??
-          row['رصيد المخزن'] ??
-          row['الرصيد (كارتون)'] ??
-          row['الرصيد'] ??
-          row['المخزن'] ??
-          row['كارتون'] ??
-          row['كرتون'] ??
-          row['الكمية'] ??
-          row['كمية'] ??
-          row['Stock'] ??
-          row['Cartons'] ??
-          row['Carton'] ??
-          row['Current Stock'] ??
-          row['Qty'] ??
-          row['Quantity'] ??
-          0;
-        const stockCartonsNum = parseArabicNumber(stockCartonsVal);
-
-        const codeKey = normalizeCodeKey(productCode);
-        const exactNameKey = productName.trim().toLowerCase();
-        const normNameKey = normalizeNameKey(productName);
-        const isAutoCode = !hasExplicitCode || /^prd-\d+$/i.test(productCode);
-
-        // If existing product found by code or normalized name, reuse its id & imageUrl
+        // Match existing product early so partial inventory sheets preserve category, prices, weight, image
         const matchedExisting =
           (!isAutoCode ? existingProductsByCode.get(codeKey) : undefined) ||
-          existingProductsByName.get(exactNameKey) ||
-          existingProductsByNormName.get(normNameKey);
+          (exactNameKey ? existingProductsByName.get(exactNameKey) : undefined) ||
+          (normNameKey ? existingProductsByNormName.get(normNameKey) : undefined);
 
-        let imageUrl = String(
-          row['صورة'] ?? row['صورة المنتج'] ?? row['رابط الصورة'] ?? row['Image'] ?? row['imageUrl'] ?? ''
-        ).trim();
+        const productName = rawProductName || matchedExisting?.productName || `منتج ${index + 1}`;
+        const productCode = hasExplicitCode ? candidateCode : (matchedExisting?.productCode || candidateCode);
+
+        const cartonQtyCell = findCell([
+          'عدد بالكارتون', 'عدد في الكارتون', 'عدد الكارتون', 'العدد بالكرتون', 'العدد بالكارتون',
+          'التعبئة', 'تعبئة الكارتون', 'قطع بالكارتون', 'Carton Qty', 'Units Per Carton', 'Pack'
+        ], ['سعر', 'متوفر', 'مخزن', 'رصيد']);
+        const unitsPerCarton = cartonQtyCell.found
+          ? (parseArabicNumber(cartonQtyCell.value) || matchedExisting?.unitsPerCarton || matchedExisting?.cartonQuantity || 12)
+          : (matchedExisting?.unitsPerCarton || matchedExisting?.cartonQuantity || 12);
+
+        const categoryCell = findCell([
+          'صنف المنتج', 'الصنف', 'الفئة', 'التصنيف', 'المجموعة', 'Category'
+        ], ['كود', 'اسم']);
+        const categoryName = categoryCell.found
+          ? String(categoryCell.value).trim()
+          : (matchedExisting?.categoryName || 'قشطة');
+
+        const weightCell = findCell([
+          'وزن القطعة الواحدة', 'وزن القطعة', 'الوزن', 'Piece Weight', 'Weight'
+        ]);
+        const pieceWeightKg = weightCell.found
+          ? (parseArabicNumber(weightCell.value) || matchedExisting?.pieceWeightKg || 0.2)
+          : (matchedExisting?.pieceWeightKg || 0.2);
+
+        const retailCell = findCell([
+          'سعر القطعة مفرد', 'سعر  القطعة مفرد', 'سعر المفرد', 'سعر مفرد', 'المفرد', 'Retail Price', 'Retail'
+        ]);
+        const retailPrice = retailCell.found
+          ? parseArabicNumber(retailCell.value)
+          : (Number(matchedExisting?.retailPrice) || 0);
+
+        const wholesaleCell = findCell([
+          'سعر القطعة جملة', 'سعر الجملة', 'سعر جملة', 'الجملة', 'Wholesale Price', 'Wholesale'
+        ]);
+        const wholesalePrice = wholesaleCell.found
+          ? parseArabicNumber(wholesaleCell.value)
+          : (Number(matchedExisting?.wholesalePrice) || 0);
+
+        // Matching all possible headers for current store cartons (excluding pack-size and price columns)
+        const stockCell = findCell([
+          'المخزن الحالي (كارتون)',
+          'المخزن الحالي(كارتون)',
+          'المخزن الحالي (كرتون)',
+          'المخزن الحالي',
+          'المخزون الحالي',
+          'المخزون',
+          'عدد الكارتون المتوفر بالمخزن',
+          'عدد الكراتين المتوفر بالمخزن',
+          'عدد كارتون بالمخزن',
+          'كارتون بالمخزن',
+          'الكمية المتوفرة',
+          'الكمية بالكارتون',
+          'الكمية (كارتون)',
+          'الكمية (كرتون)',
+          'الكمية بالكرتون',
+          'الرصيد الحالي',
+          'رصيد المخزن',
+          'الرصيد (كارتون)',
+          'الرصيد المتوفر',
+          'الرصيد',
+          'المتوفر بالمخزن',
+          'المتوفر',
+          'المخزن',
+          'عدد الكراتين',
+          'كراتين',
+          'كارتون',
+          'كرتون',
+          'الكمية',
+          'كمية',
+          'Current Stock',
+          'Available Stock',
+          'Stock Cartons',
+          'Stock',
+          'Cartons',
+          'Carton',
+          'Quantity',
+          'Qty'
+        ], ['عدد بالكارتون', 'عدد في الكارتون', 'العدد بالكرتون', 'العدد بالكارتون', 'تعبئة', 'سعر', 'كود', 'وزن']);
+        const stockCartonsNum = stockCell.found
+          ? parseArabicNumber(stockCell.value)
+          : (matchedExisting ? Number(matchedExisting.totalCartons ?? matchedExisting.stockCartons ?? 0) : 0);
+
+        const imageCell = findCell(['صورة', 'صورة المنتج', 'رابط الصورة', 'Image', 'imageUrl']);
+        let imageUrl = imageCell.found ? String(imageCell.value).trim() : '';
         if (!imageUrl) {
           imageUrl =
             matchedExisting?.imageUrl ||
             (!isAutoCode ? existingImagesByCode.get(codeKey) : undefined) ||
-            existingImagesByName.get(exactNameKey) ||
-            existingImagesByNormName.get(normNameKey) ||
+            (exactNameKey ? existingImagesByName.get(exactNameKey) : undefined) ||
+            (normNameKey ? existingImagesByNormName.get(normNameKey) : undefined) ||
             '';
         }
 
@@ -1350,6 +1466,13 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           isVisible: isVisibleBool,
         };
       });
+
+      // Deduplicate products by id in case two Excel rows resolved to the same product (keep latest row)
+      const dedupedByIdMap = new globalThis.Map<string, ProductItem>();
+      rawParsedProducts.forEach(p => {
+        dedupedByIdMap.set(p.id, p);
+      });
+      const parsedProducts = Array.from(dedupedByIdMap.values());
 
       if (parsedProducts.length > 0) {
         // Compare previous products state with new inventory to detect newly arrived / restocked products
@@ -1457,6 +1580,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         const uploadTimestamp = Date.now();
+        setLastInventoryUploadTimestamp(uploadTimestamp);
         try {
           localStorage.setItem('last_inventory_upload_timestamp', String(uploadTimestamp));
         } catch {}
@@ -1528,7 +1652,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           await setDoc(doc(db, 'app_settings', 'inventory_stock'), {
             stockByCode: newStockByCode,
-            updatedAt: Date.now(),
+            updatedAt: uploadTimestamp,
             updatedAtFormatted: dateFormatted
           }, { merge: true });
         } catch (err) {
@@ -1537,6 +1661,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         
         // Save to Firestore using chunked batches: upsert new products FIRST so onSnapshot never sees empty catalog,
         // then remove obsolete docs no longer present in the uploaded inventory.
+        isImportingInventoryRef.current = true;
         try {
           const newIds = new Set(cleanedProducts.map(p => p.id));
 
@@ -1579,6 +1704,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         } catch (err) {
           console.error('Error saving imported products to Firestore:', err);
+        } finally {
+          isImportingInventoryRef.current = false;
         }
 
         if (restockedList.length > 0) {
@@ -2140,6 +2267,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setProductsList(prev => {
         const next = prev.map(p => ({
           ...p,
+          totalPieces: 0,
+          totalUnits: 0,
+          totalCartons: 0,
+          initialStockCartons: 0,
           stockCartons: 0,
           isVisible: false,
           isAvailable: false
@@ -2155,7 +2286,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let batch = writeBatch(db);
         let count = 0;
         for (const d of snapshot.docs) {
-          batch.update(d.ref, { stockCartons: 0, isVisible: false, isAvailable: false });
+          batch.update(d.ref, {
+            totalPieces: 0,
+            totalUnits: 0,
+            totalCartons: 0,
+            initialStockCartons: 0,
+            stockCartons: 0,
+            isVisible: false,
+            isAvailable: false
+          });
           count++;
           if (count === 450) {
             await batch.commit();
@@ -4214,8 +4353,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const prodsSnap = await getDocs(collection(db, 'products_catalog'));
       const prods: ProductItem[] = [];
       prodsSnap.forEach((docSnap) => {
-        const data = docSnap.data() as ProductItem;
-        if (data) prods.push({ ...data, id: docSnap.id });
+        const parsed = parseProductDoc(docSnap);
+        if (parsed) prods.push(parsed);
       });
       if (prods.length > 0) {
         setProductsList(prods);

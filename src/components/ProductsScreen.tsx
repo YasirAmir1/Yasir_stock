@@ -700,7 +700,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     });
 
     return filtered;
-  }, [productsList, debouncedSearchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged]);
+  }, [productsList, debouncedSearchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged, getProductLiveStock]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -780,7 +780,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     setEditPieceWeightKg(p.pieceWeightKg.toString());
     setEditRetailPrice(p.retailPrice?.toString() || '0');
     setEditWholesalePrice(p.wholesalePrice?.toString() || '0');
-    setEditStockCartons(p.stockCartons?.toString() || '0');
+    const currentCartons =
+      p.totalCartons ??
+      p.stockCartons ??
+      Math.floor((p.totalUnits ?? p.totalPieces ?? 0) / (Number(p.unitsPerCarton || p.cartonQuantity) || 12));
+    setEditStockCartons(currentCartons.toString());
     setEditImageUrl(p.imageUrl || '');
     setEditIsAvailable(p.isAvailable !== false);
     setExpandedId(p.id); // Expand when editing
@@ -809,6 +813,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     const currentProd = productsList.find(p => p.id === id);
     const newStockCartons = Number(editStockCartons) || 0;
     const unitsPerCarton = Number(editCartonQuantity) || 12;
+    const newTotalPieces = newStockCartons * unitsPerCarton;
     const newRetail = Number(editRetailPrice) || 0;
     const newWholesale = Number(editWholesalePrice) || 0;
 
@@ -822,7 +827,12 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       productCode: editProductCode.trim() || 'PRD-000',
       productName: editProductName.trim() || 'منتج جديد',
       unitsPerCarton: unitsPerCarton,
-      totalPieces: newStockCartons * unitsPerCarton,
+      cartonQuantity: unitsPerCarton,
+      totalPieces: newTotalPieces,
+      totalUnits: newTotalPieces,
+      totalCartons: newStockCartons,
+      stockCartons: newStockCartons,
+      initialStockCartons: newStockCartons,
       pieceWeightKg: Number(editPieceWeightKg) || 0,
       retailPrice: newRetail,
       wholesalePrice: newWholesale,
@@ -1219,7 +1229,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
             pieceWeightKg: pieceWeightKg,
             totalWeightKg: totalGiftWeight,
             delegateName: (currentUser?.isAdmin ? (selectedDelegate && selectedDelegate !== 'الكل' ? selectedDelegate : 'الأدمن') : currentUser?.name) || 'عام',
-            dateString: today,
+            dateString: getBaghdadDateAndSeconds().todayStr,
             customerName: trimmedCustomerName,
             customerCode: String(customerCode || '').trim(),
             customerAddress: String(customerAddress || '').trim(),
