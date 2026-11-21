@@ -73,6 +73,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
   const [gpsStatus, setGpsStatus] = useState<GpsTrackingStatus>('idle');
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState<boolean>(false);
+  const [isModalClosedByUser, setIsModalClosedByUser] = useState<boolean>(false);
   const [isRequestingFromModal, setIsRequestingFromModal] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
   const [exitReminderAlert, setExitReminderAlert] = useState<{
@@ -283,6 +284,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
       const pos = detail?.position as GeolocationPosition | undefined;
       hasAcquiredFixRef.current = true;
       setShowPermissionPrompt(false);
+      setIsModalClosedByUser(false);
       setIsRequestingFromModal(false);
       setGpsStatus('active');
 
@@ -310,14 +312,17 @@ export const RepresentativeLiveTracker: React.FC = () => {
         }
       }
       setIsRequestingFromModal(false);
+      setIsModalClosedByUser(false);
       setShowPermissionPrompt(true);
     };
 
     const onLegacyRetry = () => {
       if (permissionGrantedRef.current) {
         setShowPermissionPrompt(false);
+        setIsModalClosedByUser(false);
         setRetryTrigger((v) => v + 1);
       } else {
+        setIsModalClosedByUser(false);
         setShowPermissionPrompt(true);
       }
     };
@@ -871,7 +876,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
     });
   };
 
-  const isMandatoryGpsModalVisible =
+  const hasBlockingGpsIssue =
     isRepUser &&
     !isCompletedToday &&
     (gpsStatus === 'prompt' ||
@@ -881,6 +886,8 @@ export const RepresentativeLiveTracker: React.FC = () => {
       gpsStatus === 'unavailable' ||
       (gpsStatus === 'timeout' && !hasAcquiredFixRef.current) ||
       (gpsStatus === 'requesting' && (showPermissionPrompt || !hasAcquiredFixRef.current)));
+
+  const isMandatoryGpsModalVisible = hasBlockingGpsIssue && !isModalClosedByUser;
 
   if (!exitReminderAlert && !isMandatoryGpsModalVisible) {
     return null;
@@ -961,8 +968,8 @@ export const RepresentativeLiveTracker: React.FC = () => {
         : gpsStatus === 'unavailable'
         ? 'المتصفح لا يدعم تحديد الموقع (GPS)'
         : gpsStatus === 'prompt' || gpsStatus === 'requesting'
-        ? 'تفعيل الموقع (GPS) إجباري للمتابعة'
-        : 'تفعيل صلاحية الموقع (GPS) إجباري';
+        ? 'تفعيل صلاحية الموقع (GPS)'
+        : 'مطلوب تفعيل صلاحية الموقع (GPS)';
 
     const modalSubtitle =
       gpsStatus === 'insecure'
@@ -974,8 +981,8 @@ export const RepresentativeLiveTracker: React.FC = () => {
         : gpsStatus === 'unavailable'
         ? 'استخدم متصفح Chrome على Android أو Safari على iPhone'
         : gpsStatus === 'prompt' || gpsStatus === 'requesting'
-        ? 'التتبع والمراقبة إجباريان — يتم تحديث موقعك بدقة كل 30 ثانية'
-        : 'تم رفض الوصول إلى الموقع الجغرافي — التتبع إجباري داخل التطبيق';
+        ? 'يرجى تفعيل صلاحية الموقع (GPS) لتأكيد الزيارات والمسار'
+        : 'تم رفض الوصول إلى الموقع الجغرافي — يرجى تفعيله من الإعدادات';
 
     return (
       <>
@@ -983,6 +990,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
           dir="rtl"
+          onClick={() => setIsModalClosedByUser(true)}
         >
           <div
             className={`w-full max-w-sm rounded-3xl p-5 shadow-2xl border-2 text-right space-y-4 animate-in zoom-in-95 duration-200 ${
@@ -1006,6 +1014,15 @@ export const RepresentativeLiveTracker: React.FC = () => {
                   </p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsModalClosedByUser(true)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0 transition-colors"
+                title="إغلاق مؤقت (سيُطلب عند إنشاء فاتورة للزبون)"
+                aria-label="إغلاق مؤقت"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <div
@@ -1021,7 +1038,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
                 </p>
               ) : gpsStatus === 'gps_off' ? (
                 <>
-                  <p className="font-black">لتشغيل GPS في الهاتف (إجباري):</p>
+                  <p className="font-black">لتشغيل GPS في الهاتف:</p>
                   {mobileOs === 'ios' ? (
                     <p>• في iPhone: الإعدادات ← الخصوصية والأمن ← خدمات الموقع (تفعيل)، ثم اختر Safari ← «أثناء استخدام التطبيق» وفعّل «الموقع الدقيق».</p>
                   ) : mobileOs === 'android' ? (
@@ -1046,7 +1063,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
               ) : gpsStatus === 'prompt' || gpsStatus === 'requesting' ? (
                 <>
                   <p className="font-black">
-                    اضغط على «تفعيل الموقع الآن» ثم اختر السماح (Allow) مع تفعيل «الموقع الدقيق / Precise Location» لاستمرار العمل وتحديث موقعك بدقة كل 30 ثانية.
+                    اضغط على «تفعيل الموقع الآن» ثم اختر السماح (Allow) مع تفعيل «الموقع الدقيق / Precise Location» لتأكيد زيارة المحلات وتحديث المسار.
                   </p>
                 </>
               ) : (
@@ -1088,7 +1105,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
                   {isRequestingFromModal || gpsStatus === 'requesting'
                     ? 'جاري تحديد الموقع...'
                     : gpsStatus === 'prompt'
-                    ? 'تفعيل الموقع الآن (إجباري)'
+                    ? 'تفعيل الموقع الآن'
                     : 'إعادة المحاولة / تفعيل الموقع'}
                 </span>
               </button>

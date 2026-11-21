@@ -420,25 +420,49 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   );
   const unvisitedCount = mappedCustomers.length - visitedCount - unsuccessfulCount;
 
-  // Filter live rep pins: when repViewOnly=true, show ONLY this representative's live location
+  // Filter live rep pins: enforce strictly ONE latest pin per rep (and when repViewOnly=true, only this rep)
   const visibleLiveReps = useMemo(() => {
-    if (!repViewOnly) return liveReps;
-    const normRepId = normalizeTrackingText(restrictRepId);
-    const normRepName = normalizeTrackingText(restrictRepName);
-    const normRepCode = normalizeTrackingText(restrictDelegateCode);
-    const normRepUser = normalizeTrackingText(restrictUsername);
+    const filtered = !repViewOnly
+      ? liveReps
+      : (() => {
+          const normRepId = normalizeTrackingText(restrictRepId);
+          const normRepName = normalizeTrackingText(restrictRepName);
+          const normRepCode = normalizeTrackingText(restrictDelegateCode);
+          const normRepUser = normalizeTrackingText(restrictUsername);
 
-    return liveReps.filter((rep) => {
-      const idNorm = normalizeTrackingText(rep.rep_id);
-      const nameNorm = normalizeTrackingText(rep.rep_name);
-      const codeNorm = normalizeTrackingText(rep.delegate_code);
-      return (
-        (normRepId && (idNorm === normRepId || codeNorm === normRepId)) ||
-        (normRepCode && (codeNorm === normRepCode || idNorm === normRepCode)) ||
-        (normRepName && (nameNorm === normRepName || nameNorm.includes(normRepName) || normRepName.includes(nameNorm))) ||
-        (normRepUser && (idNorm === normRepUser || nameNorm.includes(normRepUser)))
-      );
-    });
+          return liveReps.filter((rep) => {
+            const idNorm = normalizeTrackingText(rep.rep_id);
+            const nameNorm = normalizeTrackingText(rep.rep_name);
+            const codeNorm = normalizeTrackingText(rep.delegate_code);
+            return (
+              (normRepId && (idNorm === normRepId || codeNorm === normRepId)) ||
+              (normRepCode && (codeNorm === normRepCode || idNorm === normRepCode)) ||
+              (normRepName && (nameNorm === normRepName || nameNorm.includes(normRepName) || normRepName.includes(nameNorm))) ||
+              (normRepUser && (idNorm === normRepUser || nameNorm.includes(normRepUser)))
+            );
+          });
+        })();
+
+    const deduped: Array<{ tokens: Set<string>; latest: RepLiveLocation; latestMs: number }> = [];
+    for (const rep of filtered) {
+      const tokens = [
+        normalizeTrackingText(rep.rep_name),
+        normalizeTrackingText(rep.delegate_code),
+        normalizeTrackingText(rep.rep_id),
+      ].filter(Boolean);
+      const curMs = rep.updated_at ? new Date(rep.updated_at).getTime() : 0;
+      const existing = deduped.find((d) => tokens.some((t) => d.tokens.has(t)));
+      if (existing) {
+        tokens.forEach((t) => existing.tokens.add(t));
+        if (curMs >= existing.latestMs) {
+          existing.latest = rep;
+          existing.latestMs = curMs;
+        }
+      } else {
+        deduped.push({ tokens: new Set(tokens), latest: rep, latestMs: curMs });
+      }
+    }
+    return deduped.map((d) => d.latest);
   }, [liveReps, repViewOnly, restrictRepId, restrictRepName, restrictDelegateCode, restrictUsername]);
 
   // Admin-only per-rep last-hour visit check (flags inactive reps with pulsing red dot)

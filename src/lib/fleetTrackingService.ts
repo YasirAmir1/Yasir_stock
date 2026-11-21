@@ -583,6 +583,8 @@ const withNetworkTimeout = <T>(promise: Promise<T>, timeoutMs = 8000): Promise<T
   });
 };
 
+const cleanedDuplicateDocsSessions = new Set<string>();
+
 export const upsertRepLiveLocation = async (params: {
   repId: string;
   repName: string;
@@ -603,6 +605,60 @@ export const upsertRepLiveLocation = async (params: {
     is_active: isActive,
     updated_at: nowIso,
   };
+
+  // Once per session, deactivate any legacy/duplicate rep_live_locations rows for this same rep under a different rep_id
+  const sessionKey = `${params.repId}::${normalizeTrackingText(params.repName)}`;
+  if (isActive && !cleanedDuplicateDocsSessions.has(sessionKey)) {
+    cleanedDuplicateDocsSessions.add(sessionKey);
+    const cleanName = String(params.repName || '').trim();
+    const normTargetName = normalizeTrackingText(cleanName);
+    const normTargetCode = normalizeTrackingText(params.delegateCode);
+    void (async () => {
+      try {
+        if (cleanName) {
+          const fsSnap = await getDocs(
+            query(collection(db, 'rep_live_locations'), where('rep_name', '==', cleanName))
+          );
+          for (const d of fsSnap.docs) {
+            if (d.id !== params.repId) {
+              await deleteDoc(d.ref).catch(() =>
+                updateDoc(d.ref, { is_active: false, updated_at: nowIso }).catch(() => {})
+              );
+            }
+          }
+        }
+      } catch {
+        // Non-blocking cleanup
+      }
+      try {
+        if (cleanName) {
+          const { data: sbRows } = await supabase
+            .from('rep_live_locations')
+            .select('rep_id, rep_name, delegate_code')
+            .eq('is_active', true);
+          if (Array.isArray(sbRows)) {
+            for (const r of sbRows) {
+              const rId = String((r as any)?.rep_id || '');
+              if (!rId || rId === params.repId) continue;
+              const rName = normalizeTrackingText((r as any)?.rep_name);
+              const rCode = normalizeTrackingText((r as any)?.delegate_code);
+              if (
+                (normTargetName && rName === normTargetName) ||
+                (normTargetCode && rCode === normTargetCode)
+              ) {
+                await supabase
+                  .from('rep_live_locations')
+                  .update({ is_active: false, updated_at: nowIso })
+                  .eq('rep_id', rId);
+              }
+            }
+          }
+        }
+      } catch {
+        // Non-blocking cleanup
+      }
+    })();
+  }
 
   const firestoreTask = async (): Promise<boolean> => {
     try {
@@ -774,21 +830,28 @@ export const subscribeToRepLiveLocations = (
         loc.latitude !== 0 &&
         loc.longitude !== 0
     );
-    // Deduplicate by delegate identity keeping strictly the newest location and discarding any older row
-    const dedupedByRep = new Map<string, RepLiveLocation>();
+    // Deduplicate across ALL identity tokens (rep_name, delegate_code, rep_id) so one delegate NEVER has two pins
+    const groups: Array<{ tokens: Set<string>; latest: RepLiveLocation; latestMs: number }> = [];
     for (const loc of valid) {
-      const normKey =
-        normalizeTrackingText(loc.delegate_code) ||
-        normalizeTrackingText(loc.rep_name) ||
-        normalizeTrackingText(loc.rep_id);
-      const existing = dedupedByRep.get(normKey);
+      const tokens = [
+        normalizeTrackingText(loc.rep_name),
+        normalizeTrackingText(loc.delegate_code),
+        normalizeTrackingText(loc.rep_id),
+      ].filter(Boolean);
       const curMs = loc.updated_at ? new Date(loc.updated_at).getTime() : 0;
-      const prevMs = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0;
-      if (!existing || curMs >= prevMs) {
-        dedupedByRep.set(normKey, loc);
+
+      const matchedGroup = groups.find((g) => tokens.some((t) => g.tokens.has(t)));
+      if (matchedGroup) {
+        tokens.forEach((t) => matchedGroup.tokens.add(t));
+        if (curMs >= matchedGroup.latestMs) {
+          matchedGroup.latest = loc;
+          matchedGroup.latestMs = curMs;
+        }
+      } else {
+        groups.push({ tokens: new Set(tokens), latest: loc, latestMs: curMs });
       }
     }
-    onLocations(Array.from(dedupedByRep.values()));
+    onLocations(groups.map((g) => g.latest));
   };
 
   const applyRow = (row: Partial<RepLiveLocation> | null | undefined) => {

@@ -10,6 +10,12 @@ import { showConfirm } from '../utils/dialogService';
 import { GiftsManagementTable } from './GiftsManagementTable';
 import { StoreNotificationsModal } from './StoreNotificationsModal';
 import { AdminProductDemandPanel } from './AdminProductDemandPanel';
+import {
+  getLastKnownGpsTrackingStatus,
+  getLastKnownRepCoords,
+  isFieldRepresentativeUser,
+  requestGeolocationFromUserGesture,
+} from '../lib/fleetTrackingService';
 
 export interface PriceChangeStatus {
   hasAnyChange: boolean;
@@ -906,6 +912,21 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
   const prepareSave = () => {
     setErrorMessage(null);
+    if (isFieldRepresentativeUser(currentUser)) {
+      const gpsStatusNow = getLastKnownGpsTrackingStatus();
+      const liveCoordsNow = getLastKnownRepCoords();
+      if (gpsStatusNow !== 'idle' && (gpsStatusNow !== 'active' || !liveCoordsNow)) {
+        const msg = 'يجب تفعيل صلاحية الموقع (GPS) أولاً عند طلب أو حفظ فاتورة للزبون.';
+        setErrorMessage(msg);
+        addToast?.({
+          title: 'مطلوب تفعيل الموقع (GPS)',
+          message: msg,
+          type: 'reminder',
+        });
+        requestGeolocationFromUserGesture({ openHelpOnError: true });
+        return;
+      }
+    }
     if (hasAnyOversoldProduct) {
       setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر');
       return;

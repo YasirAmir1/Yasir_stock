@@ -3161,6 +3161,17 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   };
 
   const handleProceedToNewOrder = (r: RouteItem) => {
+    const isPrivilegedUser = Boolean(currentUser?.isAdmin || isDataEntry);
+    if (!isPrivilegedUser && isFieldRep && !isCompleted && (repGpsStatus !== 'active' || !repLiveCoords)) {
+      addToast?.({
+        title: 'مطلوب تفعيل الموقع (GPS)',
+        message: 'يجب تفعيل صلاحية الموقع (GPS) أولاً عند طلب فاتورة للزبون.',
+        type: 'reminder',
+      });
+      requestGeolocationFromUserGesture({ openHelpOnError: true });
+      return;
+    }
+
     setActionModalRoute(null);
     setActionModalStep(null);
     
@@ -3343,6 +3354,16 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         message: 'انتهى وقت المبيعات المتاحة لهذا اليوم.',
         type: 'reminder',
       });
+      return;
+    }
+
+    if (isFieldRep && !isCompleted && (repGpsStatus !== 'active' || !repLiveCoords)) {
+      addToast?.({
+        title: 'مطلوب تفعيل الموقع (GPS)',
+        message: 'يجب تفعيل صلاحية الموقع (GPS) أولاً عند طلب فاتورة للزبون.',
+        type: 'reminder',
+      });
+      requestGeolocationFromUserGesture({ openHelpOnError: true });
       return;
     }
 
@@ -4377,12 +4398,12 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
             ) : repGpsStatus === 'prompt' || repGpsStatus === 'idle' ? (
               <>
                 <Navigation className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>تفعيل الموقع (GPS) إجباري — اضغط «تفعيل الموقع» لتحديث موقعك بدقة كل 30 ثانية</span>
+                <span>يرجى الضغط على «تفعيل الموقع» للسماح بتحديد موقعك (GPS) لتأكيد زيارة المحلات وتحديث المسار</span>
               </>
             ) : (
               <>
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0"></span>
-                <span>تحديد الموقع نشط — يتم تحديث موقعك بدقة كل 30 ثانية لتأكيد الزيارات والمسار</span>
+                <span>تحديد الموقع نشط لتأكيد زيارة المحلات وتحديث المسار اليومي</span>
               </>
             )}
           </div>
