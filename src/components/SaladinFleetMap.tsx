@@ -7,11 +7,9 @@ import {
   getActiveBaghdadRouteDay,
   getCachedShopCoordinates,
   getLastKnownRepCoords,
-  getRepTrailPoints,
   normalizeTrackingText,
   parseCoordinate,
   REP_COORDS_EVENT,
-  REP_TRAIL_UPDATED_EVENT,
   RepLiveCoords,
   resolveRouteCoordinatesWithCache,
   saveCustomerCoordinates,
@@ -22,6 +20,7 @@ import { getEffectiveRouteDay } from '../utils/routeUtils';
 import { formatEnglishDate, formatEnglishTime } from '../utils/dateUtils';
 import { getBaghdadDateAndSeconds, useSales } from '../context/SalesContext';
 import { parseArabicDigits } from '../utils/numberUtils';
+import { hasDelegateRecordedVisitInLastHour } from '../utils/salesAnalysisUtils';
 import {
   MapPin,
   Navigation,
@@ -68,14 +67,21 @@ interface SaladinFleetMapProps {
 const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const createRepDivIcon = (repName: string): L.DivIcon => {
+const createRepDivIcon = (repName: string, showIdleRedAlert = false): L.DivIcon => {
   const safeName = escapeHtml(repName);
+  const statusDotHtml = showIdleRedAlert
+    ? `<span title="تنبيه: لم يسجل أي زيارة خلال آخر ساعة" style="position:relative;display:inline-flex;width:9px;height:9px;flex-shrink:0;align-items:center;justify-content:center;">
+        <span class="rep-idle-pulse-ring" style="position:absolute;inset:-3px;border-radius:9999px;background:rgba(239,68,68,0.85);"></span>
+        <span style="position:relative;width:8px;height:8px;border-radius:9999px;background:#ef4444;border:1.5px solid #ffffff;box-shadow:0 0 8px #ef4444;display:inline-block;"></span>
+      </span>`
+    : `<span style="width:7px;height:7px;border-radius:9999px;background:#4ade80;box-shadow:0 0 6px #4ade80;display:inline-block;flex-shrink:0;"></span>`;
+  const badgeBorder = showIdleRedAlert ? '#fecaca' : '#ffffff';
   return L.divIcon({
     className: 'custom-rep-pin',
     html: `
       <div dir="rtl" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);pointer-events:auto;">
-        <div style="display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#0369a1,#0284c7);color:#ffffff;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 4px 12px rgba(2,132,199,0.48);border:2px solid #ffffff;margin-bottom:4px;font-family:'Cairo',sans-serif;">
-          <span style="width:7px;height:7px;border-radius:9999px;background:#4ade80;box-shadow:0 0 6px #4ade80;display:inline-block;"></span>
+        <div style="display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#0369a1,#0284c7);color:#ffffff;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 4px 12px rgba(2,132,199,0.48);border:2px solid ${badgeBorder};margin-bottom:4px;font-family:'Cairo',sans-serif;">
+          ${statusDotHtml}
           <span>المندوب: ${safeName}</span>
         </div>
         <div style="position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
@@ -202,9 +208,6 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const [localRepCoords, setLocalRepCoords] = useState<RepLiveCoords | null>(() =>
     repViewOnly ? getLastKnownRepCoords() : null
   );
-  const [repTrailPoints, setRepTrailPoints] = useState<Array<[number, number]>>(() =>
-    restrictRepId ? getRepTrailPoints(restrictRepId) : []
-  );
   const [showAllDaysOnMap, setShowAllDaysOnMap] = useState<boolean>(() => !repViewOnly);
   const hasAutoFittedRef = useRef<boolean>(false);
   const [assignMode, setAssignMode] = useState<boolean>(false);
@@ -213,6 +216,13 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const [geofenceInput, setGeofenceInput] = useState<string>(() => String(geofenceRadiusMeters || 100));
   const [isSavingGeofence, setIsSavingGeofence] = useState<boolean>(false);
   const [focusedRepId, setFocusedRepId] = useState<string | null>(null);
+  const [activityNowMs, setActivityNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    setActivityNowMs(Date.now());
+    const timer = window.setInterval(() => setActivityNowMs(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, [salesEntries, unsuccessfulVisits]);
 
   useEffect(() => {
     setGeofenceInput(String(geofenceRadiusMeters || 100));
@@ -431,22 +441,27 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     });
   }, [liveReps, repViewOnly, restrictRepId, restrictRepName, restrictDelegateCode, restrictUsername]);
 
-  // Listen to local GPS trail updates for drawing the rep's current route line
-  useEffect(() => {
-    if (!restrictRepId) {
-      setRepTrailPoints([]);
-      return;
-    }
-    setRepTrailPoints(getRepTrailPoints(restrictRepId));
-    const onTrailUpdate = (ev: Event) => {
-      const updatedId = (ev as CustomEvent<{ repId: string }>).detail?.repId;
-      if (!updatedId || updatedId === restrictRepId) {
-        setRepTrailPoints(getRepTrailPoints(restrictRepId));
-      }
-    };
-    window.addEventListener(REP_TRAIL_UPDATED_EVENT, onTrailUpdate);
-    return () => window.removeEventListener(REP_TRAIL_UPDATED_EVENT, onTrailUpdate);
-  }, [restrictRepId]);
+  // Admin-only per-rep last-hour visit check (flags inactive reps with pulsing red dot)
+  const repLastHourStatusMap = useMemo(() => {
+    const statusMap = new Map<string, { isIdleLastHour: boolean; lastVisitTs: number | null }>();
+    if (!isStrictAdminOnMap) return statusMap;
+
+    visibleLiveReps.forEach((rep) => {
+      const check = hasDelegateRecordedVisitInLastHour({
+        delegateName: rep.rep_name || rep.rep_id,
+        delegateCode: rep.delegate_code,
+        salesEntries,
+        unsuccessfulVisits,
+        nowMs: activityNowMs,
+      });
+      statusMap.set(rep.rep_id, {
+        isIdleLastHour: !check.hasRecentVisit,
+        lastVisitTs: check.lastVisitTs,
+      });
+    });
+
+    return statusMap;
+  }, [isStrictAdminOnMap, visibleLiveReps, salesEntries, unsuccessfulVisits, activityNowMs]);
 
   // Subscribe to rep_live_locations (is_active = true)
   useEffect(() => {
@@ -712,15 +727,15 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     });
   }, [mappedCustomers, canCreateInvoiceForRoute, visibleLiveReps, localRepCoords, geofenceRadiusMeters, repViewOnly]);
 
-  // Draw representative's current planned route line & live GPS driven path on the map
+  // Draw planned route line only when Admin filters by a specific delegate (never draw lines between shops for representatives)
   useEffect(() => {
     const layer = routePathLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
 
-    if (!repViewOnly && !selectedDelegateFilter) return;
+    if (repViewOnly || !selectedDelegateFilter) return;
 
-    // 1. Dashed polyline connecting today's route stops (current route sequence)
+    // Dashed polyline connecting filtered delegate's route stops for Admin review
     if (mappedCustomers.length >= 2) {
       const stopCoords: L.LatLngTuple[] = mappedCustomers.map((c) => [c.lat, c.lng]);
       L.polyline(stopCoords, {
@@ -730,26 +745,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         dashArray: '7, 8',
       }).addTo(layer);
     }
-
-    // 2. Solid sky-blue line showing rep's actual live movement path today (repViewOnly)
-    if (repViewOnly) {
-      const trail: L.LatLngTuple[] = [...repTrailPoints];
-      if (visibleLiveReps.length > 0) {
-        const cur: L.LatLngTuple = [visibleLiveReps[0].latitude, visibleLiveReps[0].longitude];
-        const last = trail[trail.length - 1];
-        if (!last || Math.abs(last[0] - cur[0]) > 1e-5 || Math.abs(last[1] - cur[1]) > 1e-5) {
-          trail.push(cur);
-        }
-      }
-      if (trail.length >= 2) {
-        L.polyline(trail, {
-          color: '#0284c7',
-          weight: 4,
-          opacity: 0.9,
-        }).addTo(layer);
-      }
-    }
-  }, [repViewOnly, selectedDelegateFilter, mappedCustomers, repTrailPoints, visibleLiveReps]);
+  }, [repViewOnly, selectedDelegateFilter, mappedCustomers]);
 
   // Smoothly animate Moving Live Representative Pins (is_active = true) via in-place setLatLng
   useEffect(() => {
@@ -770,15 +766,30 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     // 2. Smoothly move existing rep markers or create newly active ones
     visibleLiveReps.forEach((rep) => {
       const displayName = rep.rep_name || rep.rep_id;
+      const idleStatus = repLastHourStatusMap.get(rep.rep_id);
+      const isIdleLastHour = Boolean(isStrictAdminOnMap && idleStatus?.isIdleLastHour);
+      const metaSig = `${displayName}|${isIdleLastHour ? 1 : 0}`;
       const updatedFormatted = rep.updated_at
         ? formatEnglishTime(rep.updated_at, true, '-')
         : '-';
+      const lastVisitFormatted = idleStatus?.lastVisitTs
+        ? formatEnglishTime(new Date(idleStatus.lastVisitTs).toISOString(), true, '-')
+        : '';
 
       const popupHtml = `
-        <div dir="rtl" style="font-family:'Cairo',sans-serif;min-width:180px;">
+        <div dir="rtl" style="font-family:'Cairo',sans-serif;min-width:190px;">
           <div style="font-weight:900;font-size:13px;color:#0369a1;">🚚 المندوب: ${escapeHtml(displayName)}</div>
-          <div style="font-size:11px;color:#16a34a;font-weight:800;margin-top:2px;">● متصل الآن في الميدان</div>
-          <div style="font-size:11px;color:#475569;margin-top:3px;">آخر تحديث: <b>${escapeHtml(updatedFormatted)}</b></div>
+          ${
+            isIdleLastHour
+              ? `<div style="font-size:11px;color:#dc2626;font-weight:900;margin-top:3px;background:#fef2f2;border:1px solid #fecaca;padding:2px 6px;border-radius:6px;">🔴 لم يسجل أي زيارة خلال آخر ساعة</div>`
+              : `<div style="font-size:11px;color:#16a34a;font-weight:800;margin-top:2px;">● متصل الآن في الميدان</div>`
+          }
+          ${
+            lastVisitFormatted
+              ? `<div style="font-size:11px;color:#475569;margin-top:3px;">آخر زيارة مسجلة: <b>${escapeHtml(lastVisitFormatted)}</b></div>`
+              : ''
+          }
+          <div style="font-size:11px;color:#475569;margin-top:2px;">آخر تحديث موقع: <b>${escapeHtml(updatedFormatted)}</b></div>
           <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;" dir="ltr">${rep.latitude.toFixed(5)}, ${rep.longitude.toFixed(5)}</div>
         </div>
       `;
@@ -787,23 +798,23 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
       if (existingMarker) {
         // Smooth CSS-transitioned glide to new coordinate without clearing layers/tiles
         existingMarker.setLatLng([rep.latitude, rep.longitude]);
-        if (repMarkerMetaRef.current.get(rep.rep_id) !== displayName) {
-          existingMarker.setIcon(createRepDivIcon(displayName));
-          repMarkerMetaRef.current.set(rep.rep_id, displayName);
+        if (repMarkerMetaRef.current.get(rep.rep_id) !== metaSig) {
+          existingMarker.setIcon(createRepDivIcon(displayName, isIdleLastHour));
+          repMarkerMetaRef.current.set(rep.rep_id, metaSig);
         }
         existingMarker.setPopupContent(popupHtml);
       } else {
         const marker = L.marker([rep.latitude, rep.longitude], {
-          icon: createRepDivIcon(displayName),
+          icon: createRepDivIcon(displayName, isIdleLastHour),
           zIndexOffset: 1000,
         });
         marker.bindPopup(popupHtml);
         marker.addTo(layer);
         repMarkersRef.current.set(rep.rep_id, marker);
-        repMarkerMetaRef.current.set(rep.rep_id, displayName);
+        repMarkerMetaRef.current.set(rep.rep_id, metaSig);
       }
     });
-  }, [visibleLiveReps]);
+  }, [visibleLiveReps, repLastHourStatusMap, isStrictAdminOnMap]);
 
   // Auto-fit bounds when multiple points exist, otherwise keep full Saladin Governorate view
   useEffect(() => {
@@ -1152,25 +1163,47 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
               {visibleLiveReps.map((rep) => {
                 const repLabel = rep.rep_name || rep.rep_id;
                 const isFocused = focusedRepId === rep.rep_id;
+                const isIdleLastHour = Boolean(repLastHourStatusMap.get(rep.rep_id)?.isIdleLastHour);
                 return (
                   <button
                     key={rep.rep_id}
                     type="button"
                     onClick={() => handleFocusRepLocation(rep)}
-                    title={`تقريب الخريطة إلى موقع ${repLabel}`}
+                    title={
+                      isIdleLastHour
+                        ? `تنبيه: ${repLabel} لم يسجل أي زيارة خلال آخر ساعة • اضغط للتقريب إلى موقعه`
+                        : `تقريب الخريطة إلى موقع ${repLabel}`
+                    }
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all cursor-pointer active:scale-95 whitespace-nowrap shadow-xs ${
                       isFocused
                         ? 'bg-sky-600 text-white ring-2 ring-sky-400/60 shadow-sky-600/30'
-                        : isDarkMode
-                          ? 'bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-sky-700/60'
-                          : 'bg-white hover:bg-sky-100 text-sky-800 border border-sky-300'
+                        : isIdleLastHour
+                          ? isDarkMode
+                            ? 'bg-rose-950/60 hover:bg-rose-900/70 text-rose-100 border border-rose-500/70'
+                            : 'bg-white hover:bg-rose-50 text-rose-900 border border-rose-400'
+                          : isDarkMode
+                            ? 'bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-sky-700/60'
+                            : 'bg-white hover:bg-sky-100 text-sky-800 border border-sky-300'
                     }`}
                   >
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${isFocused ? 'bg-emerald-300 animate-ping' : 'bg-emerald-500'}`} />
+                    {isIdleLastHour ? (
+                      <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-85" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 ring-1 ring-white/80" />
+                      </span>
+                    ) : (
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${isFocused ? 'bg-emerald-300 animate-ping' : 'bg-emerald-500'}`} />
+                    )}
                     <span>{repLabel}</span>
                   </button>
                 );
               })}
+              {visibleLiveReps.some((rep) => repLastHourStatusMap.get(rep.rep_id)?.isIdleLastHour) && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-600 dark:text-rose-400 mr-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
+                  <span>لم يسجل زيارة خلال آخر ساعة</span>
+                </span>
+              )}
             </div>
           )}
         </div>

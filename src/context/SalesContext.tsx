@@ -863,7 +863,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               originalPath: data.originalPath || data.path || '',
               latitude: parseCoordinate(data.latitude),
               longitude: parseCoordinate(data.longitude),
+              shopLocation: data.shopLocation ? String(data.shopLocation).trim() : '',
               repLocationSaved: Boolean(data.repLocationSaved),
+              locationClearedAt: Number(data.locationClearedAt) || 0,
               visitedToday: Boolean(data.visitedToday ?? data.visited_today),
             } as RouteItem;
           };

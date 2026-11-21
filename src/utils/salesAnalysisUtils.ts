@@ -118,3 +118,134 @@ export function computeUnifiedDelegateInvoiceStats(
 
   return result;
 }
+
+export function parseUnsuccessfulVisitTimestamp(visit: {
+  timestamp?: unknown;
+  createdAt?: unknown;
+}): number {
+  const rawTs = visit.timestamp;
+  if (typeof rawTs === 'number' && !Number.isNaN(rawTs) && rawTs > 0) {
+    return rawTs;
+  }
+  if (rawTs && typeof rawTs === 'object') {
+    const obj = rawTs as { toMillis?: () => number; seconds?: number };
+    if (typeof obj.toMillis === 'function') {
+      const ms = obj.toMillis();
+      if (ms > 0) return ms;
+    }
+    if (typeof obj.seconds === 'number' && obj.seconds > 0) {
+      return obj.seconds * 1000;
+    }
+  }
+  const rawCreated = visit.createdAt;
+  if (typeof rawCreated === 'string' && rawCreated.trim()) {
+    const parsed = Date.parse(rawCreated);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (rawCreated && typeof rawCreated === 'object') {
+    const obj = rawCreated as { toMillis?: () => number; seconds?: number };
+    if (typeof obj.toMillis === 'function') {
+      const ms = obj.toMillis();
+      if (ms > 0) return ms;
+    }
+    if (typeof obj.seconds === 'number' && obj.seconds > 0) {
+      return obj.seconds * 1000;
+    }
+  }
+  return 0;
+}
+
+export function doesDelegateMatchIdentifier(
+  candidateName?: string | null,
+  candidateCode?: string | null,
+  targetName?: string | null,
+  targetCode?: string | null
+): boolean {
+  const cCode = String(candidateCode || '').trim().toLowerCase();
+  const tCode = String(targetCode || '').trim().toLowerCase();
+  if (cCode && tCode && cCode === tCode) return true;
+
+  const cNorm = normalizeArabicText(String(candidateName || '').trim());
+  const tNorm = normalizeArabicText(String(targetName || '').trim());
+  if (!cNorm || !tNorm) return false;
+  if (cNorm === tNorm) return true;
+  if (cNorm.length >= 3 && tNorm.length >= 3) {
+    return cNorm.includes(tNorm) || tNorm.includes(cNorm);
+  }
+  return false;
+}
+
+export function hasDelegateRecordedVisitInLastHour(params: {
+  delegateName?: string | null;
+  delegateCode?: string | null;
+  salesEntries: SalesEntry[];
+  unsuccessfulVisits?: Array<{
+    delegateName?: string;
+    delegateCode?: string;
+    timestamp?: unknown;
+    createdAt?: unknown;
+  }>;
+  nowMs?: number;
+  windowMs?: number;
+}): { hasRecentVisit: boolean; recentVisitCount: number; lastVisitTs: number | null } {
+  const nowMs = params.nowMs ?? Date.now();
+  const windowMs = params.windowMs ?? 60 * 60 * 1000;
+  const cutoffMs = nowMs - windowMs;
+  const upperBoundMs = nowMs + 120000;
+
+  let recentVisitCount = 0;
+  let lastVisitTs = 0;
+  const seenKeys = new Set<string>();
+
+  params.salesEntries.forEach((entry) => {
+    if (!isEntryValid(entry)) return;
+    if (
+      !doesDelegateMatchIdentifier(
+        entry.delegateName,
+        undefined,
+        params.delegateName,
+        params.delegateCode
+      )
+    ) {
+      return;
+    }
+    const ts = parseEntryTimestamp(entry);
+    if (ts > lastVisitTs) lastVisitTs = ts;
+    if (ts >= cutoffMs && ts <= upperBoundMs) {
+      const key = getInvoiceKey(entry) || entry.id || `${ts}`;
+      if (!seenKeys.has(`inv:${key}`)) {
+        seenKeys.add(`inv:${key}`);
+        recentVisitCount += 1;
+      }
+    }
+  });
+
+  (params.unsuccessfulVisits || []).forEach((visit, idx) => {
+    if (
+      !doesDelegateMatchIdentifier(
+        visit.delegateName,
+        visit.delegateCode,
+        params.delegateName,
+        params.delegateCode
+      )
+    ) {
+      return;
+    }
+    const ts = parseUnsuccessfulVisitTimestamp(visit);
+    if (ts > lastVisitTs) lastVisitTs = ts;
+    if (ts >= cutoffMs && ts <= upperBoundMs) {
+      const key = `${ts}_${idx}`;
+      if (!seenKeys.has(`uv:${key}`)) {
+        seenKeys.add(`uv:${key}`);
+        recentVisitCount += 1;
+      }
+    }
+  });
+
+  return {
+    hasRecentVisit: recentVisitCount > 0,
+    recentVisitCount,
+    lastVisitTs: lastVisitTs > 0 ? lastVisitTs : null,
+  };
+}
+

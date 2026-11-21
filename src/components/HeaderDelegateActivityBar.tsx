@@ -1,8 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, Clock, FileText, Filter, X } from 'lucide-react';
-import { SalesEntry } from '../types';
+import { SalesEntry, UnsuccessfulVisit } from '../types';
 import { normalizeArabicText, useSales } from '../context/SalesContext';
-import { computeUnifiedDelegateInvoiceStats, parseEntryTimestamp } from '../utils/salesAnalysisUtils';
+import { db } from '../lib/firebase';
+import { collection } from 'firebase/firestore';
+import { logFirestoreErrorGracefully, safeOnSnapshot } from '../lib/firestoreUtils';
+import {
+  computeUnifiedDelegateInvoiceStats,
+  hasDelegateRecordedVisitInLastHour,
+  parseEntryTimestamp,
+} from '../utils/salesAnalysisUtils';
 
 interface HeaderDelegateActivityBarProps {
   delegatesList: string[];
@@ -23,6 +30,8 @@ interface DelegateHourlyStats {
   level: ActivityLevel;
   levelLabel: string;
   lastInvoiceTs: number | null;
+  lastVisitTs: number | null;
+  isIdleNoVisitsLastHour: boolean;
   lastCustomerName: string;
 }
 
@@ -31,7 +40,7 @@ function getActivityLevel(count: number): { level: ActivityLevel; label: string 
   if (count >= 7) return { level: 'medium', label: 'نشاط جيد (7+)' };
   if (count >= 3) return { level: 'low', label: 'نشاط خفيف (3+)' };
   if (count >= 1) return { level: 'low', label: 'نشاط خفيف' };
-  return { level: 'idle', label: 'خامل (0 فواتير)' };
+  return { level: 'idle', label: 'لم يسجل أي زيارة خلال آخر ساعة' };
 }
 
 export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps> = ({
@@ -45,15 +54,34 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
   const { selectedDate } = useSales();
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [inspectedDelegate, setInspectedDelegate] = useState<string | null>(null);
+  const [unsuccessfulVisits, setUnsuccessfulVisits] = useState<UnsuccessfulVisit[]>([]);
 
-  // Refresh every 30 seconds so activity drops smoothly once invoices age past 60 minutes
+  // Listen to unsuccessful visits so delegates who recorded a visit without an invoice are recognized as active
+  useEffect(() => {
+    const unsub = safeOnSnapshot(
+      collection(db, 'unsuccessful_visits'),
+      (snap: any) => {
+        const list: UnsuccessfulVisit[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) list.push({ ...data, id: d.id } as UnsuccessfulVisit);
+        });
+        setUnsuccessfulVisits(list);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'HeaderActivityBar-unsuccessful-visits'),
+      'HeaderActivityBar-unsuccessful-visits'
+    );
+    return () => unsub();
+  }, []);
+
+  // Refresh every 30 seconds so activity drops smoothly once visits age past 60 minutes
   useEffect(() => {
     setNowMs(Date.now());
     const timer = setInterval(() => {
       setNowMs(Date.now());
     }, 30000);
     return () => clearInterval(timer);
-  }, [allSalesEntries, salesEntries]);
+  }, [allSalesEntries, salesEntries, unsuccessfulVisits]);
 
   const delegateStats = useMemo<DelegateHourlyStats[]>(() => {
     // Deduplicate sales entries from both allSalesEntries and salesEntries by entry.id
@@ -101,18 +129,33 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
         lastHourCount: 0,
         lastInvoiceTimestamp: null,
       };
+      const recentVisitCheck = hasDelegateRecordedVisitInLastHour({
+        delegateName: cleanName,
+        salesEntries: allEntriesArray,
+        unsuccessfulVisits,
+        nowMs,
+        windowMs: ONE_HOUR_MS,
+      });
+
       const count = entryMetrics.lastHourCount;
-      const { level, label } = getActivityLevel(count);
+      const isIdleNoVisitsLastHour = !recentVisitCheck.hasRecentVisit;
+      const effectiveLevelInfo =
+        count === 0 && !isIdleNoVisitsLastHour
+          ? { level: 'low' as ActivityLevel, label: 'نشاط خفيف (زيارة موثقة)' }
+          : getActivityLevel(count);
+
       return {
         name: cleanName,
         invoiceCount: count,
-        level,
-        levelLabel: label,
+        level: effectiveLevelInfo.level,
+        levelLabel: effectiveLevelInfo.label,
         lastInvoiceTs: entryMetrics.lastInvoiceTimestamp,
+        lastVisitTs: recentVisitCheck.lastVisitTs || entryMetrics.lastInvoiceTimestamp,
+        isIdleNoVisitsLastHour,
         lastCustomerName: lastCustomerMap.get(cleanName) || '',
       };
     });
-  }, [delegatesList, allSalesEntries, salesEntries, selectedDate, nowMs]);
+  }, [delegatesList, allSalesEntries, salesEntries, unsuccessfulVisits, selectedDate, nowMs]);
 
   const inspectedStat = useMemo(() => {
     if (!inspectedDelegate) return null;
@@ -150,7 +193,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
               ? 'border-slate-800 text-emerald-400'
               : 'border-slate-300 text-emerald-800'
           }`}
-          title="مؤشر نشاط المندوبين المباشر بناءً على عدد الفواتير المنشأة خلال آخر 60 دقيقة"
+          title="مؤشر نشاط المندوبين المباشر بناءً على عدد الفواتير والزيارات خلال آخر 60 دقيقة"
         >
           <Activity className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
           <span className="whitespace-nowrap hidden sm:inline">نشاط آخر ساعة</span>
@@ -180,39 +223,37 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
           {delegateStats.map((del) => {
             const isSelected = selectedDelegate === del.name;
 
-            const containerTheme =
-              del.level === 'high'
-                ? isDarkMode
-                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/70'
-                  : 'bg-emerald-50 border-emerald-400/80 text-emerald-950 hover:bg-emerald-100'
-                : del.level === 'medium'
-                ? isDarkMode
-                  ? 'bg-sky-950/60 border-sky-500/45 text-sky-100 hover:bg-sky-900/60'
-                  : 'bg-sky-50 border-sky-300 text-sky-950 hover:bg-sky-100'
-                : del.level === 'low'
-                ? isDarkMode
-                  ? 'bg-amber-950/50 border-amber-500/45 text-amber-100 hover:bg-amber-900/50'
-                  : 'bg-amber-50 border-amber-300 text-amber-950 hover:bg-amber-100'
-                : isDarkMode
-                ? 'bg-slate-900/80 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100';
+            const containerTheme = del.isIdleNoVisitsLastHour
+              ? isDarkMode
+                ? 'bg-rose-950/45 border-rose-500/60 text-rose-200 hover:bg-rose-900/50'
+                : 'bg-rose-50/85 border-rose-300 text-rose-900 hover:bg-rose-100'
+              : del.level === 'high'
+              ? isDarkMode
+                ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/70'
+                : 'bg-emerald-50 border-emerald-400/80 text-emerald-950 hover:bg-emerald-100'
+              : del.level === 'medium'
+              ? isDarkMode
+                ? 'bg-sky-950/60 border-sky-500/45 text-sky-100 hover:bg-sky-900/60'
+                : 'bg-sky-50 border-sky-300 text-sky-950 hover:bg-sky-100'
+              : isDarkMode
+              ? 'bg-amber-950/50 border-amber-500/45 text-amber-100 hover:bg-amber-900/50'
+              : 'bg-amber-50 border-amber-300 text-amber-950 hover:bg-amber-100';
 
-            const countColor =
-              del.level === 'high'
-                ? isDarkMode
-                  ? 'text-emerald-300'
-                  : 'text-emerald-800'
-                : del.level === 'medium'
-                ? isDarkMode
-                  ? 'text-sky-300'
-                  : 'text-sky-800'
-                : del.level === 'low'
-                ? isDarkMode
-                  ? 'text-amber-300'
-                  : 'text-amber-800'
-                : isDarkMode
-                ? 'text-slate-500'
-                : 'text-slate-400';
+            const countColor = del.isIdleNoVisitsLastHour
+              ? isDarkMode
+                ? 'text-rose-300'
+                : 'text-rose-700'
+              : del.level === 'high'
+              ? isDarkMode
+                ? 'text-emerald-300'
+                : 'text-emerald-800'
+              : del.level === 'medium'
+              ? isDarkMode
+                ? 'text-sky-300'
+                : 'text-sky-800'
+              : isDarkMode
+              ? 'text-amber-300'
+              : 'text-amber-800';
 
             const barActiveClass =
               del.level === 'high'
@@ -221,7 +262,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
                 ? 'bg-sky-500 dark:bg-sky-400'
                 : del.level === 'low'
                 ? 'bg-amber-500 dark:bg-amber-400'
-                : 'bg-slate-300 dark:bg-slate-700';
+                : 'bg-rose-400 dark:bg-rose-500';
 
             const barMutedClass = isDarkMode ? 'bg-slate-700/80' : 'bg-slate-300/80';
             const activeBars =
@@ -234,7 +275,11 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
                 onClick={() =>
                   setInspectedDelegate((prev) => (prev === del.name ? null : del.name))
                 }
-                title={`${del.name}: ${del.invoiceCount} ${del.invoiceCount === 1 ? 'فاتورة' : 'فواتير'} في آخر ساعة (${del.levelLabel})${del.lastInvoiceTs ? ` • آخر فاتورة: ${formatShortTime(del.lastInvoiceTs)}` : ''}`}
+                title={
+                  del.isIdleNoVisitsLastHour
+                    ? `${del.name}: تنبيه — لم يسجل أي زيارة خلال آخر ساعة${del.lastVisitTs ? ` • آخر زيارة: ${formatShortTime(del.lastVisitTs)}` : ''}`
+                    : `${del.name}: ${del.invoiceCount} ${del.invoiceCount === 1 ? 'فاتورة' : 'فواتير'} في آخر ساعة (${del.levelLabel})${del.lastVisitTs ? ` • آخر زيارة: ${formatShortTime(del.lastVisitTs)}` : ''}`
+                }
                 className={`inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border text-[10px] sm:text-xs font-extrabold transition-all shrink-0 cursor-pointer ${containerTheme} ${
                   isSelected
                     ? isDarkMode
@@ -243,22 +288,24 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
                     : ''
                 }`}
               >
-                {/* Live Pulse / Status Dot */}
+                {/* Live Pulse / Idle Red Alert Dot */}
                 <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
-                  {del.level === 'high' && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  {del.isIdleNoVisitsLastHour ? (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-85"></span>
+                  ) : (
+                    del.level === 'high' && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    )
                   )}
                   <span
                     className={`relative inline-flex rounded-full h-2 w-2 ${
-                      del.level === 'high'
+                      del.isIdleNoVisitsLastHour
+                        ? 'bg-red-500'
+                        : del.level === 'high'
                         ? 'bg-emerald-500'
                         : del.level === 'medium'
                         ? 'bg-sky-500'
-                        : del.level === 'low'
-                        ? 'bg-amber-500'
-                        : isDarkMode
-                        ? 'bg-slate-600'
-                        : 'bg-slate-400'
+                        : 'bg-amber-500'
                     }`}
                   />
                 </span>
@@ -299,7 +346,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
           className={`hidden md:flex items-center gap-2 shrink-0 text-[9px] font-bold pr-2 border-r ${
             isDarkMode ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-500'
           }`}
-          title="مستويات النشاط: 0 خامل • 3+ خفيف • 7+ جيد • 10+ مرتفع"
+          title="مستويات النشاط: نقطة حمراء نابضة (بدون زيارات آخر ساعة) • 3+ خفيف • 7+ جيد • 10+ مرتفع"
         >
           <span className="inline-flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -313,9 +360,9 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             <span>3+</span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-600" />
-            <span>0</span>
+          <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+            <span>خامل (ساعة)</span>
           </span>
         </div>
       </div>
@@ -342,24 +389,27 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
                 </span>
               </span>
               <span
-                className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                  inspectedStat.level === 'high'
+                className={`px-1.5 py-0.5 rounded text-[10px] font-black inline-flex items-center gap-1 ${
+                  inspectedStat.isIdleNoVisitsLastHour
+                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                    : inspectedStat.level === 'high'
                     ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                     : inspectedStat.level === 'medium'
                     ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
-                    : inspectedStat.level === 'low'
-                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                    : 'bg-slate-500/15 text-slate-600 dark:text-slate-400'
+                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                 }`}
               >
-                {inspectedStat.levelLabel}
+                {inspectedStat.isIdleNoVisitsLastHour && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                )}
+                <span>{inspectedStat.levelLabel}</span>
               </span>
-              {inspectedStat.lastInvoiceTs && (
+              {inspectedStat.lastVisitTs && (
                 <span className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400">
                   <Clock className="w-3 h-3" />
-                  <span>آخر فاتورة:</span>
+                  <span>آخر نشاط:</span>
                   <span className="font-mono" dir="ltr">
-                    {formatShortTime(inspectedStat.lastInvoiceTs)}
+                    {formatShortTime(inspectedStat.lastVisitTs)}
                   </span>
                   {inspectedStat.lastCustomerName && (
                     <span className="truncate max-w-[140px]">

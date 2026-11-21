@@ -246,6 +246,8 @@
         "latitude": { "type": "number" },
         "longitude": { "type": "number" },
         "shopLocation": { "type": "string" },
+        "repLocationSaved": { "type": "boolean" },
+        "locationClearedAt": { "type": "number" },
         "visitedToday": { "type": "boolean" }
       },
       "required": ["id", "customerCode", "customerName", "delegateName", "path"]

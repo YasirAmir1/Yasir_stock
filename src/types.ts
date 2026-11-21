@@ -341,6 +341,7 @@ export interface RouteItem {
   longitude?: number | null;
   shopLocation?: string;
   repLocationSaved?: boolean;
+  locationClearedAt?: number;
   visitedToday?: boolean;
   tier?: 'gold' | 'silver' | 'bronze';
 }

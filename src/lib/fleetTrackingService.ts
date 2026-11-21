@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where, writeBatch, DocumentReference } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where, writeBatch, DocumentReference } from 'firebase/firestore';
 import { db } from './firebase';
 import { cleanFirestoreData, logFirestoreErrorGracefully, safeOnSnapshot } from './firestoreUtils';
 import { supabase } from '../supabaseClient';
@@ -136,9 +136,24 @@ export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
     for (const r of routesList) {
       const lat = parseCoordinate(r.latitude);
       const lng = parseCoordinate(r.longitude);
-      if (lat === null || lng === null) continue;
-      const key = String(r.customerCode || r.id || '').trim();
-      if (!key) continue;
+      const candidateKeys = [String(r.customerCode || '').trim(), String(r.id || '').trim()].filter(Boolean);
+      if (candidateKeys.length === 0) continue;
+
+      if (lat === null || lng === null) {
+        const clearedAt = Number(r.locationClearedAt) || 0;
+        if (clearedAt > 0) {
+          for (const k of candidateKeys) {
+            const cached = existing[k];
+            if (cached && (!cached.updatedAt || cached.updatedAt <= clearedAt)) {
+              delete existing[k];
+              changed = true;
+            }
+          }
+        }
+        continue;
+      }
+
+      const key = candidateKeys[0];
       const prev = existing[key];
       if (!prev || prev.latitude !== lat || prev.longitude !== lng) {
         existing[key] = { latitude: lat, longitude: lng, updatedAt: now };
@@ -150,6 +165,26 @@ export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
     }
   } catch {
     // Ignore localStorage quota/privacy mode errors
+  }
+};
+
+export const removeCachedShopCoordinates = (route: Pick<RouteItem, 'id' | 'customerCode'>): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = getCachedShopCoordinates();
+    let changed = false;
+    const candidateKeys = [String(route.customerCode || '').trim(), String(route.id || '').trim()].filter(Boolean);
+    for (const k of candidateKeys) {
+      if (k in existing) {
+        delete existing[k];
+        changed = true;
+      }
+    }
+    if (changed) {
+      window.localStorage.setItem(SHOP_COORDS_CACHE_KEY, JSON.stringify(existing));
+    }
+  } catch {
+    // Ignore localStorage errors
   }
 };
 
@@ -165,6 +200,10 @@ export const resolveRouteCoordinatesWithCache = (
   const cache = cachedMap || getCachedShopCoordinates();
   const key = String(route.customerCode || route.id || '').trim();
   const hit = key ? cache[key] : undefined;
+  const clearedAt = Number(route.locationClearedAt) || 0;
+  if (clearedAt > 0 && (!hit?.updatedAt || hit.updatedAt <= clearedAt)) {
+    return { latitude: null, longitude: null };
+  }
   if (hit && Number.isFinite(hit.latitude) && Number.isFinite(hit.longitude)) {
     return { latitude: hit.latitude, longitude: hit.longitude };
   }
@@ -619,6 +658,7 @@ export const saveCustomerCoordinates = async (
       latitude: normalizedLat,
       longitude: normalizedLng,
       shopLocation,
+      locationClearedAt: 0,
       updatedAt: Date.now(),
       updatedBy: updatedBy || 'المستخدم',
       ...(extraFields || {}),
@@ -747,6 +787,127 @@ export const saveCustomerCoordinates = async (
     return {
       success: false,
       message: err?.message || 'حدث خطأ أثناء حفظ إحداثيات المحل',
+    };
+  }
+};
+
+/**
+ * Clear/Delete saved GPS coordinates for a customer shop across `routes`, `rep_shop_locations`, localStorage cache, and Supabase
+ * so representatives can re-capture the shop's location inside Shop Actions ("3- موقع المحل").
+ */
+export const deleteCustomerCoordinates = async (
+  route: RouteItem,
+  deletedBy?: string
+): Promise<{ success: boolean; message: string; clearedAt: number }> => {
+  const clearedAt = Date.now();
+  try {
+    const clearPayload = {
+      latitude: null,
+      longitude: null,
+      shopLocation: '',
+      repLocationSaved: false,
+      locationClearedAt: clearedAt,
+      updatedAt: clearedAt,
+      updatedBy: deletedBy || 'الأدمن',
+    };
+
+    const { ref, exists } = await resolveRouteDocRef(route);
+    if (exists) {
+      await updateDoc(ref, clearPayload);
+    }
+
+    // Clear coordinates on ALL route documents sharing the same customerCode
+    const cleanCustomerCode = String(route.customerCode || '').trim();
+    if (cleanCustomerCode) {
+      try {
+        const allCodeSnap = await getDocs(
+          query(collection(db, 'routes'), where('customerCode', '==', cleanCustomerCode))
+        );
+        for (const d of allCodeSnap.docs) {
+          if (d.id !== ref.id) {
+            await updateDoc(d.ref, clearPayload);
+          }
+        }
+      } catch {
+        // Non-blocking secondary route sync
+      }
+    }
+
+    // Delete any matching records from Firestore `rep_shop_locations`
+    try {
+      const deletedIds = new Set<string>();
+      const cleanCodeKey = cleanCustomerCode.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanRouteKey = String(route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      const candidateIds = [
+        cleanCodeKey ? `cust_${cleanCodeKey}` : '',
+        cleanRouteKey ? `route_${cleanRouteKey}` : '',
+      ].filter(Boolean);
+
+      for (const candId of candidateIds) {
+        const candRef = doc(db, 'rep_shop_locations', candId);
+        const candSnap = await getDoc(candRef);
+        if (candSnap.exists()) {
+          await deleteDoc(candRef);
+          deletedIds.add(candId);
+        }
+      }
+
+      if (cleanCustomerCode) {
+        const byCodeLocs = await getDocs(
+          query(collection(db, 'rep_shop_locations'), where('customerCode', '==', cleanCustomerCode))
+        );
+        for (const d of byCodeLocs.docs) {
+          if (!deletedIds.has(d.id)) {
+            await deleteDoc(d.ref);
+            deletedIds.add(d.id);
+          }
+        }
+      }
+
+      if (route.id) {
+        const byRouteLocs = await getDocs(
+          query(collection(db, 'rep_shop_locations'), where('routeId', '==', route.id))
+        );
+        for (const d of byRouteLocs.docs) {
+          if (!deletedIds.has(d.id)) {
+            await deleteDoc(d.ref);
+            deletedIds.add(d.id);
+          }
+        }
+      }
+    } catch {
+      // Non-blocking cleanup of rep_shop_locations
+    }
+
+    // Clear local shop coordinate cache immediately
+    removeCachedShopCoordinates(route);
+
+    // Clear Supabase customers mirror coordinates (non-blocking)
+    try {
+      const custId = cleanCustomerCode || ref.id;
+      await supabase
+        .from('customers')
+        .update({
+          latitude: null,
+          longitude: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', custId);
+    } catch {
+      // Silent fallback
+    }
+
+    return {
+      success: true,
+      clearedAt,
+      message: `تم حذف موقع المحل (${route.customerName}) بنجاح — يمكن للمندوب الآن إضافة موقعه من جديد في إجراءات المحل.`,
+    };
+  } catch (err: any) {
+    console.error('Error deleting customer coordinates:', err);
+    return {
+      success: false,
+      clearedAt,
+      message: err?.message || 'حدث خطأ أثناء حذف موقع المحل',
     };
   }
 };

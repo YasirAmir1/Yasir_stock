@@ -22,6 +22,7 @@ import {
   parseShopLocationString,
   formatShopLocationString,
   saveCustomerCoordinates,
+  deleteCustomerCoordinates,
   bulkUpdateRouteLocations,
   getRepTrackingId,
   GPS_STATUS_EVENT,
@@ -30,6 +31,7 @@ import {
   getLastKnownGpsTrackingStatus,
   calculateHaversineDistanceMeters,
   cacheShopCoordinatesLocally,
+  removeCachedShopCoordinates,
   getCachedShopCoordinates,
   resolveRouteCoordinatesWithCache,
   REP_COORDS_EVENT,
@@ -755,6 +757,8 @@ export const RoutesScreen: React.FC = () => {
   const [editingLocationRouteId, setEditingLocationRouteId] = useState<string | null>(null);
   const [editingLocationInput, setEditingLocationInput] = useState<string>('');
   const [isSavingInlineLocation, setIsSavingInlineLocation] = useState<boolean>(false);
+  const [confirmDeleteLocationRouteId, setConfirmDeleteLocationRouteId] = useState<string | null>(null);
+  const [deletingLocationRouteId, setDeletingLocationRouteId] = useState<string | null>(null);
 
   const isFieldRep = useMemo(() => isFieldRepresentativeUser(currentUser), [currentUser]);
 
@@ -1772,7 +1776,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           originalPath: data.originalPath || data.path || '',
           latitude: parseCoordinate(data.latitude),
           longitude: parseCoordinate(data.longitude),
+          shopLocation: data.shopLocation ? String(data.shopLocation).trim() : '',
           repLocationSaved: Boolean(data.repLocationSaved),
+          locationClearedAt: Number(data.locationClearedAt) || 0,
           visitedToday: Boolean(data.visitedToday ?? data.visited_today),
         } as RouteItem);
       });
@@ -3660,6 +3666,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
             longitude: record.longitude,
             shopLocation: record.shopLocation,
             repLocationSaved: true,
+            locationClearedAt: 0,
           };
         })
       );
@@ -3670,6 +3677,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           longitude: record.longitude,
           shopLocation: record.shopLocation,
           repLocationSaved: true,
+          locationClearedAt: 0,
         },
       ]);
 
@@ -3699,21 +3707,50 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     if (!isAdminUser || !rec.id) return;
     try {
       await deleteDoc(doc(db, 'rep_shop_locations', rec.id));
-      // Clear repLocationSaved flag on matching route docs so it can be re-captured if needed
-      const matchingRoutes = routes.filter(
+      const matchedRoute = routes.find(
         (r) =>
           r.id === rec.routeId ||
           (rec.customerCode && String(r.customerCode || '').trim() === String(rec.customerCode).trim())
       );
-      for (const mr of matchingRoutes) {
-        if (mr.id) {
-          await updateDoc(doc(db, 'routes', mr.id), { repLocationSaved: false }).catch(() => {});
-        }
-      }
+      const fallbackRoute: RouteItem = matchedRoute || {
+        id: rec.routeId || rec.id,
+        customerCode: rec.customerCode || '',
+        customerName: rec.customerName || '',
+        customerAddress: rec.customerAddress || '',
+        customerType: rec.customerType || 'مفرد',
+        delegateName: rec.delegateName || '',
+        path: rec.path || '',
+      };
+      const res = await deleteCustomerCoordinates(fallbackRoute, currentUser?.name || 'الأدمن');
+      const clearedAt = res.clearedAt || Date.now();
+      const targetCode = String(rec.customerCode || '').trim();
+      setSavedShopLocations((prev) =>
+        prev.filter((item) => {
+          if (item.id === rec.id) return false;
+          if (rec.routeId && item.routeId === rec.routeId) return false;
+          if (targetCode && String(item.customerCode || '').trim() === targetCode) return false;
+          return true;
+        })
+      );
+      setRoutes((prev) =>
+        prev.map((r) => {
+          const matchesId = (rec.routeId && r.id === rec.routeId) || (matchedRoute && r.id === matchedRoute.id);
+          const matchesCode = targetCode !== '' && String(r.customerCode || '').trim() === targetCode;
+          if (!matchesId && !matchesCode) return r;
+          return {
+            ...r,
+            latitude: null,
+            longitude: null,
+            shopLocation: '',
+            repLocationSaved: false,
+            locationClearedAt: clearedAt,
+          };
+        })
+      );
       setConfirmDeleteShopLocId(null);
       addToast?.({
         title: 'تم حذف الموقع',
-        message: `تم حذف الموقع المسجل للمحل (${rec.customerName}) وإعادة تفعيل التحديد له.`,
+        message: `تم حذف الموقع المسجل للمحل (${rec.customerName}) ويمكن للمندوب إضافته من جديد.`,
         type: 'info',
       });
     } catch (err) {
@@ -4016,10 +4053,71 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       message: res.message,
       type: res.success ? 'success' : 'info',
     });
-    if (res.success) {
+    if (res.success && parsed.latitude !== null && parsed.longitude !== null) {
+      const targetCode = String(route.customerCode || '').trim();
+      const locText = formatShopLocationString(parsed.latitude, parsed.longitude);
+      setRoutes((prev) =>
+        prev.map((item) => {
+          const matchesId = item.id && route.id && item.id === route.id;
+          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          if (!matchesId && !matchesCode) return item;
+          return {
+            ...item,
+            latitude: parsed.latitude,
+            longitude: parsed.longitude,
+            shopLocation: locText,
+            locationClearedAt: 0,
+          };
+        })
+      );
       setEditingLocationRouteId(null);
       setEditingLocationInput('');
     }
+  };
+
+  const handleDeleteInlineLocation = async (route: RouteItem) => {
+    if (!isStrictAdmin) return;
+    setDeletingLocationRouteId(route.id);
+    const res = await deleteCustomerCoordinates(route, currentUser?.name || 'الأدمن');
+    setDeletingLocationRouteId(null);
+    setConfirmDeleteLocationRouteId(null);
+
+    if (res.success) {
+      const targetCode = String(route.customerCode || '').trim();
+      setSavedShopLocations((prev) =>
+        prev.filter((rec) => {
+          if (route.id && rec.routeId === route.id) return false;
+          if (targetCode !== '' && String(rec.customerCode || '').trim() === targetCode) return false;
+          return true;
+        })
+      );
+      setRoutes((prev) =>
+        prev.map((item) => {
+          const matchesId = item.id && route.id && item.id === route.id;
+          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          if (!matchesId && !matchesCode) return item;
+          return {
+            ...item,
+            latitude: null,
+            longitude: null,
+            shopLocation: '',
+            repLocationSaved: false,
+            locationClearedAt: res.clearedAt,
+          };
+        })
+      );
+      removeCachedShopCoordinates(route);
+      if (editingLocationRouteId === route.id) {
+        setEditingLocationRouteId(null);
+        setEditingLocationInput('');
+      }
+    }
+
+    addToast({
+      title: res.success ? 'تم حذف موقع المحل 🗑️' : 'خطأ',
+      message: res.message,
+      type: res.success ? 'success' : 'info',
+    });
   };
 
   const handleDownloadFilteredRoutes = async () => {
@@ -6024,6 +6122,34 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                                   <X className="w-3.5 h-3.5" />
                                 </button>
                               </div>
+                            ) : confirmDeleteLocationRouteId === r.id ? (
+                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                                  حذف الموقع؟
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={deletingLocationRouteId === r.id}
+                                  onClick={() => handleDeleteInlineLocation(r)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-[10px] font-black cursor-pointer inline-flex items-center gap-1"
+                                  title="تأكيد حذف موقع المحل"
+                                >
+                                  {deletingLocationRouteId === r.id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3 h-3" />
+                                  )}
+                                  <span>تأكيد</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={deletingLocationRouteId === r.id}
+                                  onClick={() => setConfirmDeleteLocationRouteId(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                                >
+                                  إلغاء
+                                </button>
+                              </div>
                             ) : (
                               <div className="flex items-center justify-between gap-1.5">
                                 {locString ? (
@@ -6055,17 +6181,30 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                                   </span>
                                 )}
 
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingLocationRouteId(r.id);
-                                    setEditingLocationInput(locString);
-                                  }}
-                                  className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 cursor-pointer shrink-0"
-                                  title="إضافة أو تعديل موقع المحل يدوياً"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  {(locString || r.repLocationSaved) && isStrictAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteLocationRouteId(r.id)}
+                                      className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/60 text-rose-500 hover:text-rose-700 dark:text-rose-400 cursor-pointer shrink-0 transition-colors"
+                                      title="حذف موقع المحل وإتاحة إضافته للمندوب من جديد"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmDeleteLocationRouteId(null);
+                                      setEditingLocationRouteId(r.id);
+                                      setEditingLocationInput(locString);
+                                    }}
+                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 cursor-pointer shrink-0"
+                                    title="إضافة أو تعديل موقع المحل يدوياً"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </td>
