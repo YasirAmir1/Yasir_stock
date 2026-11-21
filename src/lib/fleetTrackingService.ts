@@ -4,12 +4,86 @@ import { cleanFirestoreData, logFirestoreErrorGracefully, safeOnSnapshot } from 
 import { supabase } from '../supabaseClient';
 import { RepLiveLocation, RouteItem, SalesEntry, UserAccount } from '../types';
 
-export type GpsTrackingStatus = 'idle' | 'requesting' | 'active' | 'denied' | 'unavailable';
+export type GpsTrackingStatus =
+  | 'idle'
+  | 'prompt'
+  | 'requesting'
+  | 'active'
+  | 'denied'
+  | 'gps_off'
+  | 'timeout'
+  | 'insecure'
+  | 'unavailable';
 export const GPS_STATUS_EVENT = 'rep-gps-status-changed';
 export const GPS_RETRY_REQUEST_EVENT = 'rep-gps-retry-request';
+export const GPS_POSITION_GRANTED_EVENT = 'rep-gps-position-granted';
+export const GPS_OPEN_HELP_MODAL_EVENT = 'rep-gps-open-help-modal';
 export const REP_TRAIL_UPDATED_EVENT = 'rep-gps-trail-updated';
 export const REP_COORDS_EVENT = 'rep-gps-coords-changed';
+export const REP_GPS_FORCE_SYNC_EVENT = 'rep-gps-force-sync';
 export const OPEN_SHOP_ACTION_MODAL_EVENT = 'open-shop-action-modal';
+
+export type GeolocationPermissionCheckResult =
+  | 'granted'
+  | 'denied'
+  | 'prompt'
+  | 'insecure'
+  | 'unavailable';
+
+export const isGeolocationSecureContext = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const hostname = window.location?.hostname || '';
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+      return true;
+    }
+    if (window.isSecureContext === true) return true;
+    if (window.location?.protocol === 'https:') return true;
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+export const detectMobileOs = (): 'ios' | 'android' | 'other' => {
+  if (typeof navigator === 'undefined') return 'other';
+  const ua = String(navigator.userAgent || '').toLowerCase();
+  const platform = String((navigator as any).platform || '').toLowerCase();
+  const maxTouchPoints = Number((navigator as any).maxTouchPoints || 0);
+  if (/iphone|ipad|ipod/.test(ua) || (platform === 'macintel' && maxTouchPoints > 1)) {
+    return 'ios';
+  }
+  if (/android/.test(ua)) {
+    return 'android';
+  }
+  return 'other';
+};
+
+export const mapGeolocationErrorToStatus = (
+  err: GeolocationPositionError | { code?: number } | null | undefined
+): GpsTrackingStatus => {
+  const code = Number(err?.code);
+  if (code === 1) return 'denied';
+  if (code === 2) return 'gps_off';
+  if (code === 3) return 'timeout';
+  return 'gps_off';
+};
+
+export const checkGeolocationPermissionState = async (): Promise<GeolocationPermissionCheckResult> => {
+  if (!isGeolocationSecureContext()) return 'insecure';
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return 'unavailable';
+  if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+    try {
+      const res = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+      if (res.state === 'granted' || res.state === 'denied' || res.state === 'prompt') {
+        return res.state;
+      }
+    } catch {
+      // Older iOS Safari or embedded webviews may reject permissions.query
+    }
+  }
+  return 'prompt';
+};
 
 export interface RepLiveCoords {
   latitude: number;
@@ -19,6 +93,84 @@ export interface RepLiveCoords {
 
 const SHOP_COORDS_CACHE_KEY = 'saladin_shop_coords_cache_v1';
 const REP_TRAIL_STORAGE_PREFIX = 'saladin_rep_trail_v1_';
+const REP_PENDING_GPS_PREFIX = 'saladin_rep_pending_gps_v1_';
+
+export interface PendingRepGpsCoords {
+  latitude: number;
+  longitude: number;
+  capturedAt: number;
+  synced: boolean;
+}
+
+export const savePendingRepGpsCoords = (
+  repId: string,
+  latitude: number,
+  longitude: number,
+  capturedAt: number,
+  synced = false
+): void => {
+  if (typeof window === 'undefined' || !repId) return;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude === 0 || longitude === 0) return;
+  try {
+    const payload: PendingRepGpsCoords = {
+      latitude: Number(latitude.toFixed(6)),
+      longitude: Number(longitude.toFixed(6)),
+      capturedAt,
+      synced,
+    };
+    window.localStorage.setItem(`${REP_PENDING_GPS_PREFIX}${repId}`, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota/privacy mode errors
+  }
+};
+
+export const getPendingRepGpsCoords = (repId: string): PendingRepGpsCoords | null => {
+  if (typeof window === 'undefined' || !repId) return null;
+  try {
+    const key = `${REP_PENDING_GPS_PREFIX}${repId}`;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingRepGpsCoords>;
+    if (
+      !parsed ||
+      !Number.isFinite(parsed.latitude) ||
+      !Number.isFinite(parsed.longitude) ||
+      !Number.isFinite(parsed.capturedAt)
+    ) {
+      return null;
+    }
+    const capturedAt = Number(parsed.capturedAt);
+    // Discard stale locations from earlier sessions (> 2 hours old) so old coordinates are never replayed
+    if (Date.now() - capturedAt > 2 * 60 * 60 * 1000) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    return {
+      latitude: Number(parsed.latitude),
+      longitude: Number(parsed.longitude),
+      capturedAt,
+      synced: Boolean(parsed.synced),
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const markPendingRepGpsCoordsSynced = (repId: string, expectedCapturedAt?: number): void => {
+  if (typeof window === 'undefined' || !repId) return;
+  try {
+    const existing = getPendingRepGpsCoords(repId);
+    if (!existing) return;
+    // Only mark synced if no newer offline coordinate was captured while the upload was in flight
+    if (expectedCapturedAt !== undefined && existing.capturedAt > expectedCapturedAt) return;
+    window.localStorage.setItem(
+      `${REP_PENDING_GPS_PREFIX}${repId}`,
+      JSON.stringify({ ...existing, synced: true })
+    );
+  } catch {
+    // Ignore storage errors
+  }
+};
 
 export const getRepTrailPoints = (repId: string): Array<[number, number]> => {
   if (typeof window === 'undefined' || !repId) return [];
@@ -82,6 +234,64 @@ export const dispatchGpsTrackingStatus = (status: GpsTrackingStatus) => {
 export const getLastKnownGpsTrackingStatus = (): GpsTrackingStatus => {
   if (typeof window === 'undefined') return 'idle';
   return ((window as any).__repGpsTrackingStatus as GpsTrackingStatus) || 'idle';
+};
+
+/**
+ * Must be called SYNCHRONOUSLY inside a user click/tap handler to satisfy
+ * iOS Safari & Android Chrome user-gesture geolocation requirements.
+ */
+export const requestGeolocationFromUserGesture = (options?: {
+  onSuccess?: (pos: GeolocationPosition) => void;
+  onError?: (status: GpsTrackingStatus, err?: GeolocationPositionError) => void;
+  openHelpOnError?: boolean;
+}): void => {
+
+  if (!isGeolocationSecureContext()) {
+    dispatchGpsTrackingStatus('insecure');
+    if (options?.openHelpOnError !== false && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(GPS_OPEN_HELP_MODAL_EVENT, { detail: { status: 'insecure' } }));
+    }
+    options?.onError?.('insecure');
+    return;
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    dispatchGpsTrackingStatus('unavailable');
+    if (options?.openHelpOnError !== false && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(GPS_OPEN_HELP_MODAL_EVENT, { detail: { status: 'unavailable' } }));
+    }
+    options?.onError?.('unavailable');
+    return;
+  }
+
+  dispatchGpsTrackingStatus('requesting');
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      dispatchGpsTrackingStatus('active');
+      dispatchRepLiveCoords({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(GPS_POSITION_GRANTED_EVENT, { detail: { position: pos } }));
+      }
+      options?.onSuccess?.(pos);
+    },
+    (err) => {
+      const mapped = mapGeolocationErrorToStatus(err);
+      dispatchGpsTrackingStatus(mapped);
+      if (options?.openHelpOnError !== false && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(GPS_OPEN_HELP_MODAL_EVENT, { detail: { status: mapped } }));
+      }
+      options?.onError?.(mapped, err);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    }
+  );
 };
 
 export const dispatchRepLiveCoords = (coords: { latitude: number; longitude: number } | null) => {
@@ -356,6 +566,23 @@ export const isFieldRepresentativeUser = (user?: Partial<UserAccount> | null): b
 /**
  * UPSERT representative's live location (single row per rep in both Supabase & Firestore)
  */
+const withNetworkTimeout = <T>(promise: Promise<T>, timeoutMs = 8000): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Network operation timed out'));
+    }, timeoutMs);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
 export const upsertRepLiveLocation = async (params: {
   repId: string;
   repName: string;
@@ -363,8 +590,9 @@ export const upsertRepLiveLocation = async (params: {
   latitude: number;
   longitude: number;
   isActive?: boolean;
-}): Promise<void> => {
-  const nowIso = new Date().toISOString();
+  updatedAtIso?: string;
+}): Promise<boolean> => {
+  const nowIso = params.updatedAtIso || new Date().toISOString();
   const isActive = params.isActive !== false;
   const payload: RepLiveLocation = {
     rep_id: params.repId,
@@ -376,60 +604,94 @@ export const upsertRepLiveLocation = async (params: {
     updated_at: nowIso,
   };
 
-  // 1. Firestore single-doc UPSERT
-  try {
-    await setDoc(doc(db, 'rep_live_locations', params.repId), cleanFirestoreData(payload), { merge: true });
-  } catch (err) {
-    logFirestoreErrorGracefully(err, 'upsertRepLiveLocation Firestore');
-  }
+  const firestoreTask = async (): Promise<boolean> => {
+    try {
+      await withNetworkTimeout(
+        // Overwrite full document so previous location fields are completely replaced by the new fix
+        setDoc(doc(db, 'rep_live_locations', params.repId), cleanFirestoreData(payload)),
+        8000
+      );
+      return true;
+    } catch (err) {
+      logFirestoreErrorGracefully(err, 'upsertRepLiveLocation Firestore');
+      return false;
+    }
+  };
 
-  // 2. Supabase single-row UPSERT
-  try {
-    const { error } = await supabase
-      .from('rep_live_locations')
-      .upsert(
-        {
-          rep_id: params.repId,
-          rep_name: params.repName,
-          delegate_code: params.delegateCode || null,
-          latitude: params.latitude,
-          longitude: params.longitude,
-          is_active: isActive,
-          updated_at: nowIso,
-        },
-        { onConflict: 'rep_id' }
+  const supabaseTask = async (): Promise<boolean> => {
+    try {
+      const { error } = await withNetworkTimeout(
+        Promise.resolve(
+          supabase
+            .from('rep_live_locations')
+            .upsert(
+              {
+                rep_id: params.repId,
+                rep_name: params.repName,
+                delegate_code: params.delegateCode || null,
+                latitude: params.latitude,
+                longitude: params.longitude,
+                is_active: isActive,
+                updated_at: nowIso,
+              },
+              { onConflict: 'rep_id' }
+            )
+        ),
+        8000
       );
 
-    // If FK constraint on representatives(id) blocks direct upsert, ensure rep row exists first then retry
-    if (error && (error.code === '23503' || error.message?.includes('foreign key'))) {
-      await supabase
-        .from('representatives')
-        .upsert(
-          {
-            id: params.repId,
-            name: params.repName,
-            delegate_code: params.delegateCode || params.repId,
-          },
-          { onConflict: 'id' }
+      if (!error) {
+        return true;
+      }
+
+      if (error.code === '23503' || error.message?.includes('foreign key')) {
+        await withNetworkTimeout(
+          Promise.resolve(
+            supabase
+              .from('representatives')
+              .upsert(
+                {
+                  id: params.repId,
+                  name: params.repName,
+                  delegate_code: params.delegateCode || params.repId,
+                },
+                { onConflict: 'id' }
+              )
+          ),
+          8000
         );
-      await supabase
-        .from('rep_live_locations')
-        .upsert(
-          {
-            rep_id: params.repId,
-            rep_name: params.repName,
-            delegate_code: params.delegateCode || null,
-            latitude: params.latitude,
-            longitude: params.longitude,
-            is_active: isActive,
-            updated_at: nowIso,
-          },
-          { onConflict: 'rep_id' }
+        const { error: retryError } = await withNetworkTimeout(
+          Promise.resolve(
+            supabase
+              .from('rep_live_locations')
+              .upsert(
+                {
+                  rep_id: params.repId,
+                  rep_name: params.repName,
+                  delegate_code: params.delegateCode || null,
+                  latitude: params.latitude,
+                  longitude: params.longitude,
+                  is_active: isActive,
+                  updated_at: nowIso,
+                },
+                { onConflict: 'rep_id' }
+              )
+          ),
+          8000
         );
+        return !retryError;
+      }
+      return false;
+    } catch {
+      return false;
     }
-  } catch {
-    // Non-blocking fallback: Firestore listener keeps Admin map synchronized
-  }
+  };
+
+  const [fsRes, sbRes] = await Promise.allSettled([firestoreTask(), supabaseTask()]);
+  const firestoreOk = fsRes.status === 'fulfilled' && fsRes.value === true;
+  const supabaseOk = sbRes.status === 'fulfilled' && sbRes.value === true;
+
+  return firestoreOk || supabaseOk;
 };
 
 /**
@@ -504,7 +766,7 @@ export const subscribeToRepLiveLocations = (
   const mergedMap = new Map<string, RepLiveLocation>();
 
   const emitActive = () => {
-    const activeList = Array.from(mergedMap.values()).filter(
+    const valid = Array.from(mergedMap.values()).filter(
       (loc) =>
         loc.is_active === true &&
         Number.isFinite(loc.latitude) &&
@@ -512,7 +774,21 @@ export const subscribeToRepLiveLocations = (
         loc.latitude !== 0 &&
         loc.longitude !== 0
     );
-    onLocations(activeList);
+    // Deduplicate by delegate identity keeping strictly the newest location and discarding any older row
+    const dedupedByRep = new Map<string, RepLiveLocation>();
+    for (const loc of valid) {
+      const normKey =
+        normalizeTrackingText(loc.delegate_code) ||
+        normalizeTrackingText(loc.rep_name) ||
+        normalizeTrackingText(loc.rep_id);
+      const existing = dedupedByRep.get(normKey);
+      const curMs = loc.updated_at ? new Date(loc.updated_at).getTime() : 0;
+      const prevMs = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0;
+      if (!existing || curMs >= prevMs) {
+        dedupedByRep.set(normKey, loc);
+      }
+    }
+    onLocations(Array.from(dedupedByRep.values()));
   };
 
   const applyRow = (row: Partial<RepLiveLocation> | null | undefined) => {
@@ -565,19 +841,30 @@ export const subscribeToRepLiveLocations = (
     'FleetMap-rep-live-locations'
   );
 
-  // 2. Supabase initial fetch + Realtime channel
+  // 2. Supabase initial fetch + Realtime channel + 30s backup poll
   let supabaseChannel: ReturnType<typeof supabase.channel> | null = null;
-  (async () => {
+  let disposed = false;
+
+  const fetchSupabaseActive = async () => {
+    if (disposed) return;
     try {
       const { data } = await supabase
         .from('rep_live_locations')
         .select('*')
         .eq('is_active', true);
-      if (Array.isArray(data)) {
+      if (!disposed && Array.isArray(data)) {
         data.forEach((row) => applyRow(row as RepLiveLocation));
         emitActive();
       }
+    } catch {
+      // Supabase table optional if Firestore is active
+    }
+  };
 
+  (async () => {
+    await fetchSupabaseActive();
+    if (disposed) return;
+    try {
       supabaseChannel = supabase
         .channel('rep_live_locations_realtime')
         .on(
@@ -595,12 +882,22 @@ export const subscribeToRepLiveLocations = (
         )
         .subscribe();
     } catch {
-      // Supabase table optional if Firestore is active
+      // Supabase realtime optional
     }
   })();
 
+  const pollTimer = typeof window !== 'undefined'
+    ? window.setInterval(() => {
+        void fetchSupabaseActive();
+      }, 30000)
+    : null;
+
   return () => {
+    disposed = true;
     unsubFirestore();
+    if (pollTimer !== null) {
+      window.clearInterval(pollTimer);
+    }
     if (supabaseChannel) {
       supabase.removeChannel(supabaseChannel);
     }

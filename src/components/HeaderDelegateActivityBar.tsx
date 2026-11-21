@@ -21,6 +21,7 @@ interface HeaderDelegateActivityBarProps {
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
 type ActivityLevel = 'high' | 'medium' | 'low' | 'idle';
 
@@ -40,7 +41,7 @@ function getActivityLevel(count: number): { level: ActivityLevel; label: string 
   if (count >= 7) return { level: 'medium', label: 'نشاط جيد (7+)' };
   if (count >= 3) return { level: 'low', label: 'نشاط خفيف (3+)' };
   if (count >= 1) return { level: 'low', label: 'نشاط خفيف' };
-  return { level: 'idle', label: 'لم يسجل أي زيارة خلال آخر ساعة' };
+  return { level: 'idle', label: 'لم يسجل أي زيارة خلال آخر ربع ساعة' };
 }
 
 export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps> = ({
@@ -134,13 +135,15 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
         salesEntries: allEntriesArray,
         unsuccessfulVisits,
         nowMs,
-        windowMs: ONE_HOUR_MS,
+        windowMs: FIFTEEN_MINUTES_MS,
       });
 
       const count = entryMetrics.lastHourCount;
       const isIdleNoVisitsLastHour = !recentVisitCheck.hasRecentVisit;
       const effectiveLevelInfo =
-        count === 0 && !isIdleNoVisitsLastHour
+        isIdleNoVisitsLastHour
+          ? { level: 'idle' as ActivityLevel, label: 'لم يسجل أي زيارة خلال آخر ربع ساعة' }
+          : count === 0
           ? { level: 'low' as ActivityLevel, label: 'نشاط خفيف (زيارة موثقة)' }
           : getActivityLevel(count);
 
@@ -277,7 +280,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
                 }
                 title={
                   del.isIdleNoVisitsLastHour
-                    ? `${del.name}: تنبيه — لم يسجل أي زيارة خلال آخر ساعة${del.lastVisitTs ? ` • آخر زيارة: ${formatShortTime(del.lastVisitTs)}` : ''}`
+                    ? `${del.name}: تنبيه — لم يسجل أي زيارة خلال آخر ربع ساعة${del.lastVisitTs ? ` • آخر زيارة: ${formatShortTime(del.lastVisitTs)}` : ''}`
                     : `${del.name}: ${del.invoiceCount} ${del.invoiceCount === 1 ? 'فاتورة' : 'فواتير'} في آخر ساعة (${del.levelLabel})${del.lastVisitTs ? ` • آخر زيارة: ${formatShortTime(del.lastVisitTs)}` : ''}`
                 }
                 className={`inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border text-[10px] sm:text-xs font-extrabold transition-all shrink-0 cursor-pointer ${containerTheme} ${
@@ -346,7 +349,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
           className={`hidden md:flex items-center gap-2 shrink-0 text-[9px] font-bold pr-2 border-r ${
             isDarkMode ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-500'
           }`}
-          title="مستويات النشاط: نقطة حمراء نابضة (بدون زيارات آخر ساعة) • 3+ خفيف • 7+ جيد • 10+ مرتفع"
+          title="مستويات النشاط: نقطة حمراء نابضة (بدون زيارات آخر ربع ساعة) • 3+ خفيف • 7+ جيد • 10+ مرتفع"
         >
           <span className="inline-flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -362,7 +365,7 @@ export const HeaderDelegateActivityBar: React.FC<HeaderDelegateActivityBarProps>
           </span>
           <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-            <span>خامل (ساعة)</span>
+            <span>خامل (ربع ساعة)</span>
           </span>
         </div>
       </div>

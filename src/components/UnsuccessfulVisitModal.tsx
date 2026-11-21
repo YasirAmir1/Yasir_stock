@@ -14,6 +14,7 @@ import {
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cleanFirestoreData } from '../lib/firestoreUtils';
+import { REP_GPS_FORCE_SYNC_EVENT } from '../lib/fleetTrackingService';
 import { RouteItem, UnsuccessfulVisit, UserAccount } from '../types';
 import { formatEnglishDate, formatEnglishTime, getFormattedWeekday } from '../utils/dateUtils';
 
@@ -205,6 +206,11 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
     setDoc(doc(db, 'unsuccessful_visits', visitId), cleanFirestoreData(record)).catch((dbErr) => {
       console.warn('Background firestore save warning:', dbErr);
     });
+
+    // 3. Immediately trigger live GPS sync so Admin map updates with the rep's visit position
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(REP_GPS_FORCE_SYNC_EVENT));
+    }
 
     setPhotoDataUrl('');
     setReason('');

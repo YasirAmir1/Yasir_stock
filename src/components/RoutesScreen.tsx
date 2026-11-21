@@ -27,8 +27,13 @@ import {
   getRepTrackingId,
   GPS_STATUS_EVENT,
   GPS_RETRY_REQUEST_EVENT,
+  GPS_POSITION_GRANTED_EVENT,
+  GPS_OPEN_HELP_MODAL_EVENT,
   GpsTrackingStatus,
   getLastKnownGpsTrackingStatus,
+  isGeolocationSecureContext,
+  mapGeolocationErrorToStatus,
+  requestGeolocationFromUserGesture,
   calculateHaversineDistanceMeters,
   cacheShopCoordinatesLocally,
   removeCachedShopCoordinates,
@@ -38,6 +43,7 @@ import {
   RepLiveCoords,
   getLastKnownRepCoords,
   dispatchRepLiveCoords,
+  REP_GPS_FORCE_SYNC_EVENT,
   OPEN_SHOP_ACTION_MODAL_EVENT,
   consumePendingShopActionRoute,
   isShortOrExternalMapsUrl,
@@ -600,12 +606,13 @@ export const RoutesScreen: React.FC = () => {
   useEffect(() => {
     if (!actionModalRoute || actionModalStep !== 'choice') return;
     if (currentUser?.isAdmin || isDataEntry) return;
+    if (repGpsStatus !== 'active') return;
     const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
       actionModalRoute,
       cachedShopCoordsMap
     );
     if (shopLat === null || shopLng === null) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (!isGeolocationSecureContext() || typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     let cancelled = false;
     const requestFreshFix = () => {
@@ -620,17 +627,20 @@ export const RoutesScreen: React.FC = () => {
         () => {
           // Non-blocking: RepresentativeLiveTracker manages permission UI & watchPosition
         },
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
     };
 
     requestFreshFix();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(REP_GPS_FORCE_SYNC_EVENT));
+    }
     const intervalId = window.setInterval(requestFreshFix, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [actionModalRoute, actionModalStep, currentUser?.isAdmin, isDataEntry, cachedShopCoordsMap]);
+  }, [actionModalRoute, actionModalStep, currentUser?.isAdmin, isDataEntry, cachedShopCoordsMap, repGpsStatus]);
 
   // Compute overdue debts strictly belonging to the logged-in representative with Due Days > 1
   const representativeOverdueDebts = useMemo(() => {
@@ -3346,14 +3356,14 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
     if (effectiveLat !== null && effectiveLng !== null) {
       if (!repLiveCoords) {
-        if (repGpsStatus !== 'denied') {
+        if (repGpsStatus !== 'denied' && repGpsStatus !== 'gps_off' && repGpsStatus !== 'insecure') {
           addToast?.({
             title: 'تحديد الموقع (GPS)',
             message: 'جاري تحديد موقعك الحالي (GPS) للتحقق من القرب من المحل...',
             type: 'reminder',
           });
         }
-        window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT));
+        requestGeolocationFromUserGesture({ openHelpOnError: true });
         return;
       }
 
@@ -3396,7 +3406,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
             message: `يرجى تفعيل الموقع (GPS) والتواجد عند المحل (${r.customerName}) لتسجيل الزيارة.`,
             type: 'reminder',
           });
-          window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT));
+          requestGeolocationFromUserGesture({ openHelpOnError: true });
           return;
         }
         const distanceMeters = calculateHaversineDistanceMeters(
@@ -3432,6 +3442,11 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       });
     }
 
+    if (!isGeolocationSecureContext()) {
+      setGpsCaptureError('يتطلب التقاط الموقع (GPS) فتح التطبيق عبر اتصال آمن (HTTPS). يمكنك لصق الإحداثيات أو رابط خرائط كوكل.');
+      return;
+    }
+
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       if (!repLiveCoords) {
         setGpsCaptureError('المتصفح لا يدعم تحديد الموقع التلقائي (GPS). يرجى التأكد من تفعيل خدمة الموقع.');
@@ -3450,13 +3465,19 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         setIsCapturingGps(false);
         setGpsCaptureError(null);
         dispatchRepLiveCoords({ latitude: lat, longitude: lng });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(GPS_POSITION_GRANTED_EVENT, { detail: { position: pos } }));
+        }
       },
       (err) => {
         setIsCapturingGps(false);
+        const mapped = mapGeolocationErrorToStatus(err);
         let msg = 'تعذر تحديد الموقع تلقائياً (GPS). تأكد من تفعيل خدمة الموقع وإعطاء الصلاحية للمتصفح.';
-        if (err.code === 1) {
-          msg = 'تم رفض صلاحية الموقع (GPS). يرجى السماح للمتصفح بالوصول للموقع ثم الضغط على «تحديث GPS».';
-        } else if (err.code === 3) {
+        if (mapped === 'denied') {
+          msg = 'تم رفض صلاحية الموقع (GPS). يرجى السماح للمتصفح وتفعيل «الموقع الدقيق» من إعدادات Safari أو Chrome ثم الضغط على «تحديث GPS».';
+        } else if (mapped === 'gps_off') {
+          msg = 'خدمة الموقع (GPS) متوقفة في الهاتف أو الإشارة غير متوفرة. شغّل GPS في الهاتف ثم اضغط «تحديث GPS».';
+        } else if (mapped === 'timeout') {
           msg = 'انتهت مهلة التقاط إشارة GPS. حاول مجدداً في مكان مكشوف عبر «تحديث GPS».';
         }
         setGpsCaptureError(msg);
@@ -3652,6 +3673,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         actorName,
         { repLocationSaved: true }
       );
+      if (!isStrictAdmin && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(REP_GPS_FORCE_SYNC_EVENT));
+      }
 
       // Optimistically update savedShopLocations & routes & cache immediately so map pins and button hides instantaneously
       setSavedShopLocations((prev) => [record, ...prev.filter((item) => item.id !== record.id)]);
@@ -4309,7 +4333,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           className={`p-3 rounded-2xl border shadow-sm flex flex-wrap items-center justify-between gap-3 ${
             isCompleted
               ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-200'
-              : repGpsStatus === 'denied'
+              : repGpsStatus === 'denied' || repGpsStatus === 'gps_off' || repGpsStatus === 'timeout' || repGpsStatus === 'insecure' || repGpsStatus === 'unavailable'
               ? 'bg-amber-500/15 border-amber-500/50 text-amber-950 dark:text-amber-100'
               : 'bg-gradient-to-r from-rose-500/10 via-amber-500/10 to-rose-500/10 border-rose-500/30 text-slate-900 dark:text-white'
           }`}
@@ -4320,25 +4344,68 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>اكتملت مبيعات اليوم بنجاح — شكراً لجهودكم وتمنياتنا لكم بالتوفيق ✅</span>
               </>
+            ) : repGpsStatus === 'insecure' ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>لا يتوفر GPS عبر اتصال غير آمن (HTTP) — يتطلب فتح التطبيق عبر رابط HTTPS آمن</span>
+              </>
+            ) : repGpsStatus === 'unavailable' ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>المتصفح الحالي لا يدعم خدمة تحديد الموقع (GPS)</span>
+              </>
             ) : repGpsStatus === 'denied' ? (
               <>
                 <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>تم رفض إذن الموقع (GPS) — يرجى السماح بالوصول للموقع من إعدادات المتصفح لتأكيد الوصول للمحلات وتحديث المسار</span>
+                <span>تم رفض إذن الموقع (GPS) — يرجى السماح بالوصول للموقع من إعدادات المتصفح والهاتف لتأكيد الوصول للمحلات</span>
+              </>
+            ) : repGpsStatus === 'gps_off' ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>خدمة الموقع (GPS) متوقفة في الهاتف — يرجى تشغيل GPS في الجهاز ثم الضغط على «إعادة المحاولة»</span>
+              </>
+            ) : repGpsStatus === 'timeout' ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>انتهت مهلة التقاط إشارة GPS — تأكد من التواجد في مكان مكشوف وتفعيل «الموقع الدقيق» ثم أعد المحاولة</span>
+              </>
+            ) : repGpsStatus === 'requesting' ? (
+              <>
+                <Loader2 className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin shrink-0" />
+                <span>جاري التقاط موقعك الحالي (GPS)...</span>
+              </>
+            ) : repGpsStatus === 'prompt' || repGpsStatus === 'idle' ? (
+              <>
+                <Navigation className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>تفعيل الموقع (GPS) إجباري — اضغط «تفعيل الموقع» لتحديث موقعك بدقة كل 30 ثانية</span>
               </>
             ) : (
               <>
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0"></span>
-                <span>تحديد الموقع نشط لتأكيد زيارة المحلات وتحديث المسار اليومي</span>
+                <span>تحديد الموقع نشط — يتم تحديث موقعك بدقة كل 30 ثانية لتأكيد الزيارات والمسار</span>
               </>
             )}
           </div>
-          {!isCompleted && repGpsStatus === 'denied' && (
+          {!isCompleted && repGpsStatus !== 'active' && repGpsStatus !== 'unavailable' && (
             <button
               type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent(GPS_RETRY_REQUEST_EVENT))}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-sm cursor-pointer transition-colors"
+              disabled={repGpsStatus === 'requesting'}
+              onClick={() => {
+                if (repGpsStatus === 'insecure') {
+                  window.dispatchEvent(new CustomEvent(GPS_OPEN_HELP_MODAL_EVENT, { detail: { status: 'insecure' } }));
+                } else {
+                  requestGeolocationFromUserGesture({ openHelpOnError: true });
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-black text-xs shadow-sm cursor-pointer transition-colors"
             >
-              تفعيل الموقع
+              {repGpsStatus === 'insecure'
+                ? 'عرض التفاصيل'
+                : repGpsStatus === 'requesting'
+                ? 'جاري التفعيل...'
+                : repGpsStatus === 'denied' || repGpsStatus === 'gps_off' || repGpsStatus === 'timeout'
+                ? 'إعادة المحاولة / تفعيل الموقع'
+                : 'تفعيل الموقع'}
             </button>
           )}
         </div>

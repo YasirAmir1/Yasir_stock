@@ -70,7 +70,7 @@ const escapeHtml = (text: string): string =>
 const createRepDivIcon = (repName: string, showIdleRedAlert = false): L.DivIcon => {
   const safeName = escapeHtml(repName);
   const statusDotHtml = showIdleRedAlert
-    ? `<span title="تنبيه: لم يسجل أي زيارة خلال آخر ساعة" style="position:relative;display:inline-flex;width:9px;height:9px;flex-shrink:0;align-items:center;justify-content:center;">
+    ? `<span title="تنبيه: لم يسجل أي زيارة خلال آخر ربع ساعة" style="position:relative;display:inline-flex;width:9px;height:9px;flex-shrink:0;align-items:center;justify-content:center;">
         <span class="rep-idle-pulse-ring" style="position:absolute;inset:-3px;border-radius:9999px;background:rgba(239,68,68,0.85);"></span>
         <span style="position:relative;width:8px;height:8px;border-radius:9999px;background:#ef4444;border:1.5px solid #ffffff;box-shadow:0 0 8px #ef4444;display:inline-block;"></span>
       </span>`
@@ -453,6 +453,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         salesEntries,
         unsuccessfulVisits,
         nowMs: activityNowMs,
+        windowMs: 15 * 60 * 1000,
       });
       statusMap.set(rep.rep_id, {
         isIdleLastHour: !check.hasRecentVisit,
@@ -479,8 +480,14 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     }
     setLocalRepCoords(getLastKnownRepCoords());
     const onCoordsUpdate = (ev: Event) => {
-      const detail = (ev as CustomEvent<RepLiveCoords | null>).detail;
-      setLocalRepCoords(detail || null);
+      const detail = (
+        ev as CustomEvent<{ coords?: RepLiveCoords | null } | RepLiveCoords | null>
+      ).detail;
+      const nextCoords =
+        detail && typeof detail === 'object' && 'coords' in detail
+          ? detail.coords ?? null
+          : (detail as RepLiveCoords | null) ?? null;
+      setLocalRepCoords(nextCoords);
     };
     window.addEventListener(REP_COORDS_EVENT, onCoordsUpdate);
     return () => window.removeEventListener(REP_COORDS_EVENT, onCoordsUpdate);
@@ -768,6 +775,16 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
       const displayName = rep.rep_name || rep.rep_id;
       const idleStatus = repLastHourStatusMap.get(rep.rep_id);
       const isIdleLastHour = Boolean(isStrictAdminOnMap && idleStatus?.isIdleLastHour);
+      const updatedMs = rep.updated_at ? new Date(rep.updated_at).getTime() : 0;
+      const locationAgeMs = updatedMs > 0 ? Math.max(0, activityNowMs - updatedMs) : Infinity;
+      const isGpsStale = locationAgeMs > 3 * 60 * 1000;
+      const ageMinutes = Math.floor(locationAgeMs / 60000);
+      const ageLabel =
+        !Number.isFinite(ageMinutes)
+          ? 'غير معروف'
+          : ageMinutes >= 60
+          ? `${Math.floor(ageMinutes / 60)} ساعة${ageMinutes % 60 > 0 ? ` و${ageMinutes % 60} د` : ''}`
+          : `${ageMinutes} دقيقة`;
       const metaSig = `${displayName}|${isIdleLastHour ? 1 : 0}`;
       const updatedFormatted = rep.updated_at
         ? formatEnglishTime(rep.updated_at, true, '-')
@@ -777,19 +794,21 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         : '';
 
       const popupHtml = `
-        <div dir="rtl" style="font-family:'Cairo',sans-serif;min-width:190px;">
+        <div dir="rtl" style="font-family:'Cairo',sans-serif;min-width:205px;">
           <div style="font-weight:900;font-size:13px;color:#0369a1;">🚚 المندوب: ${escapeHtml(displayName)}</div>
           ${
             isIdleLastHour
-              ? `<div style="font-size:11px;color:#dc2626;font-weight:900;margin-top:3px;background:#fef2f2;border:1px solid #fecaca;padding:2px 6px;border-radius:6px;">🔴 لم يسجل أي زيارة خلال آخر ساعة</div>`
-              : `<div style="font-size:11px;color:#16a34a;font-weight:800;margin-top:2px;">● متصل الآن في الميدان</div>`
+              ? `<div style="font-size:11px;color:#dc2626;font-weight:900;margin-top:3px;background:#fef2f2;border:1px solid #fecaca;padding:2px 6px;border-radius:6px;">🔴 لم يسجل أي زيارة خلال آخر ربع ساعة</div>`
+              : isGpsStale
+              ? `<div style="font-size:11px;color:#b45309;font-weight:900;margin-top:3px;background:#fffbeb;border:1px solid #fde68a;padding:2px 6px;border-radius:6px;">⚠️ توقف تحديث GPS منذ ${escapeHtml(ageLabel)}</div>`
+              : `<div style="font-size:11px;color:#16a34a;font-weight:800;margin-top:2px;">● متصل الآن في الميدان (بث GPS مباشر)</div>`
           }
           ${
             lastVisitFormatted
               ? `<div style="font-size:11px;color:#475569;margin-top:3px;">آخر زيارة مسجلة: <b>${escapeHtml(lastVisitFormatted)}</b></div>`
               : ''
           }
-          <div style="font-size:11px;color:#475569;margin-top:2px;">آخر تحديث موقع: <b>${escapeHtml(updatedFormatted)}</b></div>
+          <div style="font-size:11px;color:${isGpsStale ? '#b45309' : '#475569'};margin-top:2px;">آخر تحديث موقع: <b>${escapeHtml(updatedFormatted)}</b>${isGpsStale && Number.isFinite(ageMinutes) ? ` <span style="font-size:10px;">(منذ ${escapeHtml(ageLabel)})</span>` : ''}</div>
           <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;" dir="ltr">${rep.latitude.toFixed(5)}, ${rep.longitude.toFixed(5)}</div>
         </div>
       `;
@@ -814,7 +833,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         repMarkerMetaRef.current.set(rep.rep_id, metaSig);
       }
     });
-  }, [visibleLiveReps, repLastHourStatusMap, isStrictAdminOnMap]);
+  }, [visibleLiveReps, repLastHourStatusMap, isStrictAdminOnMap, activityNowMs]);
 
   // Auto-fit bounds when multiple points exist, otherwise keep full Saladin Governorate view
   useEffect(() => {
@@ -1171,7 +1190,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
                     onClick={() => handleFocusRepLocation(rep)}
                     title={
                       isIdleLastHour
-                        ? `تنبيه: ${repLabel} لم يسجل أي زيارة خلال آخر ساعة • اضغط للتقريب إلى موقعه`
+                        ? `تنبيه: ${repLabel} لم يسجل أي زيارة خلال آخر ربع ساعة • اضغط للتقريب إلى موقعه`
                         : `تقريب الخريطة إلى موقع ${repLabel}`
                     }
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all cursor-pointer active:scale-95 whitespace-nowrap shadow-xs ${
@@ -1201,7 +1220,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
               {visibleLiveReps.some((rep) => repLastHourStatusMap.get(rep.rep_id)?.isIdleLastHour) && (
                 <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-600 dark:text-rose-400 mr-1">
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
-                  <span>لم يسجل زيارة خلال آخر ساعة</span>
+                  <span>لم يسجل زيارة خلال آخر ربع ساعة</span>
                 </span>
               )}
             </div>

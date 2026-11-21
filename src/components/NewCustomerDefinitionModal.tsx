@@ -21,8 +21,13 @@ import { db } from '../lib/firebase';
 import { cleanFirestoreData } from '../lib/firestoreUtils';
 import { uploadNewCustomerMediaToStorage } from '../lib/supabaseService';
 import {
+  checkGeolocationPermissionState,
+  dispatchRepLiveCoords,
   formatShopLocationString,
+  GPS_POSITION_GRANTED_EVENT,
+  isGeolocationSecureContext,
   isShortOrExternalMapsUrl,
+  mapGeolocationErrorToStatus,
   parseShopLocationString,
   resolveShopLocationInput,
 } from '../lib/fleetTrackingService';
@@ -123,6 +128,10 @@ export const NewCustomerDefinitionModal: React.FC<NewCustomerDefinitionModalProp
 
   const captureGps = () => {
     setGpsError(null);
+    if (!isGeolocationSecureContext()) {
+      setGpsError('يتطلب التقاط الموقع (GPS) فتح التطبيق عبر اتصال آمن (HTTPS). يمكنك لصق الإحداثيات أو رابط خرائط كوكل.');
+      return;
+    }
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsError('المتصفح لا يدعم التقاط GPS. يمكنك لصق الإحداثيات أو رابط خرائط كوكل.');
       return;
@@ -136,11 +145,20 @@ export const NewCustomerDefinitionModal: React.FC<NewCustomerDefinitionModalProp
         setGpsInput(formatShopLocationString(lat, lng));
         setIsCapturingGps(false);
         setGpsError(null);
+        dispatchRepLiveCoords({ latitude: lat, longitude: lng });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(GPS_POSITION_GRANTED_EVENT, { detail: { position: pos } }));
+        }
       },
       (err) => {
         setIsCapturingGps(false);
-        if (err.code === 1) {
-          setGpsError('تم رفض صلاحية الموقع (GPS). يرجى السماح للمتصفح بالوصول للموقع أو لصق رابط خرائط كوكل.');
+        const mapped = mapGeolocationErrorToStatus(err);
+        if (mapped === 'denied') {
+          setGpsError('تم رفض صلاحية الموقع (GPS). فعّل الإذن والموقع الدقيق من إعدادات Safari / Chrome أو الصق رابط خرائط كوكل.');
+        } else if (mapped === 'gps_off') {
+          setGpsError('خدمة GPS متوقفة في الهاتف أو الموقع غير متاح حالياً. شغّل GPS في الجهاز ثم أعد المحاولة.');
+        } else if (mapped === 'timeout') {
+          setGpsError('انتهت مهلة التقاط إشارة GPS. حاول مجدداً في مكان مكشوف أو الصق رابط خرائط كوكل.');
         } else {
           setGpsError('تعذر التقاط GPS حالياً. أعد المحاولة أو الصق الإحداثيات / رابط خرائط كوكل.');
         }
@@ -149,9 +167,10 @@ export const NewCustomerDefinitionModal: React.FC<NewCustomerDefinitionModalProp
     );
   };
 
-  // Reset form and capture GPS when opened
+  // Reset form when opened; only auto-capture GPS if permission is already granted
   useEffect(() => {
     if (!isOpen) return;
+    let cancelled = false;
     setShopSignName('');
     setBuyerFullName('');
     setBuyerAddress('');
@@ -165,7 +184,17 @@ export const NewCustomerDefinitionModal: React.FC<NewCustomerDefinitionModalProp
     setIdCardFrontImage('');
     setIdCardBackImage('');
     setFormError(null);
-    captureGps();
+
+    void checkGeolocationPermissionState().then((state) => {
+      if (cancelled) return;
+      if (state === 'granted') {
+        captureGps();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   // Auto-resolve short Google Maps URLs pasted into GPS input
