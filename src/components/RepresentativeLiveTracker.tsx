@@ -24,8 +24,8 @@ import {
 } from '../lib/fleetTrackingService';
 import { getEffectiveRouteDay } from '../utils/routeUtils';
 import { playBroadcastAlertToneAndVibrate } from '../utils/soundAlert';
-import { DebtItem, RouteItem } from '../types';
-import { MapPin, ShoppingBag, X, Lock, Navigation, AlertTriangle, RefreshCw, BellRing, ClipboardList } from 'lucide-react';
+import { RouteItem } from '../types';
+import { X, AlertTriangle, RefreshCw, BellRing, ClipboardList } from 'lucide-react';
 
 const SYNC_INTERVAL_MS = 60000; // 60 seconds (1 minute)
 
@@ -36,8 +36,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
     routes,
     salesEntries,
     allSalesEntries,
-    setPrefilledEntryData,
-    setShowQuickAdd,
     setActiveTab,
     addToast,
     isDarkMode,
@@ -59,13 +57,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
   const [gpsStatus, setGpsStatus] = useState<GpsTrackingStatus>('idle');
   const [showPermissionPrompt, setShowPermissionPrompt] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
-  const [debts, setDebts] = useState<DebtItem[]>([]);
-  const [unlockedCodes, setUnlockedCodes] = useState<Record<string, boolean>>({});
-  const [geofenceAlertModal, setGeofenceAlertModal] = useState<{
-    route: RouteItem;
-    distanceMeters: number;
-    isDebtLocked: boolean;
-  } | null>(null);
   const [exitReminderAlert, setExitReminderAlert] = useState<{
     route: RouteItem;
     distanceMeters: number;
@@ -73,7 +64,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
 
   const latestCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const lastSyncTimestampRef = useRef<number>(0);
-  const triggeredShopsRef = useRef<Set<string>>(new Set());
   const insideGeofenceShopsRef = useRef<Set<string>>(new Set());
   const exitRemindedShopsRef = useRef<Set<string>>(new Set());
   const cachedCoordsRef = useRef(getCachedShopCoordinates());
@@ -109,61 +99,12 @@ export const RepresentativeLiveTracker: React.FC = () => {
     return () => unsub();
   }, [isRepUser, repName]);
 
-  // Listen to rep's debts and unlocked_debts so auto-order respects debt rules
-  useEffect(() => {
-    if (!isRepUser || !currentUser) return;
-    const activeCode = String(currentUser.delegateCode || '').trim();
-    const debtsQ = activeCode
-      ? query(collection(db, 'debts'), where('delegateCode', '==', activeCode))
-      : query(collection(db, 'debts'));
-
-    const unsubDebts = safeOnSnapshot(
-      debtsQ,
-      (snap: any) => {
-        const list: DebtItem[] = [];
-        snap.forEach((d: any) => list.push({ id: d.id, ...d.data() } as DebtItem));
-        setDebts(list);
-      },
-      (err: any) => logFirestoreErrorGracefully(err, 'RepTracker-debts'),
-      'RepTracker-debts'
-    );
-
-    const unsubUnlocked = safeOnSnapshot(
-      collection(db, 'unlocked_debts'),
-      (snap: any) => {
-        const map: Record<string, boolean> = {};
-        snap.forEach((d: any) => {
-          const data = d.data();
-          map[d.id] = true;
-          if (data?.customerCode) map[String(data.customerCode).trim()] = true;
-          if (data?.customerName) map[normalizeTrackingText(data.customerName)] = true;
-        });
-        setUnlockedCodes(map);
-      },
-      (err: any) => logFirestoreErrorGracefully(err, 'RepTracker-unlocked-debts'),
-      'RepTracker-unlocked-debts'
-    );
-
-    return () => {
-      unsubDebts();
-      unsubUnlocked();
-    };
-  }, [isRepUser, currentUser]);
-
   // Today's assigned route customers with GPS coordinates
   const todayAssignedRoutesRef = useRef<RouteItem[]>([]);
   const visitedTodayKeysRef = useRef<{ codes: Set<string>; nameDelegatesNoCode: Set<string> }>({
     codes: new Set(),
     nameDelegatesNoCode: new Set(),
   });
-  const debtCheckRef = useRef<{ debts: DebtItem[]; unlocked: Record<string, boolean> }>({
-    debts: [],
-    unlocked: {},
-  });
-
-  useEffect(() => {
-    debtCheckRef.current = { debts, unlocked: unlockedCodes };
-  }, [debts, unlockedCodes]);
 
   useEffect(() => {
     const todayStr = getBaghdadDateAndSeconds().todayStr;
@@ -228,34 +169,13 @@ export const RepresentativeLiveTracker: React.FC = () => {
     });
   }, [isRepUser, currentUser, routes]);
 
-  // Open Order Creation Screen for the nearby shop
-  const openOrderForRoute = (route: RouteItem) => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const customerEntries = allSalesEntries.filter((e) => e.customerCode === route.customerCode);
-    const lastInvoiceToday = customerEntries
-      .filter((e) => e.dateString === todayStr)
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-    setPrefilledEntryData({
-      customerCode: route.customerCode,
-      customerName: route.customerName,
-      customerAddress: route.customerAddress,
-      customerType: route.customerType,
-      lastInvoiceToday,
-    });
-    setShowQuickAdd(true);
-    setActiveTab('products');
-  };
-
   // Run local Haversine check against today's assigned customers
   const evaluateLocalGeofencing = (lat: number, lng: number) => {
     const assigned = todayAssignedRoutesRef.current;
     if (!assigned.length) return;
 
     const radiusMeters = geofenceRadiusRef.current || 100;
-    const rearmDistanceMeters = Math.max(radiusMeters + 150, Math.round(radiusMeters * 2));
     const { codes, nameDelegatesNoCode } = visitedTodayKeysRef.current;
-    const { debts: currentDebts, unlocked } = debtCheckRef.current;
 
     for (const r of assigned) {
       const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
@@ -274,7 +194,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
         Boolean(r.visitedToday) ||
         (cCode ? codes.has(cCode) : Boolean(cNameNorm && nameDelegatesNoCode.has(`${cNameNorm}::${rDelNorm}`)));
       if (alreadyVisitedToday) {
-        triggeredShopsRef.current.add(shopKey);
         insideGeofenceShopsRef.current.delete(shopKey);
         exitRemindedShopsRef.current.add(shopKey);
         continue;
@@ -283,45 +202,9 @@ export const RepresentativeLiveTracker: React.FC = () => {
       const distance = calculateHaversineDistanceMeters(lat, lng, shopLat, shopLng);
 
       if (distance <= radiusMeters) {
+        // Track entry silently without arrival notification or auto-opening invoice/action modal
         insideGeofenceShopsRef.current.add(shopKey);
         exitRemindedShopsRef.current.delete(shopKey);
-
-        if (!triggeredShopsRef.current.has(shopKey)) {
-          triggeredShopsRef.current.add(shopKey);
-
-          const hasDebt = currentDebts.some((d) => String(d.customerCode || '').trim() === cCode && Number(d.amountDue) > 0);
-          const isUnlocked = Boolean(unlocked[cCode] || unlocked[cNameNorm] || unlocked[r.customerName]);
-          const isDebtLocked = hasDebt && !isUnlocked;
-
-          // 1. Trigger audio chime + device vibration
-          playBroadcastAlertToneAndVibrate();
-          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-            try {
-              navigator.vibrate([250, 100, 250, 100, 300]);
-            } catch {}
-          }
-
-          // 2. Show toast + alert banner
-          const alertMsg = `أنت الآن قريب من محل ${r.customerName}`;
-          addToast({
-            title: 'تنبيه وصول لمحل ضمن المسار 📍',
-            message: alertMsg,
-            type: 'reminder',
-            delegateName: repName,
-          });
-
-          setGeofenceAlertModal({
-            route: r,
-            distanceMeters: Math.round(distance),
-            isDebtLocked,
-          });
-
-          // Automatically open Shop Action Modal when entering configured geofence radius
-          queueOpenShopActionModal(r);
-          setActiveTab('routes');
-          window.dispatchEvent(new CustomEvent(OPEN_SHOP_ACTION_MODAL_EVENT, { detail: { route: r } }));
-          break;
-        }
       } else {
         // Check if representative just left the configured geofence without recording an invoice
         if (insideGeofenceShopsRef.current.has(shopKey) && !exitRemindedShopsRef.current.has(shopKey)) {
@@ -344,18 +227,10 @@ export const RepresentativeLiveTracker: React.FC = () => {
             delegateName: repName,
           });
 
-          setGeofenceAlertModal((prev) =>
-            prev && (prev.route.id === r.id || prev.route.customerCode === r.customerCode) ? null : prev
-          );
           setExitReminderAlert({
             route: r,
             distanceMeters: Math.round(distance),
           });
-        }
-
-        // Re-arm entry alert only after rep physically moves past re-arm distance away from the shop
-        if (distance > rearmDistanceMeters) {
-          triggeredShopsRef.current.delete(shopKey);
         }
       }
     }
@@ -507,7 +382,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
   };
 
   if (
-    !geofenceAlertModal &&
     !exitReminderAlert &&
     !(gpsStatus === 'denied' && showPermissionPrompt && !isCompletedToday)
   ) {
@@ -578,7 +452,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
     </div>
   ) : null;
 
-  if (gpsStatus === 'denied' && showPermissionPrompt && !isCompletedToday && !geofenceAlertModal) {
+  if (gpsStatus === 'denied' && showPermissionPrompt && !isCompletedToday) {
     return (
       <>
         {exitReminderBanner}
@@ -657,88 +531,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
     );
   }
 
-  if (!geofenceAlertModal) return exitReminderBanner;
-
-  return (
-    <>
-      {exitReminderBanner}
-      <div
-        className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-        dir="rtl"
-        onClick={() => setGeofenceAlertModal(null)}
-      >
-      <div
-        className={`w-full max-w-sm rounded-3xl p-5 shadow-2xl border-2 text-right space-y-4 animate-in zoom-in-95 duration-200 ${
-          isDarkMode
-            ? 'bg-slate-900 border-emerald-500/60 text-white'
-            : 'bg-white border-emerald-500 text-slate-900'
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shrink-0 animate-bounce">
-              <Navigation className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-black text-base text-emerald-600 dark:text-emerald-400">
-                وصلت إلى موقع المحل 📍
-              </h3>
-              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                جاهز لتسجيل الزيارة أو إنشاء الفاتورة
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setGeofenceAlertModal(null)}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div
-          className={`p-3.5 rounded-2xl border font-black text-sm leading-relaxed ${
-            isDarkMode
-              ? 'bg-emerald-950/50 border-emerald-700/60 text-emerald-200'
-              : 'bg-emerald-50 border-emerald-200 text-emerald-950'
-          }`}
-        >
-          أنت الآن متواجد عند محل [{geofenceAlertModal.route.customerName}]
-        </div>
-
-        <div className="text-xs font-bold text-slate-600 dark:text-slate-300 space-y-1">
-          <div className="flex items-center gap-1.5">
-            <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>الكود: {geofenceAlertModal.route.customerCode}</span>
-            {geofenceAlertModal.route.customerAddress && (
-              <span>• {geofenceAlertModal.route.customerAddress}</span>
-            )}
-          </div>
-        </div>
-
-        {geofenceAlertModal.isDebtLocked ? (
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-black flex items-center gap-2">
-            <Lock className="w-4 h-4 shrink-0" />
-            <span>تنبيه: إنشاء الفاتورة مغلق حالياً لوجود دين مستحق على المحل.</span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              const target = geofenceAlertModal.route;
-              setGeofenceAlertModal(null);
-              openOrderForRoute(target);
-            }}
-            className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
-          >
-            <ShoppingBag className="w-5 h-5" />
-            <span>إنشاء فاتورة للمحل الآن</span>
-          </button>
-        )}
-      </div>
-      </div>
-    </>
-  );
+  return exitReminderBanner;
 };
+
