@@ -259,11 +259,11 @@ export const AdminSavedLocationsMap: React.FC<AdminSavedLocationsMapProps> = ({
   }, [validLocations, selectedDelegateFilter, searchTerm]);
 
   const getSalesStats = (loc: ShopLocationRecord): CustomerSalesSummary | undefined => {
-    const codeKey = (loc.customerCode || '').trim().toLowerCase();
-    const nameKey = (loc.customerName || '').trim().toLowerCase();
-    if (codeKey && salesStatsByCustomer.has(`code:${codeKey}`)) {
+    const codeKey = (loc.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+    if (codeKey) {
       return salesStatsByCustomer.get(`code:${codeKey}`);
     }
+    const nameKey = (loc.customerName || '').trim().toLowerCase();
     if (nameKey && salesStatsByCustomer.has(`name:${nameKey}`)) {
       return salesStatsByCustomer.get(`name:${nameKey}`);
     }

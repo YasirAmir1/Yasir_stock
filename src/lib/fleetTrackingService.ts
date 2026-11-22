@@ -1277,23 +1277,16 @@ export const deleteCustomerCoordinates = async (
  */
 export const markCustomerVisitedToday = async (
   customerCode?: string,
-  customerName?: string
+  _customerName?: string
 ): Promise<void> => {
-  const code = String(customerCode || '').trim();
-  if (!code && !customerName) return;
+  const code = String(customerCode || '').trim().replace(/\.0+$/, '');
+  if (!code) return;
 
   try {
-    if (code) {
-      await supabase
-        .from('customers')
-        .update({ visited_today: true, updated_at: new Date().toISOString() })
-        .or(`customer_code.eq.${code},id.eq.${code}`);
-    } else if (customerName) {
-      await supabase
-        .from('customers')
-        .update({ visited_today: true, updated_at: new Date().toISOString() })
-        .eq('customer_name', customerName.trim());
-    }
+    await supabase
+      .from('customers')
+      .update({ visited_today: true, updated_at: new Date().toISOString() })
+      .or(`customer_code.eq.${code},id.eq.${code}`);
   } catch {
     // Non-blocking: live green pin status also resolves from today's salesEntries in real-time
   }
@@ -1548,10 +1541,12 @@ export const bulkUpdateRouteLocations = async (
     const data = d.data();
     if (data?.id) docByFieldId.set(String(data.id), d.ref);
     if (data?.customerCode) {
-      const code = String(data.customerCode).trim();
-      const arr = docsByCode.get(code) || [];
-      arr.push(d.ref);
-      docsByCode.set(code, arr);
+      const code = String(data.customerCode).trim().replace(/\.0+$/, '').toLowerCase();
+      if (code) {
+        const arr = docsByCode.get(code) || [];
+        arr.push(d.ref);
+        docsByCode.set(code, arr);
+      }
     }
   });
 
@@ -1566,8 +1561,8 @@ export const bulkUpdateRouteLocations = async (
     } else if (item.route.id && docByFieldId.has(item.route.id)) {
       refsToUpdate.add(docByFieldId.get(item.route.id)!);
     }
-    const code = String(item.route.customerCode || '').trim();
-    if (refsToUpdate.size === 0 && code && docsByCode.has(code)) {
+    const code = String(item.route.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+    if (code && docsByCode.has(code)) {
       docsByCode.get(code)!.forEach((r) => refsToUpdate.add(r));
     }
 

@@ -1177,7 +1177,17 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (!Array.isArray(rowArr) || !rowArr.some(c => String(c ?? '').trim() !== '')) continue;
           const rowObj: Record<string, any> = {};
           headers.forEach((h, cIdx) => {
-            rowObj[h] = rowArr[cIdx];
+            const cellVal = rowArr[cIdx];
+            if (
+              rowObj[h] === undefined ||
+              rowObj[h] === null ||
+              (String(rowObj[h]).trim() === '' &&
+                cellVal !== undefined &&
+                cellVal !== null &&
+                String(cellVal).trim() !== '')
+            ) {
+              rowObj[h] = cellVal;
+            }
           });
           rowsFromMatrix.push(rowObj);
         }
@@ -1307,19 +1317,31 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const rawProductName = nameCell.found ? String(nameCell.value).trim() : '';
         const explicitProductCode = codeCell.found ? codeCell.value : undefined;
-        const hasExplicitCode = explicitProductCode !== undefined && explicitProductCode !== null && String(explicitProductCode).trim() !== '';
-        const candidateCode = String(hasExplicitCode ? explicitProductCode : `PRD-${100 + index}`).trim();
+        const cleanedExplicitCode =
+          explicitProductCode !== undefined && explicitProductCode !== null
+            ? parseArabicDigits(String(explicitProductCode)).trim().replace(/\.0+$/, '')
+            : '';
+        const hasExplicitCode = cleanedExplicitCode !== '';
+        const candidateCode = hasExplicitCode ? cleanedExplicitCode : `PRD-${100 + index}`;
 
         const codeKey = normalizeCodeKey(candidateCode);
         const isAutoCode = !hasExplicitCode || /^prd-\d+$/i.test(candidateCode);
         const exactNameKey = rawProductName.trim().toLowerCase();
         const normNameKey = normalizeNameKey(rawProductName);
 
-        // Match existing product early so partial inventory sheets preserve category, prices, weight, image
-        const matchedExisting =
-          (!isAutoCode ? existingProductsByCode.get(codeKey) : undefined) ||
+        // Match existing product by exact SKU first.
+        // Only fall back to product name if the row has no explicit SKU OR the name-matched existing item
+        // does not belong to a different explicit SKU (prevents e.g. 30014880 from colliding with another SKU).
+        const matchedByCode = !isAutoCode ? existingProductsByCode.get(codeKey) : undefined;
+        const nameCandidate =
           (exactNameKey ? existingProductsByName.get(exactNameKey) : undefined) ||
           (normNameKey ? existingProductsByNormName.get(normNameKey) : undefined);
+        const nameCandidateCode = nameCandidate ? String(nameCandidate.productCode || '').trim() : '';
+        const nameCandidateIsAuto = !nameCandidateCode || /^prd-\d+$/i.test(nameCandidateCode);
+        const canUseNameCandidate =
+          Boolean(nameCandidate) &&
+          (isAutoCode || nameCandidateIsAuto || normalizeCodeKey(nameCandidateCode) === codeKey);
+        const matchedExisting = matchedByCode || (canUseNameCandidate ? nameCandidate : undefined);
 
         const productName = rawProductName || matchedExisting?.productName || `منتج ${index + 1}`;
         const productCode = hasExplicitCode ? candidateCode : (matchedExisting?.productCode || candidateCode);
@@ -1360,7 +1382,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ? parseArabicNumber(wholesaleCell.value)
           : (Number(matchedExisting?.wholesalePrice) || 0);
 
-        // Matching all possible headers for current store cartons (excluding pack-size and price columns)
+        // Matching all possible headers for current store cartons (excluding pack-size, price, and sales columns)
         const stockCell = findCell([
           'المخزن الحالي (كارتون)',
           'المخزن الحالي(كارتون)',
@@ -1370,9 +1392,16 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           'المخزون',
           'عدد الكارتون المتوفر بالمخزن',
           'عدد الكراتين المتوفر بالمخزن',
+          'عدد الكارتون بالمخزن',
           'عدد كارتون بالمخزن',
           'كارتون بالمخزن',
+          'اجمالي الكراتين',
+          'إجمالي الكراتين',
+          'اجمالي الكارتون',
+          'إجمالي الكارتون',
           'الكمية المتوفرة',
+          'الكمية الموجودة',
+          'الكمية المتبقية',
           'الكمية بالكارتون',
           'الكمية (كارتون)',
           'الكمية (كرتون)',
@@ -1382,27 +1411,59 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           'الرصيد (كارتون)',
           'الرصيد المتوفر',
           'الرصيد',
+          'رصيد',
           'المتوفر بالمخزن',
           'المتوفر',
+          'الموجود',
+          'موجود',
+          'المتبقي',
+          'الباقي',
+          'بالمخزن',
+          'في المخزن',
+          'كمية المخزن',
+          'العدد المتوفر',
+          'العدد الموجود',
           'المخزن',
           'عدد الكراتين',
           'كراتين',
+          'كارتون متوفر',
           'كارتون',
           'كرتون',
           'الكمية',
           'كمية',
           'Current Stock',
           'Available Stock',
+          'Available',
+          'In Stock',
+          'On Hand',
+          'Balance',
+          'Inventory',
+          'Total Cartons',
           'Stock Cartons',
           'Stock',
           'Cartons',
           'Carton',
           'Quantity',
+          'Remaining',
+          'Remain',
           'Qty'
-        ], ['عدد بالكارتون', 'عدد في الكارتون', 'العدد بالكرتون', 'العدد بالكارتون', 'تعبئة', 'سعر', 'كود', 'وزن']);
+        ], [
+          'عدد بالكارتون', 'عدد في الكارتون', 'العدد بالكرتون', 'العدد بالكارتون', 'قطع بالكارتون',
+          'تعبئة', 'سعر', 'كود', 'وزن', 'مباع', 'مبيعات', 'مرتجع', 'راجع', 'تالف',
+          'مطلوب', 'مقترح', 'هدف', 'تاركت', 'متوسط', 'معدل', 'بالقطعة', 'عدد القطع'
+        ]);
+        const piecesStockCell = !stockCell.found
+          ? findCell([
+              'الكمية بالقطعة', 'الرصيد بالقطعة', 'عدد القطع المتوفر', 'عدد القطع بالمخزن',
+              'اجمالي القطع', 'إجمالي القطع', 'القطع المتوفرة', 'Total Pieces', 'Pieces', 'Units'
+            ], ['سعر', 'وزن', 'كارتون', 'كرتون', 'تعبئة', 'مباع', 'مبيعات', 'مرتجع', 'تالف'])
+          : { found: false, value: undefined };
+
         const stockCartonsNum = stockCell.found
-          ? parseArabicNumber(stockCell.value)
-          : (matchedExisting ? Number(matchedExisting.totalCartons ?? matchedExisting.stockCartons ?? 0) : 0);
+          ? Math.max(0, parseArabicNumber(stockCell.value))
+          : piecesStockCell.found
+            ? Math.max(0, parseArabicNumber(piecesStockCell.value) / (unitsPerCarton || 1))
+            : (matchedExisting ? Math.max(0, Number(matchedExisting.totalCartons ?? matchedExisting.stockCartons ?? 0)) : 0);
 
         const imageCell = findCell(['صورة', 'صورة المنتج', 'رابط الصورة', 'Image', 'imageUrl']);
         let imageUrl = imageCell.found ? String(imageCell.value).trim() : '';
@@ -1415,9 +1476,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             '';
         }
 
-        const totalPieces = stockCartonsNum * unitsPerCarton;
+        const totalPieces = Math.round(stockCartonsNum * unitsPerCarton);
         const isAvailableBool = row['isAvailable'] !== false;
-        const isVisibleBool = isAvailableBool && totalPieces >= (6 * unitsPerCarton);
+        const isVisibleBool = isAvailableBool && totalPieces >= (3 * unitsPerCarton);
 
         const prodId = matchedExisting ? matchedExisting.id : `prod_${Date.now()}_${index}`;
 
@@ -1467,10 +1528,42 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
       });
 
-      // Deduplicate products by id in case two Excel rows resolved to the same product (keep latest row)
+      // Deduplicate products by id without letting empty/0 duplicate rows wipe out positive quantities
       const dedupedByIdMap = new globalThis.Map<string, ProductItem>();
       rawParsedProducts.forEach(p => {
-        dedupedByIdMap.set(p.id, p);
+        const prev = dedupedByIdMap.get(p.id);
+        if (!prev) {
+          dedupedByIdMap.set(p.id, p);
+          return;
+        }
+        const prevCartons = Number(prev.totalCartons ?? prev.stockCartons ?? 0);
+        const nextCartons = Number(p.totalCartons ?? p.stockCartons ?? 0);
+        if (nextCartons === 0 && prevCartons > 0) {
+          dedupedByIdMap.set(p.id, {
+            ...p,
+            totalPieces: prev.totalPieces,
+            totalUnits: prev.totalUnits,
+            totalCartons: prev.totalCartons,
+            initialStockCartons: prev.initialStockCartons,
+            stockCartons: prev.stockCartons,
+            isVisible: prev.isVisible,
+          });
+        } else if (nextCartons > 0 && prevCartons > 0) {
+          const combinedCartons = prevCartons + nextCartons;
+          const units = p.unitsPerCarton || prev.unitsPerCarton || 12;
+          const combinedPieces = Math.round(combinedCartons * units);
+          dedupedByIdMap.set(p.id, {
+            ...p,
+            totalPieces: combinedPieces,
+            totalUnits: combinedPieces,
+            totalCartons: combinedCartons,
+            initialStockCartons: combinedCartons,
+            stockCartons: combinedCartons,
+            isVisible: p.isAvailable !== false && combinedPieces >= (3 * units),
+          });
+        } else {
+          dedupedByIdMap.set(p.id, p);
+        }
       });
       const parsedProducts = Array.from(dedupedByIdMap.values());
 
@@ -1479,16 +1572,21 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const prevProductsByCode = new Map<string, ProductItem>();
         const prevProductsByName = new Map<string, ProductItem>();
         productsList.forEach(p => {
-          if (p.productCode) prevProductsByCode.set(String(p.productCode).trim().toLowerCase(), p);
+          if (p.productCode) prevProductsByCode.set(normalizeCodeKey(p.productCode), p);
           if (p.productName) prevProductsByName.set(String(p.productName).trim().toLowerCase(), p);
         });
 
         const restockedList: RestockedProductItem[] = [];
 
         parsedProducts.forEach(newProd => {
-          const codeKey = (newProd.productCode || '').trim().toLowerCase();
+          const codeKey = normalizeCodeKey(newProd.productCode || '');
+          const isNewAutoCode = !codeKey || /^prd-\d+$/i.test(codeKey);
           const nameKey = (newProd.productName || '').trim().toLowerCase();
-          const prevProd = prevProductsByCode.get(codeKey) || prevProductsByName.get(nameKey);
+          const prevByCode = !isNewAutoCode ? prevProductsByCode.get(codeKey) : undefined;
+          const prevByName = prevProductsByName.get(nameKey);
+          const prevNameCode = prevByName ? normalizeCodeKey(prevByName.productCode || '') : '';
+          const prevNameIsAuto = !prevNameCode || /^prd-\d+$/i.test(prevNameCode);
+          const prevProd = prevByCode || (isNewAutoCode || prevNameIsAuto || prevNameCode === codeKey ? prevByName : undefined);
 
           const newTotalPieces = newProd.totalPieces;
           const unitsPerCarton = newProd.unitsPerCarton || 12;
@@ -1615,11 +1713,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const newStockByCode: Record<string, number> = {};
         cleanedProducts.forEach(p => {
           const code = String(p.productCode || '').trim();
+          const normCode = normalizeCodeKey(code);
           const name = String(p.productName || '').trim();
           const cartons = Number(p.initialStockCartons ?? p.stockCartons ?? 0);
           if (code) {
             newStockByCode[code] = cartons;
             newStockByCode[code.toLowerCase()] = cartons;
+          }
+          if (normCode) {
+            newStockByCode[normCode] = cartons;
           }
           if (name) {
             newStockByCode[name] = cartons;
@@ -1772,9 +1874,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const resolvedLinksMap = await resolveShopLocationInputsBatch(rawLocValuesToResolve);
 
-      // Preserve existing pinned shop coordinates (from rep_shop_locations & existing routes) if new Excel rows omit them
+      // Preserve existing pinned shop coordinates (from rep_shop_locations & existing routes) STRICTLY by customerCode
+      // (Never match by customerName because different reps/areas can have identically named shops)
+      const normalizeShopCodeKey = (val: unknown): string =>
+        parseArabicDigits(String(val ?? '')).trim().replace(/\.0+$/, '').toLowerCase();
+
       const preservedCoordsByCode = new Map<string, { latitude: number; longitude: number; shopLocation?: string; repLocationSaved?: boolean }>();
-      const preservedCoordsByName = new Map<string, { latitude: number; longitude: number; shopLocation?: string; repLocationSaved?: boolean }>();
       let oldRoutesSnap: any = null;
       try {
         const [routesSnapRes, repLocsSnapRes] = await Promise.allSettled([
@@ -1788,16 +1893,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const lat = parseCoordinate(d?.latitude);
             const lng = parseCoordinate(d?.longitude);
             if (lat !== null && lng !== null) {
-              const info = {
-                latitude: lat,
-                longitude: lng,
-                shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
-                repLocationSaved: Boolean(d?.repLocationSaved),
-              };
-              const cCode = String(d?.customerCode || '').trim();
-              if (cCode && !preservedCoordsByCode.has(cCode)) preservedCoordsByCode.set(cCode, info);
-              const nName = normalizeArabicText(d?.customerName);
-              if (nName && !preservedCoordsByName.has(nName)) preservedCoordsByName.set(nName, info);
+              const cCode = normalizeShopCodeKey(d?.customerCode);
+              if (cCode && !/^cust-\d+$/i.test(cCode) && !preservedCoordsByCode.has(cCode)) {
+                preservedCoordsByCode.set(cCode, {
+                  latitude: lat,
+                  longitude: lng,
+                  shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
+                  repLocationSaved: Boolean(d?.repLocationSaved),
+                });
+              }
             }
           });
         }
@@ -1807,16 +1911,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const lat = parseCoordinate(d?.latitude);
             const lng = parseCoordinate(d?.longitude);
             if (lat !== null && lng !== null) {
-              const info = {
-                latitude: lat,
-                longitude: lng,
-                shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
-                repLocationSaved: true,
-              };
-              const cCode = String(d?.customerCode || '').trim();
-              if (cCode) preservedCoordsByCode.set(cCode, info);
-              const nName = normalizeArabicText(d?.customerName);
-              if (nName) preservedCoordsByName.set(nName, info);
+              const cCode = normalizeShopCodeKey(d?.customerCode);
+              if (cCode && !/^cust-\d+$/i.test(cCode)) {
+                preservedCoordsByCode.set(cCode, {
+                  latitude: lat,
+                  longitude: lng,
+                  shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
+                  repLocationSaved: true,
+                });
+              }
             }
           });
         }
@@ -1915,13 +2018,17 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         if (!customerName) customerName = `زبون ${idx + 1}`;
-        if (!customerCode) customerCode = `CUST-${100 + idx}`;
+        const hasRealCustomerCode = customerCode.trim() !== '' && !/^cust-\d+$/i.test(customerCode.trim());
+        if (hasRealCustomerCode) {
+          customerCode = parseArabicDigits(customerCode).trim().replace(/\.0+$/, '');
+        } else {
+          customerCode = `CUST-${100 + idx}`;
+        }
         if (!path) path = 'مسار 1';
         customerType = customerType === 'جملة' ? 'جملة' : 'مفرد';
 
-        const preserved =
-          preservedCoordsByCode.get(customerCode) ||
-          preservedCoordsByName.get(normalizeArabicText(customerName));
+        const codeLookupKey = hasRealCustomerCode ? normalizeShopCodeKey(customerCode) : '';
+        const preserved = codeLookupKey ? preservedCoordsByCode.get(codeLookupKey) : undefined;
         if (preserved) {
           if (latitude === null || longitude === null) {
             latitude = preserved.latitude;

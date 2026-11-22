@@ -237,11 +237,14 @@ export const AdminScreen: React.FC = () => {
     const invoiceTracker = new Map<string, Set<string>>();
 
     combinedMap.forEach((entry) => {
-      const codeKey = (entry.customerCode || '').trim().toLowerCase();
+      const codeKey = (entry.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
       const nameKey = (entry.customerName || '').trim().toLowerCase();
       const keys: string[] = [];
-      if (codeKey) keys.push(`code:${codeKey}`);
-      if (nameKey) keys.push(`name:${nameKey}`);
+      if (codeKey) {
+        keys.push(`code:${codeKey}`);
+      } else if (nameKey) {
+        keys.push(`name:${nameKey}`);
+      }
 
       const invKey = entry.invoiceId || `${entry.dateString}_${entry.customerName}_${entry.delegateName}_${entry.timestamp}`;
 
@@ -342,33 +345,26 @@ export const AdminScreen: React.FC = () => {
         (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
       );
 
-      // Lookup maps for matching sales entries with saved shop locations
+      // Lookup map for matching sales entries with saved shop locations STRICTLY by customerCode
       const locByCode = new Map<string, ShopLocationRecord>();
-      const locByName = new Map<string, ShopLocationRecord>();
       allLocationsList.forEach((loc) => {
-        const cKey = (loc.customerCode || '').trim().toLowerCase();
-        const nKey = (loc.customerName || '').trim().toLowerCase();
+        const cKey = (loc.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
         if (cKey) locByCode.set(cKey, loc);
-        if (nKey) locByName.set(nKey, loc);
       });
 
       const findLocationForSale = (entry: SalesEntry): ShopLocationRecord | undefined => {
-        const cKey = (entry.customerCode || '').trim().toLowerCase();
+        const cKey = (entry.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
         if (cKey && locByCode.has(cKey)) return locByCode.get(cKey);
-        const nKey = (entry.customerName || '').trim().toLowerCase();
-        if (nKey && locByName.has(nKey)) return locByName.get(nKey);
         return undefined;
       };
 
-      // Aggregate per-customer sales for the locations sheet
+      // Aggregate per-customer sales for the locations sheet STRICTLY by customerCode
       const statsByCode = new Map<string, { invoices: Set<string>; weight: number; lastDate: string }>();
-      const statsByName = new Map<string, { invoices: Set<string>; weight: number; lastDate: string }>();
       allSalesList.forEach((s) => {
         if (s.status === 'cancelled') return;
         const invKey = s.invoiceId || `${s.dateString}_${s.customerName}_${s.delegateName}_${s.timestamp}`;
         const w = Number(s.totalWeightKg) || 0;
-        const cKey = (s.customerCode || '').trim().toLowerCase();
-        const nKey = (s.customerName || '').trim().toLowerCase();
+        const cKey = (s.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
         if (cKey) {
           const cur = statsByCode.get(cKey) || { invoices: new Set<string>(), weight: 0, lastDate: '' };
           cur.invoices.add(invKey);
@@ -376,22 +372,12 @@ export const AdminScreen: React.FC = () => {
           if (s.dateString && s.dateString > cur.lastDate) cur.lastDate = s.dateString;
           statsByCode.set(cKey, cur);
         }
-        if (nKey) {
-          const cur = statsByName.get(nKey) || { invoices: new Set<string>(), weight: 0, lastDate: '' };
-          cur.invoices.add(invKey);
-          cur.weight += w;
-          if (s.dateString && s.dateString > cur.lastDate) cur.lastDate = s.dateString;
-          statsByName.set(nKey, cur);
-        }
       });
 
       // Sheet 1: Saved Shop Locations
       const locationRows = allLocationsList.map((loc, idx) => {
-        const cKey = (loc.customerCode || '').trim().toLowerCase();
-        const nKey = (loc.customerName || '').trim().toLowerCase();
-        const st =
-          (cKey ? statsByCode.get(cKey) : undefined) ||
-          (nKey ? statsByName.get(nKey) : undefined);
+        const cKey = (loc.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+        const st = cKey ? statsByCode.get(cKey) : undefined;
         return {
           'ت': idx + 1,
           'كود الزبون': loc.customerCode || '-',

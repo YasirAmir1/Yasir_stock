@@ -508,13 +508,16 @@ export const RoutesScreen: React.FC = () => {
     return `shop_${Date.now()}`;
   };
 
+  const normalizeLocationCode = (val: unknown): string =>
+    String(val ?? '').trim().replace(/\.0+$/, '').toLowerCase();
+
   const savedShopLocationsLookup = useMemo(() => {
     const byDocId = new Map<string, ShopLocationRecord>();
     const byCode = new Map<string, ShopLocationRecord>();
     const byRouteId = new Map<string, ShopLocationRecord>();
     savedShopLocations.forEach((rec) => {
       if (rec.id) byDocId.set(rec.id, rec);
-      const code = String(rec.customerCode || '').trim();
+      const code = normalizeLocationCode(rec.customerCode);
       if (code) byCode.set(code, rec);
       const rId = String(rec.routeId || '').trim();
       if (rId) byRouteId.set(rId, rec);
@@ -526,7 +529,7 @@ export const RoutesScreen: React.FC = () => {
     if (!route) return undefined;
     const docId = getShopLocationDocId(route);
     if (savedShopLocationsLookup.byDocId.has(docId)) return savedShopLocationsLookup.byDocId.get(docId);
-    const code = String(route.customerCode || '').trim();
+    const code = normalizeLocationCode(route.customerCode);
     if (code && savedShopLocationsLookup.byCode.has(code)) return savedShopLocationsLookup.byCode.get(code);
     if (route.id && savedShopLocationsLookup.byRouteId.has(route.id)) return savedShopLocationsLookup.byRouteId.get(route.id);
     return undefined;
@@ -2827,20 +2830,34 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     setNotesVisibleLimit(10);
   }, [notesActionFilter, notesSearchQuery, notesDelegateFilter]);
 
+  const isPrivilegedShopLocsViewer = Boolean(
+    (currentUser?.isAdmin ||
+      currentUser?.role === 'admin' ||
+      currentUser?.name === 'الأدمن' ||
+      isDataEntry) &&
+      currentUser?.role !== 'delegate'
+  );
+
   const shopLocationsDelegateOptions = useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, { name: string; count: number }>();
     savedShopLocations.forEach((rec) => {
-      const name = (rec.delegateName || rec.savedBy || '').trim();
-      if (name) set.add(name);
+      const rawName = (rec.delegateName || rec.savedBy || '').trim();
+      if (!rawName) return;
+      const key = normalizeArabic(rawName);
+      if (!key) return;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { name: rawName, count: 1 });
+      }
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   }, [savedShopLocations]);
 
   const visibleShopLocations = useMemo(() => {
-    const isPrivileged = Boolean((currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate');
-
     let list = savedShopLocations;
-    if (!isPrivileged) {
+    if (!isPrivilegedShopLocsViewer) {
       // Build exact identity sets for the logged-in representative (no loose cross-rep substring matches)
       const myNames = new Set<string>();
       const myCodes = new Set<string>();
@@ -2927,8 +2944,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     return list;
   }, [
     savedShopLocations,
+    isPrivilegedShopLocsViewer,
     currentUser,
-    isDataEntry,
     effectiveDelegateCode,
     delegateAccounts,
     routes,
@@ -3965,12 +3982,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       }
 
       const routeByCode = new Map<string, RouteItem>();
-      const routeByName = new Map<string, RouteItem>();
       routes.forEach((r) => {
-        const code = String(r.customerCode || '').trim();
+        const code = normalizeLocationCode(r.customerCode);
         if (code && !routeByCode.has(code)) routeByCode.set(code, r);
-        const normName = normalizeArabic(r.customerName);
-        if (normName && !routeByName.has(normName)) routeByName.set(normName, r);
       });
 
       const updates: Array<{ route: RouteItem; latitude: number; longitude: number }> = [];
@@ -4037,18 +4051,17 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           return '';
         };
 
-        const code = findColVal(['كود الزبون', 'رمز الزبون', 'كود العميل', 'الكود', 'Customer Code', 'Code']);
-        const name = findColVal(['اسم الزبون', 'الزبون', 'اسم العميل', 'العميل', 'Customer Name', 'Customer']);
+        const rawCode = findColVal(['كود الزبون', 'رمز الزبون', 'كود العميل', 'الكود', 'Customer Code', 'Code']);
+        const code = normalizeLocationCode(rawCode);
         const locCell = getLocCell(row);
         const parsed = (locCell && resolvedBatchMap[locCell]) || parseShopLocationString(locCell);
         const lat = parsed.latitude ?? parseCoordinate(findColVal(['خط العرض', 'latitude', 'lat']));
         const lng = parsed.longitude ?? parseCoordinate(findColVal(['خط الطول', 'longitude', 'lng', 'lon']));
 
-        if (lat === null || lng === null) return;
+        if (lat === null || lng === null || !code) return;
 
-        const matchedRoute =
-          (code ? routeByCode.get(code) : undefined) ||
-          (name ? routeByName.get(normalizeArabic(name)) : undefined);
+        // Match strictly by shop customerCode (never by customerName)
+        const matchedRoute = routeByCode.get(code);
 
         if (matchedRoute) {
           updates.push({ route: matchedRoute, latitude: lat, longitude: lng });
@@ -4058,7 +4071,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       if (updates.length === 0) {
         addToast({
           title: 'لم يتم العثور على مواقع مطابقة',
-          message: 'تأكد من وجود عمود "كود الزبون" وعمود "موقع المحل" بإحداثيات (34.615800, 43.678600) أو رابط خرائط كوكل.',
+          message: 'تأكد من وجود عمود "كود الزبون" مطابق وعمود "موقع المحل" بإحداثيات (34.615800, 43.678600) أو رابط خرائط كوكل.',
           type: 'info',
         });
         return;
@@ -6422,11 +6435,11 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
                 <span>مواقع المحلات المحفوظة (موقع المحل)</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-600 text-white shadow-xs">
-                  {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
-                    ? `جميع المواقع لكل المندوبين (${visibleShopLocations.length})`
+                  {isPrivilegedShopLocsViewer
+                    ? `جميع المواقع (${visibleShopLocations.length})`
                     : `محلاتي فقط (${visibleShopLocations.length})`}
                 </span>
-                {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate' && visibleShopLocations.length > 0 && (
+                {isPrivilegedShopLocsViewer && visibleShopLocations.length > 0 && (
                   <button
                     type="button"
                     onClick={handleExportShopLocationsExcel}
@@ -6438,7 +6451,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 )}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-                {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate'
+                {isPrivilegedShopLocsViewer
                   ? 'جميع مواقع المحلات التي حددها المندوبون عبر نافذة «إجراء على المحل».'
                   : 'مواقع محلاتك المحفوظة فقط عبر نافذة «إجراء على المحل».'}
               </p>
@@ -6446,25 +6459,45 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </div>
 
           <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
-            {(currentUser?.isAdmin || isDataEntry) && currentUser?.role !== 'delegate' && (
-              <select
-                value={shopLocationsDelegateFilter}
-                onChange={(e) => setShopLocationsDelegateFilter(e.target.value)}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold ${
-                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                }`}
-              >
-                <option value="">جميع المناديب</option>
-                {shopLocationsDelegateOptions.map((del) => (
-                  <option key={del} value={del}>
-                    {del}
-                  </option>
-                ))}
-              </select>
+            {isPrivilegedShopLocsViewer && (
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <div className="relative flex-1 sm:flex-initial min-w-[185px]">
+                  <Users className="absolute right-2.5 top-2 w-4 h-4 text-teal-600 dark:text-teal-400 pointer-events-none" />
+                  <select
+                    value={shopLocationsDelegateFilter}
+                    onChange={(e) => setShopLocationsDelegateFilter(e.target.value)}
+                    aria-label="فلتر باسم المندوب"
+                    className={`w-full pr-8 pl-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                      shopLocationsDelegateFilter
+                        ? 'border-teal-500 ring-1 ring-teal-500/30 '
+                        : ''
+                    }${
+                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  >
+                    <option value="">فلتر المندوب: جميع المناديب ({savedShopLocations.length})</option>
+                    {shopLocationsDelegateOptions.map((del) => (
+                      <option key={del.name} value={del.name}>
+                        {del.name} ({del.count})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {shopLocationsDelegateFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setShopLocationsDelegateFilter('')}
+                    className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-pointer shrink-0"
+                    title="إلغاء فلتر المندوب"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             )}
 
             <div className="w-full sm:w-64 relative">
-              <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+              <Search className="absolute right-3 top-2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 value={shopLocationsSearchQuery}
@@ -6478,159 +6511,231 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </div>
         </div>
 
-        {visibleShopLocations.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
-            لا توجد مواقع محلات محفوظة حالياً. يمكن للمندوب تحديد موقع أي محل لمرة واحدة من نافذة «إجراء على المحل».
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {visibleShopLocations.map((rec) => {
-              const coordsText = rec.shopLocation || formatShopLocationString(rec.latitude, rec.longitude);
-              const isConfirmingDelete = confirmDeleteShopLocId === rec.id;
-
+        {/* Delegate Name Filter Bar */}
+        {isPrivilegedShopLocsViewer && shopLocationsDelegateOptions.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1 ml-1">
+              <User className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <span>تصفية حسب المندوب:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShopLocationsDelegateFilter('')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
+                shopLocationsDelegateFilter === ''
+                  ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                  : isDarkMode
+                  ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              جميع المناديب ({savedShopLocations.length})
+            </button>
+            {shopLocationsDelegateOptions.map((del) => {
+              const isSelected = normalizeArabic(shopLocationsDelegateFilter) === normalizeArabic(del.name);
               return (
-                <div
-                  key={rec.id}
-                  className={`p-3.5 rounded-2xl border shadow-xs transition-all space-y-2.5 flex flex-col justify-between ${
-                    isDarkMode
-                      ? 'bg-slate-900/95 border-teal-800/60 hover:border-teal-500'
-                      : 'bg-white border-teal-200 hover:border-teal-400'
+                <button
+                  key={del.name}
+                  type="button"
+                  onClick={() => setShopLocationsDelegateFilter(isSelected ? '' : del.name)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                          <MapPin className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
-                          <span>{rec.customerName}</span>
-                        </h4>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                          كود: {rec.customerCode || '-'} {rec.path ? `• ${rec.path}` : ''} {rec.customerType ? `• ${rec.customerType}` : ''}
-                        </p>
-                      </div>
-
-                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 shrink-0">
-                        محفوظ ✓
-                      </span>
-                    </div>
-
-                    {rec.customerAddress && (
-                      <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate" title={rec.customerAddress}>
-                        العنوان: {rec.customerAddress}
-                      </p>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      <span className="flex items-center gap-1">
-                        <User className="w-3.5 h-3.5 text-slate-400" />
-                        <span>المندوب: {rec.savedBy || rec.delegateName || '-'}</span>
-                      </span>
-                      {typeof rec.accuracyMeters === 'number' && (
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                          دقة ±{rec.accuracyMeters}م
-                        </span>
-                      )}
-                    </div>
-
-                    <div
-                      className={`p-2 rounded-xl border flex items-center justify-between gap-2 ${
-                        isDarkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-teal-50/60 border-teal-200/80'
-                      }`}
-                    >
-                      <span dir="ltr" className="font-mono text-[11px] font-black text-teal-700 dark:text-teal-300 truncate select-all">
-                        {coordsText}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCoords(`saved_${rec.id}`, coordsText)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-black shrink-0 transition-colors cursor-pointer"
-                        title="نسخ إحداثيات موقع المحل"
-                      >
-                        {copiedCoordKey === `saved_${rec.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedCoordKey === `saved_${rec.id}` ? 'تم النسخ' : 'نسخ'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                    <div className="flex flex-col">
-                      <span dir="ltr" className="text-[9px] text-slate-400 font-mono text-right">
-                        {formatEnglishDateTime(rec.savedAt || rec.timestamp, rec.dateString)}
-                      </span>
-                      {rec.updatedAt && (
-                        <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold">
-                          عُدّل: <span dir="ltr" className="font-mono">{formatEnglishDateTime(rec.updatedAt)}</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {isAdminUser && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const matchedRoute =
-                              routes.find(
-                                (mr) =>
-                                  mr.id === rec.routeId ||
-                                  (rec.customerCode &&
-                                    String(mr.customerCode || '').trim() === String(rec.customerCode).trim())
-                              ) ||
-                              ({
-                                id: rec.routeId || rec.id,
-                                customerCode: rec.customerCode || '',
-                                customerName: rec.customerName,
-                                customerAddress: rec.customerAddress || '',
-                                customerType: rec.customerType || 'مفرد',
-                                path: rec.path || '',
-                                delegateName: rec.delegateName || '',
-                                delegateCode: rec.delegateCode || '',
-                                latitude: rec.latitude,
-                                longitude: rec.longitude,
-                                repLocationSaved: true,
-                              } as RouteItem);
-                            handleProceedToShopLocation(matchedRoute, rec);
-                          }}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-black transition-colors cursor-pointer"
-                          title="تعديل إحداثيات موقع المحل"
-                        >
-                          <Edit3 className="w-3 h-3" />
-                          <span>تعديل</span>
-                        </button>
-
-                        {isConfirmingDelete ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSavedShopLocation(rec)}
-                              className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black cursor-pointer"
-                            >
-                              تأكيد الحذف
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteShopLocId(null)}
-                              className="px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
-                            >
-                              إلغاء
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteShopLocId(rec.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
-                            title="حذف الموقع لإتاحة إعادة التحديد للمندوب"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  {del.name} ({del.count})
+                </button>
               );
             })}
+          </div>
+        )}
+
+        {visibleShopLocations.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400 font-bold text-xs bg-white/40 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+            لا توجد مواقع محلات محفوظة مطابقة للعرض الحالي.
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[520px] overflow-y-auto rounded-xl border border-teal-200/80 dark:border-slate-700 shadow-xs">
+            <table className="w-full table-auto text-[11px] sm:text-xs text-right">
+              <thead
+                className={`sticky top-0 z-10 font-black ${
+                  isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-teal-50 text-slate-800'
+                }`}
+              >
+                <tr>
+                  <th className="px-2 py-2 border-b border-teal-200/70 dark:border-slate-700">المحل والكود</th>
+                  <th className="px-2 py-2 border-b border-teal-200/70 dark:border-slate-700">المندوب والمسار</th>
+                  <th className="px-2 py-2 border-b border-teal-200/70 dark:border-slate-700">موقع المحل (GPS)</th>
+                  <th className="px-2 py-2 border-b border-teal-200/70 dark:border-slate-700 hidden sm:table-cell">تاريخ الحفظ</th>
+                  {isAdminUser && (
+                    <th className="px-2 py-2 border-b border-teal-200/70 dark:border-slate-700 text-center w-[88px]">إجراء</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody
+                className={`divide-y ${
+                  isDarkMode ? 'divide-slate-800 bg-slate-900 text-slate-200' : 'divide-slate-200 bg-white text-slate-800'
+                }`}
+              >
+                {visibleShopLocations.map((rec, idx) => {
+                  const coordsText = rec.shopLocation || formatShopLocationString(rec.latitude, rec.longitude);
+                  const isConfirmingDelete = confirmDeleteShopLocId === rec.id;
+
+                  return (
+                    <tr
+                      key={rec.id}
+                      className={`transition-colors align-top ${
+                        isDarkMode ? 'hover:bg-slate-800/70' : 'hover:bg-teal-50/40'
+                      }`}
+                    >
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="font-mono text-[10px] text-slate-400">{idx + 1}.</span>
+                          <MapPin className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <span className="font-black text-slate-900 dark:text-white leading-tight">{rec.customerName}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                            محفوظ ✓
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400">
+                          <span className="font-mono font-bold">كود: {rec.customerCode || '-'}</span>
+                          {rec.customerAddress && (
+                            <span className="truncate max-w-[200px]" title={rec.customerAddress}>
+                              • {rec.customerAddress}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{rec.savedBy || rec.delegateName || '-'}</span>
+                          {typeof rec.accuracyMeters === 'number' && (
+                            <span className="text-[9.5px] font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                              ±{rec.accuracyMeters}م
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1 flex-wrap text-[10px] text-slate-600 dark:text-slate-400">
+                          <span className="font-bold">{rec.path || '-'}</span>
+                          {rec.customerType && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
+                              {rec.customerType}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span
+                            dir="ltr"
+                            className="inline-flex items-center px-1.5 py-0.5 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/30 font-mono text-[10px] font-black select-all"
+                          >
+                            {coordsText}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyCoords(`saved_${rec.id}`, coordsText)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-black shrink-0 transition-colors cursor-pointer"
+                            title="نسخ إحداثيات موقع المحل"
+                          >
+                            {copiedCoordKey === `saved_${rec.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedCoordKey === `saved_${rec.id}` ? 'تم' : 'نسخ'}</span>
+                          </button>
+                        </div>
+                        <div className="sm:hidden mt-1 text-[9.5px] text-slate-400 font-mono" dir="ltr">
+                          {formatEnglishDateTime(rec.savedAt || rec.timestamp, rec.dateString)}
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-2 hidden sm:table-cell">
+                        <div className="flex flex-col">
+                          <span dir="ltr" className="text-[10px] text-slate-500 dark:text-slate-400 font-mono text-right">
+                            {formatEnglishDateTime(rec.savedAt || rec.timestamp, rec.dateString)}
+                          </span>
+                          {rec.updatedAt && (
+                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold">
+                              عُدّل: <span dir="ltr" className="font-mono">{formatEnglishDateTime(rec.updatedAt)}</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {isAdminUser && (
+                        <td className="px-2 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const matchedRoute =
+                                  routes.find(
+                                    (mr) =>
+                                      mr.id === rec.routeId ||
+                                      (rec.customerCode &&
+                                        normalizeLocationCode(mr.customerCode) === normalizeLocationCode(rec.customerCode))
+                                  ) ||
+                                  ({
+                                    id: rec.routeId || rec.id,
+                                    customerCode: rec.customerCode || '',
+                                    customerName: rec.customerName,
+                                    customerAddress: rec.customerAddress || '',
+                                    customerType: rec.customerType || 'مفرد',
+                                    path: rec.path || '',
+                                    delegateName: rec.delegateName || '',
+                                    delegateCode: rec.delegateCode || '',
+                                    latitude: rec.latitude,
+                                    longitude: rec.longitude,
+                                    repLocationSaved: true,
+                                  } as RouteItem);
+                                handleProceedToShopLocation(matchedRoute, rec);
+                              }}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-black transition-colors cursor-pointer"
+                              title="تعديل إحداثيات موقع المحل"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>تعديل</span>
+                            </button>
+
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSavedShopLocation(rec)}
+                                  className="px-1.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black cursor-pointer"
+                                >
+                                  تأكيد
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteShopLocId(null)}
+                                  className="px-1.5 py-1 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                                >
+                                  إلغاء
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteShopLocId(rec.id)}
+                                className="p-1 text-slate-400 hover:text-rose-600 transition-colors rounded-lg cursor-pointer"
+                                title="حذف الموقع لإتاحة إعادة التحديد للمندوب"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

@@ -54,10 +54,18 @@ export const StoreNotificationsModal: React.FC<StoreNotificationsModalProps> = (
     }
 
     if (productsList && productsList.length > 0) {
-      const liveProd = productsList.find(
-        p => (item.productCode && p.productCode && p.productCode.trim().toLowerCase() === item.productCode.trim().toLowerCase()) ||
-             (item.productName && p.productName && p.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
-      );
+      const itemCodeNorm = (item.productCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+      const itemNameNorm = (item.productName || '').trim().toLowerCase();
+      const liveProd =
+        (itemCodeNorm
+          ? productsList.find(p => (p.productCode || '').trim().replace(/\.0+$/, '').toLowerCase() === itemCodeNorm)
+          : undefined) ||
+        productsList.find(p => {
+          const pNameNorm = (p.productName || '').trim().toLowerCase();
+          if (!itemNameNorm || pNameNorm !== itemNameNorm) return false;
+          const pCodeNorm = (p.productCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+          return !itemCodeNorm || !pCodeNorm || /^prd-\d+$/i.test(itemCodeNorm) || /^prd-\d+$/i.test(pCodeNorm);
+        });
       if (liveProd) {
         if (isSauceUser && liveProd.categoryName?.trim() !== 'صلصات') return false;
         const unitsPerCarton = Number(liveProd.unitsPerCarton || liveProd.cartonQuantity) || 12;
