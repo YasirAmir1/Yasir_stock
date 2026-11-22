@@ -342,6 +342,8 @@ export interface RouteItem {
   shopLocation?: string;
   repLocationSaved?: boolean;
   locationClearedAt?: number;
+  updatedAt?: number;
+  updatedBy?: string;
   visitedToday?: boolean;
   tier?: 'gold' | 'silver' | 'bronze';
 }
@@ -488,7 +490,9 @@ export interface UnsuccessfulVisit {
   date: string;                  // التاريخ بالإنجليزية (YYYY-MM-DD أو DD/MM/YYYY)
   timeFormatted: string;          // وقت التسجيل بتوقيت بغداد (مثال: 10:45 AM)
   timestamp: number;             // وقت التسجيل بالميلي ثانية
-  refrigeratorPhoto?: string;    // رابط / كود الصورة للبراد المضغوط (Base64)
+  refrigeratorPhoto: string;     // رابط / كود الصورة للبراد المضغوط (Base64) - إلزامي
+  optionalPhoto1?: string;       // صورة إضافية اختيارية 1
+  optionalPhoto2?: string;       // صورة إضافية اختيارية 2
   reason: string;                // سبب عدم نجاح الزيارة
   latitude?: number | null;             // إحداثيات الموقع عند تسجيل الزيارة
   longitude?: number | null;

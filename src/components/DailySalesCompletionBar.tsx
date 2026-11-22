@@ -6,9 +6,10 @@ import { safeOnSnapshot, logFirestoreErrorGracefully } from '../lib/firestoreUti
 import { formatWithCommas } from '../utils/numberUtils';
 import { Check, Clock, CheckCircle2, AlertTriangle, Users, Pencil, ChevronDown, X, User } from 'lucide-react';
 import { REPORT_11_CATEGORIES, isMatchingReport11Category, calculateRemainingWorkingDaysInMonth } from './Report11Screen';
-import { Report11Config } from '../types';
-import { deactivateRepLiveLocation, getRepTrackingId } from '../lib/fleetTrackingService';
+import { deactivateRepLiveLocation, getRepTrackingId, normalizeTrackingText, getActiveBaghdadRouteDay } from '../lib/fleetTrackingService';
 import { formatEnglishTime } from '../utils/dateUtils';
+import { getEffectiveRouteDay } from '../utils/routeUtils';
+import { Report11Config, UnsuccessfulVisit, RouteItem } from '../types';
 
 export const formatTo12HourArabic = (timeStr?: string): string => {
   if (!timeStr) return '';
@@ -42,6 +43,7 @@ export const DailySalesCompletionBar: React.FC = () => {
     addToast,
     delegatesList = [],
     delegateTargets = [],
+    routes = [],
   } = useSales();
 
   // Rafat / Data Entry check
@@ -59,10 +61,93 @@ export const DailySalesCompletionBar: React.FC = () => {
   const [completedDelegatesList, setCompletedDelegatesList] = useState<Array<{ delegate: string; completedAt: string; systemType?: string }>>([]);
   const [isCompletedLoaded, setIsCompletedLoaded] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showUnvisitedShopsModal, setShowUnvisitedShopsModal] = useState(false);
+  const [unsuccessfulVisits, setUnsuccessfulVisits] = useState<UnsuccessfulVisit[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [countdownText, setCountdownText] = useState('00:00:00');
   const [isPastTargetTime, setIsPastTargetTime] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+
+  // Real-time listener for unsuccessful visits
+  useEffect(() => {
+    const unsub = safeOnSnapshot(
+      collection(db, 'unsuccessful_visits'),
+      (snap: any) => {
+        const loaded: UnsuccessfulVisit[] = [];
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) loaded.push({ ...data, id: d.id } as UnsuccessfulVisit);
+        });
+        setUnsuccessfulVisits(loaded);
+      },
+      (err: any) => logFirestoreErrorGracefully(err, 'unsuccessful_visits'),
+      'CompletionBar-unsuccessful-visits'
+    );
+    return () => unsub();
+  }, []);
+
+  const todayIsoDate = new Date().toISOString().split('T')[0];
+  const activeTodayDayName = getActiveBaghdadRouteDay();
+
+  const activeDelegateUnvisitedShops = useMemo(() => {
+    const activeDel = currentUser?.isAdmin
+      ? selectedDelegate && selectedDelegate !== 'الكل'
+        ? selectedDelegate
+        : ''
+      : currentUser?.name || '';
+    if (!activeDel) return [];
+    const normTodayDay = normalizeTrackingText(activeTodayDayName);
+    const normActiveDel = normalizeTrackingText(activeDel);
+
+    const visitedCodes = new Set<string>();
+    const visitedNames = new Set<string>();
+    salesEntries.forEach((e) => {
+      if (e.dateString === todayIsoDate && e.status !== 'cancelled') {
+        const cCode = String(e.customerCode || '').trim();
+        if (cCode) visitedCodes.add(cCode);
+        if (e.customerName) visitedNames.add(normalizeTrackingText(e.customerName));
+      }
+    });
+
+    const unsuccessfulCodes = new Set<string>();
+    const unsuccessfulNames = new Set<string>();
+    unsuccessfulVisits.forEach((v) => {
+      const vDate = v.date || '';
+      const isToday = vDate === todayIsoDate || (v.timestamp && new Date(v.timestamp).toISOString().split('T')[0] === todayIsoDate);
+      if (!isToday) return;
+      const cCode = String(v.customerCode || '').trim();
+      if (cCode) unsuccessfulCodes.add(cCode);
+      if (v.customerName) unsuccessfulNames.add(normalizeTrackingText(v.customerName));
+    });
+
+    const seen = new Set<string>();
+    const result: RouteItem[] = [];
+
+    routes.forEach((r) => {
+      const effDay = normalizeTrackingText(getEffectiveRouteDay(r));
+      if (!effDay || (!effDay.includes(normTodayDay) && !normTodayDay.includes(effDay))) return;
+
+      const rDel = normalizeTrackingText(r.delegateName);
+      if (!rDel.includes(normActiveDel) && !normActiveDel.includes(rDel)) return;
+
+      const cCode = String(r.customerCode || '').trim();
+      const cNameNorm = normalizeTrackingText(r.customerName);
+
+      if (cCode && visitedCodes.has(cCode)) return;
+      if (!cCode && cNameNorm && visitedNames.has(cNameNorm)) return;
+
+      if (cCode && unsuccessfulCodes.has(cCode)) return;
+      if (!cCode && cNameNorm && unsuccessfulNames.has(cNameNorm)) return;
+
+      const dedupeKey = cCode ? `code::${cCode}` : `name::${cNameNorm}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      result.push(r);
+    });
+
+    return result;
+  }, [routes, salesEntries, unsuccessfulVisits, selectedDelegate, currentUser?.isAdmin, currentUser?.name, todayIsoDate, activeTodayDayName]);
 
   // Configurable auto-lock time (default 21:00 / 9:00 PM)
   const [targetAutoLockTime, setTargetAutoLockTime] = useState('21:00');
@@ -835,6 +920,96 @@ export const DailySalesCompletionBar: React.FC = () => {
 
   return (
     <>
+      {/* Unvisited Shops Warning Modal */}
+      {showUnvisitedShopsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          dir="rtl"
+          onClick={() => setShowUnvisitedShopsModal(false)}
+        >
+          <div
+            className={`w-full max-w-lg rounded-2xl p-5 shadow-2xl border text-right space-y-4 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto ${
+              isDarkMode
+                ? 'bg-slate-900 border-amber-500/40 text-white'
+                : 'bg-white border-amber-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">المحلات غير المزارة اليوم (🔴 ضمن المسار)</h3>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 font-bold">
+                    لديك {activeDelegateUnvisitedShops.length} محل لم تتم زيارته ضمن مسار اليوم
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUnvisitedShopsModal(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto max-h-[50vh] rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full min-w-[420px] text-xs text-right border-collapse">
+                <thead className={isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}>
+                  <tr>
+                    <th className="p-2.5">اسم المحل</th>
+                    <th className="p-2.5">الكود</th>
+                    <th className="p-2.5">العنوان / المسار</th>
+                    <th className="p-2.5 text-center">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {activeDelegateUnvisitedShops.map((r, idx) => (
+                    <tr key={r.id || idx} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <td className="p-2.5 font-bold">{r.customerName}</td>
+                      <td className="p-2.5 font-mono">{r.customerCode || '-'}</td>
+                      <td className="p-2.5 text-slate-500 dark:text-slate-400">{r.customerAddress || r.path || '-'}</td>
+                      <td className="p-2.5 text-center whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[10px] font-black border border-rose-500/30">
+                          🔴 لم يُزار بعد
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnvisitedShopsModal(false)}
+                className={`flex-1 py-2.5 rounded-xl font-black text-xs border transition-colors cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                العودة للزيارات
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnvisitedShopsModal(false);
+                  setShowConfirmModal(true);
+                }}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                متابعة وتأكيد إكمال المبيعات رغم وجود محلات غير مزارة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       {showConfirmModal && (
         <div
@@ -1173,7 +1348,13 @@ export const DailySalesCompletionBar: React.FC = () => {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setShowConfirmModal(true)}
+                    onClick={() => {
+                      if (activeDelegateUnvisitedShops.length > 0) {
+                        setShowUnvisitedShopsModal(true);
+                      } else {
+                        setShowConfirmModal(true);
+                      }
+                    }}
                     className="w-full min-h-[46px] sm:min-h-[52px] px-1.5 sm:px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-xl font-black text-[10px] sm:text-xs md:text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-1 sm:gap-2 cursor-pointer border border-red-700 text-center"
                   >
                     <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />

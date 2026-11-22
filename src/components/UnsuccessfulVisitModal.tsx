@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Lock,
   X,
+  Plus,
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -78,6 +79,8 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
   onNotify,
 }) => {
   const [photoDataUrl, setPhotoDataUrl] = useState<string>('');
+  const [optionalPhoto1, setOptionalPhoto1] = useState<string>('');
+  const [optionalPhoto2, setOptionalPhoto2] = useState<string>('');
   const [reason, setReason] = useState<string>('');
   const [isCompressing, setIsCompressing] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -85,6 +88,8 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
   const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const opt1InputRef = useRef<HTMLInputElement>(null);
+  const opt2InputRef = useRef<HTMLInputElement>(null);
   const reasonTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Immediately focus the reason input whenever the modal opens for a shop
@@ -92,6 +97,8 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
     if (isOpen && route) {
       setReason('');
       setPhotoDataUrl('');
+      setOptionalPhoto1('');
+      setOptionalPhoto2('');
       setLockWarning('');
       setShakeTrigger(false);
       const timer = window.setTimeout(() => {
@@ -102,13 +109,13 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
   }, [isOpen, route?.id, route?.customerCode]);
 
   const triggerBlockedCloseWarning = () => {
-    setLockWarning('لا يمكن إغلاق النافذة بدون كتابة سبب الزيارة غير الناجحة وحفظه أولاً.');
+    setLockWarning('لا يمكن إغلاق النافذة بدون كتابة سبب الزيارة غير الناجحة والتقاط صورة البراد الإلزامية وحفظه أولاً.');
     setShakeTrigger(true);
     reasonTextareaRef.current?.focus();
     window.setTimeout(() => setShakeTrigger(false), 450);
   };
 
-  // Prevent dismissing via Escape key without entering and saving the reason
+  // Prevent dismissing via Escape key without entering and saving the reason & photo
   useEffect(() => {
     if (!isOpen || !route) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -125,6 +132,7 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
   if (!isOpen || !route) return null;
 
   const hasValidReason = reason.trim().length > 0;
+  const hasRefrigeratorPhoto = photoDataUrl.trim().length > 0;
 
   const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,7 +142,27 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
       setIsCompressing(true);
       const compressed = await compressImageFile(file);
       setPhotoDataUrl(compressed);
-      onNotify?.('تم التقاط الصورة بنجاح', 'تم تجهيز صورة براد الزبون بنجاح.', 'info');
+      setLockWarning('');
+      onNotify?.('تم التقاط صورة البراد بنجاح', 'تم تجهيز صورة براد الزبون الإلزامية بنجاح.', 'info');
+    } catch (err: any) {
+      console.error('Image compression error:', err);
+      onNotify?.('خطأ بالصورة', 'تعذر معالجة الصورة، يرجى المحاولة مرة أخرى.', 'reminder');
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleOptionalPhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>, slot: 1 | 2) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsCompressing(true);
+      const compressed = await compressImageFile(file);
+      if (slot === 1) setOptionalPhoto1(compressed);
+      else setOptionalPhoto2(compressed);
+      onNotify?.('تم إضافة الصورة الاختيارية بنجاح', `تم تجهيز الصورة الاختيارية ${slot} بنجاح.`, 'info');
     } catch (err: any) {
       console.error('Image compression error:', err);
       onNotify?.('خطأ بالصورة', 'تعذر معالجة الصورة، يرجى المحاولة مرة أخرى.', 'reminder');
@@ -151,6 +179,14 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
     if (!trimmedReason) {
       triggerBlockedCloseWarning();
       onNotify?.('السبب مطلوب', 'يرجى كتابة سبب عدم نجاح الزيارة للمحل أولاً.', 'reminder');
+      return;
+    }
+
+    if (!hasRefrigeratorPhoto) {
+      setLockWarning('صورة براد الزبون بالكاميرا إلزامية لتوثيق الزيارة غير الناجحة.');
+      setShakeTrigger(true);
+      onNotify?.('صورة البراد إلزامية', 'يرجى التقاط صورة براد الزبون بالكاميرا قبل الحفظ.', 'reminder');
+      window.setTimeout(() => setShakeTrigger(false), 450);
       return;
     }
 
@@ -180,7 +216,9 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
       date: dateFormatted,
       timeFormatted,
       timestamp: Date.now(),
-      refrigeratorPhoto: photoDataUrl || undefined,
+      refrigeratorPhoto: photoDataUrl,
+      optionalPhoto1: optionalPhoto1 || undefined,
+      optionalPhoto2: optionalPhoto2 || undefined,
       reason: trimmedReason,
       latitude: route.latitude !== null && route.latitude !== undefined ? Number(route.latitude) : undefined,
       longitude: route.longitude !== null && route.longitude !== undefined ? Number(route.longitude) : undefined,
@@ -198,7 +236,7 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
     onSuccess?.(record);
     onNotify?.(
       'تم تسجيل الزيارة غير الناجحة فوراً ✅',
-      `تم حفظ سبب الزيارة لمحل (${route.customerName}) وإرساله للأدمن بنجاح.`,
+      `تم حفظ سبب الزيارة وصورة البراد لمحل (${route.customerName}) وإرساله للأدمن بنجاح.`,
       'success'
     );
 
@@ -213,6 +251,8 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
     }
 
     setPhotoDataUrl('');
+    setOptionalPhoto1('');
+    setOptionalPhoto2('');
     setReason('');
     setLockWarning('');
     setIsSubmitting(false);
@@ -235,7 +275,7 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header — No Close Button: Reason is Mandatory */}
+        {/* Header */}
         <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
@@ -254,7 +294,7 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[10px] font-black">
               <Lock className="w-3 h-3" />
-              <span>السبب إلزامي</span>
+              <span>السبب وصورة البراد إلزامي</span>
             </span>
             <button
               type="button"
@@ -304,7 +344,7 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
                     : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
                 }`}
               >
-                {hasValidReason ? 'جاهز للحفظ ✓' : 'مطلوب للمتابعة'}
+                {hasValidReason ? 'مكتوب ✓' : 'مطلوب إلزامي'}
               </span>
             </div>
 
@@ -326,24 +366,24 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
               }`}
               required
             />
-
-            {lockWarning ? (
-              <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-700 dark:text-rose-300 text-[11px] font-black flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{lockWarning}</span>
-              </div>
-            ) : (
-              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                لا يمكن إغلاق هذه النافذة قبل كتابة السبب والضغط على حفظ.
-              </p>
-            )}
           </div>
 
-          {/* Secondary Section: Rear Camera Only Refrigerator Photo */}
+          {/* Mandatory Section: Rear Camera Refrigerator Photo */}
           <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <label className="block text-xs font-black text-slate-700 dark:text-slate-200">
-              صورة براد الزبون بالكاميرا (اختياري)
-            </label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-xs font-black text-slate-800 dark:text-slate-100">
+                صورة براد الزبون بالكاميرا <span className="text-rose-500">* (إلزامي)</span>
+              </label>
+              <span
+                className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                  hasRefrigeratorPhoto
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                {hasRefrigeratorPhoto ? 'تم التقاط الصورة ✓' : 'مطلوب إلزامياً بالكاميرا'}
+              </span>
+            </div>
 
             {/* Hidden file input for rear camera only */}
             <input
@@ -356,16 +396,16 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
             />
 
             {photoDataUrl ? (
-              <div className="relative rounded-2xl border-2 border-emerald-500/40 bg-slate-950/5 dark:bg-slate-950/40 p-2 overflow-hidden flex flex-col items-center">
+              <div className="relative rounded-2xl border-2 border-emerald-500/50 bg-slate-950/5 dark:bg-slate-950/40 p-2 overflow-hidden flex flex-col items-center">
                 <div className="relative w-full max-h-44 rounded-xl overflow-hidden bg-black flex items-center justify-center">
                   <img
                     src={photoDataUrl}
                     alt="براد الزبون"
                     className="max-h-44 w-auto object-contain mx-auto"
                   />
-                  <div className="absolute top-2 right-2 bg-emerald-600/90 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <div className="absolute top-2 right-2 bg-emerald-600/90 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md">
                     <CheckCircle2 className="w-3 h-3" />
-                    <span>تم التقاط الصورة</span>
+                    <span>تم التقاط صورة البراد</span>
                   </div>
                 </div>
 
@@ -394,25 +434,117 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
                 type="button"
                 disabled={isCompressing}
                 onClick={() => cameraInputRef.current?.click()}
-                className="w-full py-2.5 px-4 rounded-xl border-2 border-dashed border-amber-400/70 dark:border-amber-700/70 bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl border-2 border-dashed border-rose-400 dark:border-rose-600 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/60 dark:hover:bg-rose-950/40 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
               >
                 {isCompressing ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Camera className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <Camera className="w-4 h-4 text-rose-600 dark:text-rose-400 animate-pulse" />
                 )}
-                <span>التقاط صورة للبراد بالكاميرا</span>
+                <span>اضغط هنا لالتقاط صورة براد الزبون بالكاميرا (إلزامي)</span>
               </button>
             )}
           </div>
 
-          {/* Submit Action (Single Mandatory Path — No Cancel/Dismiss Without Reason) */}
+          {/* Optional Photos Section (2 Optional Photos) */}
+          <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+              صور إضافية اختيارية (صورتين كحد أقصى):
+            </label>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              {/* Optional Photo 1 */}
+              <div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  ref={opt1InputRef}
+                  onChange={(e) => handleOptionalPhotoSelected(e, 1)}
+                  className="hidden"
+                />
+                {optionalPhoto1 ? (
+                  <div className="relative rounded-xl border border-emerald-500/40 bg-slate-950/5 dark:bg-slate-950/40 p-1.5 flex flex-col items-center">
+                    <div className="relative w-full h-24 rounded-lg overflow-hidden bg-black flex items-center justify-center">
+                      <img src={optionalPhoto1} alt="اختياري 1" className="h-24 w-full object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setOptionalPhoto1('')}
+                        className="absolute top-1 right-1 p-1 rounded-full bg-rose-600 text-white shadow-md hover:bg-rose-700 cursor-pointer"
+                        title="حذف الصورة"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">صورة إضافية 1 ✓</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isCompressing}
+                    onClick={() => opt1InputRef.current?.click()}
+                    className="w-full h-24 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-400 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 text-[11px] font-black flex flex-col items-center justify-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-slate-400" />
+                    <span>صورة إضافية 1 (اختياري)</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Optional Photo 2 */}
+              <div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  ref={opt2InputRef}
+                  onChange={(e) => handleOptionalPhotoSelected(e, 2)}
+                  className="hidden"
+                />
+                {optionalPhoto2 ? (
+                  <div className="relative rounded-xl border border-emerald-500/40 bg-slate-950/5 dark:bg-slate-950/40 p-1.5 flex flex-col items-center">
+                    <div className="relative w-full h-24 rounded-lg overflow-hidden bg-black flex items-center justify-center">
+                      <img src={optionalPhoto2} alt="اختياري 2" className="h-24 w-full object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setOptionalPhoto2('')}
+                        className="absolute top-1 right-1 p-1 rounded-full bg-rose-600 text-white shadow-md hover:bg-rose-700 cursor-pointer"
+                        title="حذف الصورة"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">صورة إضافية 2 ✓</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isCompressing}
+                    onClick={() => opt2InputRef.current?.click()}
+                    className="w-full h-24 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-400 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 text-[11px] font-black flex flex-col items-center justify-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-slate-400" />
+                    <span>صورة إضافية 2 (اختياري)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {lockWarning && (
+            <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-700 dark:text-rose-300 text-[11px] font-black flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{lockWarning}</span>
+            </div>
+          )}
+
+          {/* Submit Action */}
           <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
             <button
               type="submit"
-              disabled={isSubmitting || isCompressing}
-              className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-black shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 ${
-                hasValidReason
+              disabled={isSubmitting || isCompressing || !hasValidReason || !hasRefrigeratorPhoto}
+              className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-black shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
+                hasValidReason && hasRefrigeratorPhoto
                   ? 'bg-amber-500 hover:bg-amber-400 active:scale-98 text-slate-950 shadow-amber-500/25'
                   : 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shadow-none'
               }`}
@@ -420,12 +552,12 @@ export const UnsuccessfulVisitModal: React.FC<UnsuccessfulVisitModalProps> = ({
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>جاري الحفظ...</span>
+                  <span>جاري الحفظ والرفع...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>حفظ السبب وتأكيد الزيارة غير الناجحة</span>
+                  <span>حفظ وتأكيد الزيارة غير الناجحة</span>
                 </>
               )}
             </button>

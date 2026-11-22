@@ -36,6 +36,7 @@ import {
   requestGeolocationFromUserGesture,
   calculateHaversineDistanceMeters,
   cacheShopCoordinatesLocally,
+  reconcileShopCoordinatesCache,
   removeCachedShopCoordinates,
   getCachedShopCoordinates,
   resolveRouteCoordinatesWithCache,
@@ -203,6 +204,8 @@ export const RoutesScreen: React.FC = () => {
   const [savedShopLocations, setSavedShopLocations] = useState<ShopLocationRecord[]>([]);
   const [shopLocationsSearchQuery, setShopLocationsSearchQuery] = useState<string>('');
   const [shopLocationsDelegateFilter, setShopLocationsDelegateFilter] = useState<string>('');
+  const [showDuplicateShopLocationsOnly, setShowDuplicateShopLocationsOnly] = useState<boolean>(false);
+  const captureTargetRouteIdRef = useRef<string | null>(null);
   const [capturedLatLng, setCapturedLatLng] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [isCapturingGps, setIsCapturingGps] = useState<boolean>(false);
   const [gpsCaptureError, setGpsCaptureError] = useState<string | null>(null);
@@ -221,6 +224,8 @@ export const RoutesScreen: React.FC = () => {
   const [unsuccessfulVisits, setUnsuccessfulVisits] = useState<UnsuccessfulVisit[]>([]);
   const [customerVisitModalRoute, setCustomerVisitModalRoute] = useState<RouteItem | null>(null);
   const [unsuccessfulVisitTargetRoute, setUnsuccessfulVisitTargetRoute] = useState<RouteItem | null>(null);
+  const unsuccessfulSectionRef = useRef<HTMLDivElement | null>(null);
+  const [focusedUnsuccessfulQuery, setFocusedUnsuccessfulQuery] = useState<string>('');
 
   // End-of-day Unvisited (Red) Shops snapshots (Admin-only section)
   const [dailyUnvisitedSnapshots, setDailyUnvisitedSnapshots] = useState<DailyUnvisitedSnapshot[]>([]);
@@ -500,16 +505,23 @@ export const RoutesScreen: React.FC = () => {
   const [repGpsStatus, setRepGpsStatus] = useState<GpsTrackingStatus>(() => getLastKnownGpsTrackingStatus());
   const [repLiveCoords, setRepLiveCoords] = useState<RepLiveCoords | null>(() => getLastKnownRepCoords());
 
+  const normalizeLocationCode = (val: unknown): string =>
+    parseArabicDigits(String(val ?? '')).trim().replace(/\.0+$/, '').toLowerCase();
+
+  const isRealCustomerCode = (val: unknown): boolean => {
+    const norm = normalizeLocationCode(val);
+    return norm !== '' && !/^cust-\d+$/i.test(norm);
+  };
+
   const getShopLocationDocId = (route: RouteItem): string => {
-    const cleanCode = String(route.customerCode || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    if (cleanCode) return `cust_${cleanCode}`;
+    if (isRealCustomerCode(route.customerCode)) {
+      const cleanCode = String(route.customerCode || '').trim().replace(/\.0+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      if (cleanCode && /[a-zA-Z0-9]/.test(cleanCode)) return `cust_${cleanCode}`;
+    }
     const cleanRouteId = String(route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
     if (cleanRouteId) return `route_${cleanRouteId}`;
     return `shop_${Date.now()}`;
   };
-
-  const normalizeLocationCode = (val: unknown): string =>
-    String(val ?? '').trim().replace(/\.0+$/, '').toLowerCase();
 
   const savedShopLocationsLookup = useMemo(() => {
     const byDocId = new Map<string, ShopLocationRecord>();
@@ -517,8 +529,10 @@ export const RoutesScreen: React.FC = () => {
     const byRouteId = new Map<string, ShopLocationRecord>();
     savedShopLocations.forEach((rec) => {
       if (rec.id) byDocId.set(rec.id, rec);
-      const code = normalizeLocationCode(rec.customerCode);
-      if (code) byCode.set(code, rec);
+      if (isRealCustomerCode(rec.customerCode)) {
+        const code = normalizeLocationCode(rec.customerCode);
+        if (code) byCode.set(code, rec);
+      }
       const rId = String(rec.routeId || '').trim();
       if (rId) byRouteId.set(rId, rec);
     });
@@ -529,8 +543,18 @@ export const RoutesScreen: React.FC = () => {
     if (!route) return undefined;
     const docId = getShopLocationDocId(route);
     if (savedShopLocationsLookup.byDocId.has(docId)) return savedShopLocationsLookup.byDocId.get(docId);
-    const code = normalizeLocationCode(route.customerCode);
-    if (code && savedShopLocationsLookup.byCode.has(code)) return savedShopLocationsLookup.byCode.get(code);
+    const hasRealCode = isRealCustomerCode(route.customerCode);
+    if (hasRealCode) {
+      const code = normalizeLocationCode(route.customerCode);
+      if (code && savedShopLocationsLookup.byCode.has(code)) return savedShopLocationsLookup.byCode.get(code);
+      if (route.id && savedShopLocationsLookup.byRouteId.has(route.id)) {
+        const byRId = savedShopLocationsLookup.byRouteId.get(route.id);
+        if (byRId && (!isRealCustomerCode(byRId.customerCode) || normalizeLocationCode(byRId.customerCode) === code)) {
+          return byRId;
+        }
+      }
+      return undefined;
+    }
     if (route.id && savedShopLocationsLookup.byRouteId.has(route.id)) return savedShopLocationsLookup.byRouteId.get(route.id);
     return undefined;
   };
@@ -556,10 +580,108 @@ export const RoutesScreen: React.FC = () => {
     });
   }, [routes, savedShopLocationsLookup, savedShopLocations.length]);
 
+  // Unified saved shop locations list: includes all `rep_shop_locations` records (deduplicated) PLUS
+  // any mapped routes saved via "إدارة ملفات المسارات (Excel)" / inline edit so both sections stay 100% consistent
+  const mergedSavedShopLocations = useMemo(() => {
+    const byKey = new Map<string, ShopLocationRecord>();
+    const routeByCode = new Map<string, RouteItem>();
+    const routeById = new Map<string, RouteItem>();
+
+    enrichedRoutes.forEach((r) => {
+      if (r.id) routeById.set(String(r.id).trim(), r);
+      const normCode = normalizeLocationCode(r.customerCode);
+      if (normCode && !routeByCode.has(normCode)) routeByCode.set(normCode, r);
+    });
+
+    savedShopLocations.forEach((rec) => {
+      const lat = parseCoordinate(rec.latitude);
+      const lng = parseCoordinate(rec.longitude);
+      if (lat === null || lng === null) return;
+      const normCode = normalizeLocationCode(rec.customerCode);
+      const hasRealCode = normCode !== '' && !/^cust-\d+$/i.test(normCode);
+      const key = hasRealCode
+        ? `code:${normCode}`
+        : rec.routeId
+        ? `route:${String(rec.routeId).trim()}`
+        : `id:${rec.id}`;
+      const routeMatchedById = rec.routeId ? routeById.get(String(rec.routeId).trim()) : undefined;
+      const matchedRoute = hasRealCode
+        ? routeByCode.get(normCode) ||
+          (routeMatchedById && normalizeLocationCode(routeMatchedById.customerCode) === normCode
+            ? routeMatchedById
+            : undefined)
+        : routeMatchedById || (normCode ? routeByCode.get(normCode) : undefined);
+
+      const enrichedRec: ShopLocationRecord = matchedRoute
+        ? {
+            ...rec,
+            customerName: rec.customerName || matchedRoute.customerName || '',
+            customerCode: rec.customerCode || matchedRoute.customerCode || '',
+            customerAddress: rec.customerAddress || matchedRoute.customerAddress || '',
+            customerType: rec.customerType || matchedRoute.customerType || 'مفرد',
+            path: rec.path || getEffectiveRouteDay(matchedRoute) || matchedRoute.path || '',
+            delegateName: rec.delegateName || matchedRoute.delegateName || '',
+            delegateCode: rec.delegateCode || matchedRoute.delegateCode || '',
+            shopLocation: rec.shopLocation || formatShopLocationString(lat, lng),
+          }
+        : {
+            ...rec,
+            shopLocation: rec.shopLocation || formatShopLocationString(lat, lng),
+          };
+
+      const existing = byKey.get(key);
+      if (!existing || (Number(enrichedRec.timestamp) || 0) >= (Number(existing.timestamp) || 0)) {
+        byKey.set(key, enrichedRec);
+      }
+    });
+
+    enrichedRoutes.forEach((r) => {
+      const lat = parseCoordinate(r.latitude);
+      const lng = parseCoordinate(r.longitude);
+      if (lat === null || lng === null) return;
+      const normCode = normalizeLocationCode(r.customerCode);
+      const key =
+        normCode && !/^cust-\d+$/i.test(normCode)
+          ? `code:${normCode}`
+          : r.id
+          ? `route:${String(r.id).trim()}`
+          : '';
+      if (!key || byKey.has(key)) return;
+
+      const canonicalId = getShopLocationDocId(r);
+      const updatedTs = Number(r.updatedAt) || 0;
+      byKey.set(key, {
+        id: canonicalId,
+        routeId: r.id || canonicalId,
+        customerCode: String(r.customerCode || '').trim(),
+        customerName: r.customerName || '',
+        customerAddress: r.customerAddress || '',
+        customerType: r.customerType === 'جملة' ? 'جملة' : 'مفرد',
+        path: getEffectiveRouteDay(r) || r.path || '',
+        delegateName: r.delegateName || '',
+        delegateCode: r.delegateCode || '',
+        latitude: Number(lat.toFixed(6)),
+        longitude: Number(lng.toFixed(6)),
+        shopLocation: r.shopLocation || formatShopLocationString(lat, lng),
+        savedBy: r.updatedBy || r.delegateName || 'إدارة المسارات',
+        savedByCode: r.delegateCode || '',
+        savedAt: updatedTs ? new Date(updatedTs).toISOString() : '',
+        timestamp: updatedTs,
+        dateString: updatedTs ? new Date(updatedTs).toISOString().split('T')[0] : '',
+      });
+    });
+
+    return Array.from(byKey.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }, [savedShopLocations, enrichedRoutes]);
+
   const cachedShopCoordsMap = useMemo(() => {
-    cacheShopCoordinatesLocally(enrichedRoutes);
+    if (routesLoaded) {
+      reconcileShopCoordinatesCache(enrichedRoutes);
+    } else {
+      cacheShopCoordinatesLocally(enrichedRoutes);
+    }
     return getCachedShopCoordinates();
-  }, [enrichedRoutes]);
+  }, [enrichedRoutes, routesLoaded]);
 
   const openShopActionModalForRoute = (r: RouteItem) => {
     setSelectedRowId(r.id);
@@ -2501,7 +2623,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     const searchTerms = normalizedQuery.split(' ').filter(Boolean);
     const isSearching = searchTerms.length > 0;
 
-    return routes.filter(r => {
+    return enrichedRoutes.filter(r => {
       // 1. Delegate matching
       let delegateMatch = true;
       if (currentUser?.isAdmin || isDataEntry) {
@@ -2584,7 +2706,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       return true;
     });
-  }, [routes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isDataEntry]);
+  }, [enrichedRoutes, currentUser, routeFilterDelegate, delegateAccounts, routeFilterDay, currentDay, searchQuery, isDataEntry]);
 
   const customerTypeCounts = useMemo(() => {
     let mifrad = 0;
@@ -2840,7 +2962,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
   const shopLocationsDelegateOptions = useMemo(() => {
     const map = new Map<string, { name: string; count: number }>();
-    savedShopLocations.forEach((rec) => {
+    mergedSavedShopLocations.forEach((rec) => {
       const rawName = (rec.delegateName || rec.savedBy || '').trim();
       if (!rawName) return;
       const key = normalizeArabic(rawName);
@@ -2853,10 +2975,46 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       }
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  }, [savedShopLocations]);
+  }, [mergedSavedShopLocations]);
+
+  const duplicateCoordPeersMap = useMemo(() => {
+    const bucketMap = new Map<string, Array<{ rec: ShopLocationRecord; identityKey: string }>>();
+    mergedSavedShopLocations.forEach((rec) => {
+      const lat = parseCoordinate(rec.latitude);
+      const lng = parseCoordinate(rec.longitude);
+      if (lat === null || lng === null) return;
+      const bucket = `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+      const identityKey = isRealCustomerCode(rec.customerCode)
+        ? `code:${normalizeLocationCode(rec.customerCode)}`
+        : `name:${normalizeArabic(rec.customerName)}::del:${normalizeArabic(rec.delegateName || rec.savedBy)}`;
+      const arr = bucketMap.get(bucket) || [];
+      arr.push({ rec, identityKey });
+      bucketMap.set(bucket, arr);
+    });
+
+    const peersByRecId = new Map<string, ShopLocationRecord[]>();
+    bucketMap.forEach((entries) => {
+      const uniqueIds = new Set(entries.map((e) => e.identityKey));
+      if (uniqueIds.size <= 1) return;
+      entries.forEach((entry) => {
+        const peersMap = new Map<string, ShopLocationRecord>();
+        entries.forEach((other) => {
+          if (other.identityKey !== entry.identityKey && !peersMap.has(other.identityKey)) {
+            peersMap.set(other.identityKey, other.rec);
+          }
+        });
+        if (peersMap.size > 0) {
+          peersByRecId.set(entry.rec.id, Array.from(peersMap.values()));
+        }
+      });
+    });
+    return peersByRecId;
+  }, [mergedSavedShopLocations]);
+
+  const duplicateLocationsCount = duplicateCoordPeersMap.size;
 
   const visibleShopLocations = useMemo(() => {
-    let list = savedShopLocations;
+    let list = mergedSavedShopLocations;
     if (!isPrivilegedShopLocsViewer) {
       // Build exact identity sets for the logged-in representative (no loose cross-rep substring matches)
       const myNames = new Set<string>();
@@ -2895,18 +3053,20 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         return (nCode !== '' && myCodes.has(nCode)) || (nName !== '' && myNames.has(nName));
       };
 
-      // Lookup routes by ID and customerCode to verify current shop ownership
+      // Lookup routes by ID and normalized customerCode to verify current shop ownership
       const routeById = new Map<string, RouteItem>();
       const routeByCode = new Map<string, RouteItem>();
-      routes.forEach((rt) => {
+      enrichedRoutes.forEach((rt) => {
         if (rt.id) routeById.set(String(rt.id).trim(), rt);
-        const c = String(rt.customerCode || '').trim().toLowerCase();
-        if (c) routeByCode.set(c, rt);
+        if (isRealCustomerCode(rt.customerCode)) {
+          const c = normalizeLocationCode(rt.customerCode);
+          if (c && !routeByCode.has(c)) routeByCode.set(c, rt);
+        }
       });
 
       list = list.filter((rec) => {
         const rId = String(rec.routeId || '').trim();
-        const rCustCode = String(rec.customerCode || '').trim().toLowerCase();
+        const rCustCode = isRealCustomerCode(rec.customerCode) ? normalizeLocationCode(rec.customerCode) : '';
         const matchedRoute = (rId && routeById.get(rId)) || (rCustCode && routeByCode.get(rCustCode)) || undefined;
 
         if (matchedRoute) {
@@ -2927,6 +3087,10 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       });
     }
 
+    if (isPrivilegedShopLocsViewer && showDuplicateShopLocationsOnly) {
+      list = list.filter((rec) => duplicateCoordPeersMap.has(rec.id));
+    }
+
     const q = normalizeArabic(shopLocationsSearchQuery);
     if (q) {
       list = list.filter((rec) => {
@@ -2943,13 +3107,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     }
     return list;
   }, [
-    savedShopLocations,
+    mergedSavedShopLocations,
     isPrivilegedShopLocsViewer,
     currentUser,
     effectiveDelegateCode,
     delegateAccounts,
-    routes,
+    enrichedRoutes,
     shopLocationsDelegateFilter,
+    showDuplicateShopLocationsOnly,
+    duplicateCoordPeersMap,
     shopLocationsSearchQuery,
   ]);
 
@@ -3471,7 +3637,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     setActionModalStep('other_info');
   };
 
-  const captureShopLocationGps = () => {
+  const captureShopLocationGps = (targetRouteIdOverride?: string | null) => {
+    const requestTargetRouteId = targetRouteIdOverride ?? actionModalRoute?.id ?? null;
+    captureTargetRouteIdRef.current = requestTargetRouteId;
     setGpsCaptureError(null);
     if (repLiveCoords && Date.now() - repLiveCoords.updatedAt < 20000) {
       setCapturedLatLng({
@@ -3495,6 +3663,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     setIsCapturingGps(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (captureTargetRouteIdRef.current !== requestTargetRouteId) return;
         const lat = Number(pos.coords.latitude.toFixed(6));
         const lng = Number(pos.coords.longitude.toFixed(6));
         const acc = Number.isFinite(pos.coords.accuracy) ? Math.round(pos.coords.accuracy) : undefined;
@@ -3508,6 +3677,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         }
       },
       (err) => {
+        if (captureTargetRouteIdRef.current !== requestTargetRouteId) return;
         setIsCapturingGps(false);
         const mapped = mapGeolocationErrorToStatus(err);
         let msg = 'تعذر تحديد الموقع تلقائياً (GPS). تأكد من تفعيل خدمة الموقع وإعطاء الصلاحية للمتصفح.';
@@ -3529,6 +3699,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     if (routeOverride) {
       setActionModalRoute(routeOverride);
     }
+    captureTargetRouteIdRef.current = targetRoute?.id ?? null;
     const existingRecord = savedRecordOverride || (targetRoute ? getSavedLocationForRoute(targetRoute) : undefined);
     setEditingSavedLocationRecord(savedRecordOverride || existingRecord || null);
     setActionModalStep('shop_location');
@@ -3555,7 +3726,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     } else {
       setCapturedLatLng(null);
       setManualCoordInput('');
-      captureShopLocationGps();
+      captureShopLocationGps(targetRoute?.id ?? null);
     }
   };
 
@@ -3717,11 +3888,14 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
 
       // Optimistically update savedShopLocations & routes & cache immediately so map pins and button hides instantaneously
       setSavedShopLocations((prev) => [record, ...prev.filter((item) => item.id !== record.id)]);
-      const targetCode = String(actionModalRoute.customerCode || '').trim();
+      const targetCode = isRealCustomerCode(actionModalRoute.customerCode)
+        ? normalizeLocationCode(actionModalRoute.customerCode)
+        : '';
       setRoutes((prev) =>
         prev.map((item) => {
-          const matchesId = item.id && actionModalRoute.id && item.id === actionModalRoute.id;
-          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          const itemCode = normalizeLocationCode(item.customerCode);
+          const matchesCode = targetCode !== '' && itemCode === targetCode;
+          const matchesId = !targetCode && item.id && actionModalRoute.id && item.id === actionModalRoute.id;
           if (!matchesId && !matchesCode) return item;
           return {
             ...item,
@@ -3769,11 +3943,20 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
   const handleDeleteSavedShopLocation = async (rec: ShopLocationRecord) => {
     if (!isAdminUser || !rec.id) return;
     try {
-      await deleteDoc(doc(db, 'rep_shop_locations', rec.id));
+      const targetCode = normalizeLocationCode(rec.customerCode);
+      const matchingDocsToDelete = savedShopLocations.filter((item) => {
+        if (item.id === rec.id) return true;
+        if (rec.routeId && item.routeId === rec.routeId) return true;
+        if (targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode) return true;
+        return false;
+      });
+      const docIdsToDelete = Array.from(new Set([rec.id, ...matchingDocsToDelete.map((d) => d.id).filter(Boolean)]));
+      await Promise.all(docIdsToDelete.map((id) => deleteDoc(doc(db, 'rep_shop_locations', id))));
+
       const matchedRoute = routes.find(
         (r) =>
-          r.id === rec.routeId ||
-          (rec.customerCode && String(r.customerCode || '').trim() === String(rec.customerCode).trim())
+          (rec.routeId && r.id === rec.routeId) ||
+          (targetCode !== '' && normalizeLocationCode(r.customerCode) === targetCode)
       );
       const fallbackRoute: RouteItem = matchedRoute || {
         id: rec.routeId || rec.id,
@@ -3786,19 +3969,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       };
       const res = await deleteCustomerCoordinates(fallbackRoute, currentUser?.name || 'الأدمن');
       const clearedAt = res.clearedAt || Date.now();
-      const targetCode = String(rec.customerCode || '').trim();
       setSavedShopLocations((prev) =>
         prev.filter((item) => {
-          if (item.id === rec.id) return false;
+          if (docIdsToDelete.includes(item.id)) return false;
           if (rec.routeId && item.routeId === rec.routeId) return false;
-          if (targetCode && String(item.customerCode || '').trim() === targetCode) return false;
+          if (targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode) return false;
           return true;
         })
       );
       setRoutes((prev) =>
         prev.map((r) => {
           const matchesId = (rec.routeId && r.id === rec.routeId) || (matchedRoute && r.id === matchedRoute.id);
-          const matchesCode = targetCode !== '' && String(r.customerCode || '').trim() === targetCode;
+          const matchesCode = targetCode !== '' && normalizeLocationCode(r.customerCode) === targetCode;
           if (!matchesId && !matchesCode) return r;
           return {
             ...r,
@@ -3810,6 +3992,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           };
         })
       );
+      removeCachedShopCoordinates(fallbackRoute);
       setConfirmDeleteShopLocId(null);
       addToast?.({
         title: 'تم حذف الموقع',
@@ -4078,9 +4261,36 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       }
 
       const updatedCount = await bulkUpdateRouteLocations(updates, currentUser?.name || 'الأدمن');
+      const updatesByCode = new Map<string, { lat: number; lng: number }>();
+      const updatesById = new Map<string, { lat: number; lng: number }>();
+      updates.forEach((u) => {
+        const normC = normalizeLocationCode(u.route.customerCode);
+        if (normC) updatesByCode.set(normC, { lat: u.latitude, lng: u.longitude });
+        if (u.route.id) updatesById.set(u.route.id, { lat: u.latitude, lng: u.longitude });
+      });
+      setRoutes((prev) =>
+        prev.map((item) => {
+          const hit =
+            (item.id ? updatesById.get(item.id) : undefined) ||
+            updatesByCode.get(normalizeLocationCode(item.customerCode));
+          if (!hit) return item;
+          const nLat = Number(hit.lat.toFixed(6));
+          const nLng = Number(hit.lng.toFixed(6));
+          return {
+            ...item,
+            latitude: nLat,
+            longitude: nLng,
+            shopLocation: formatShopLocationString(nLat, nLng),
+            repLocationSaved: true,
+            locationClearedAt: 0,
+            updatedAt: Date.now(),
+            updatedBy: currentUser?.name || 'الأدمن',
+          };
+        })
+      );
       addToast({
         title: 'تم تحديث مواقع المحلات 📍✅',
-        message: `تم تحديث موقع (${updatedCount}) محل بنجاح من ملف الإكسل دون حذف المسارات.`,
+        message: `تم تحديث موقع (${updatedCount}) محل بنجاح من ملف الإكسل ومزامنتها مع قائمة المواقع المحفوظة.`,
         type: 'success',
         delegateName: currentUser?.name || '',
       });
@@ -4105,7 +4315,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       });
       return;
     }
-    const res = await saveCustomerCoordinates(route, parsed.latitude, parsed.longitude, currentUser?.name || 'الأدمن');
+    const actorName = currentUser?.name || 'الأدمن';
+    const res = await saveCustomerCoordinates(route, parsed.latitude, parsed.longitude, actorName);
     setIsSavingInlineLocation(false);
     addToast({
       title: res.success ? 'تم حفظ الموقع 📍' : 'خطأ',
@@ -4113,19 +4324,25 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       type: res.success ? 'success' : 'info',
     });
     if (res.success && parsed.latitude !== null && parsed.longitude !== null) {
-      const targetCode = String(route.customerCode || '').trim();
-      const locText = formatShopLocationString(parsed.latitude, parsed.longitude);
+      const targetCode = normalizeLocationCode(route.customerCode);
+      const nLat = Number(parsed.latitude.toFixed(6));
+      const nLng = Number(parsed.longitude.toFixed(6));
+      const locText = formatShopLocationString(nLat, nLng);
+      const nowMs = Date.now();
       setRoutes((prev) =>
         prev.map((item) => {
           const matchesId = item.id && route.id && item.id === route.id;
-          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          const matchesCode = targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode;
           if (!matchesId && !matchesCode) return item;
           return {
             ...item,
-            latitude: parsed.latitude,
-            longitude: parsed.longitude,
+            latitude: nLat,
+            longitude: nLng,
             shopLocation: locText,
+            repLocationSaved: true,
             locationClearedAt: 0,
+            updatedAt: nowMs,
+            updatedBy: actorName,
           };
         })
       );
@@ -4142,18 +4359,18 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
     setConfirmDeleteLocationRouteId(null);
 
     if (res.success) {
-      const targetCode = String(route.customerCode || '').trim();
+      const targetCode = normalizeLocationCode(route.customerCode);
       setSavedShopLocations((prev) =>
         prev.filter((rec) => {
           if (route.id && rec.routeId === route.id) return false;
-          if (targetCode !== '' && String(rec.customerCode || '').trim() === targetCode) return false;
+          if (targetCode !== '' && normalizeLocationCode(rec.customerCode) === targetCode) return false;
           return true;
         })
       );
       setRoutes((prev) =>
         prev.map((item) => {
           const matchesId = item.id && route.id && item.id === route.id;
-          const matchesCode = targetCode !== '' && String(item.customerCode || '').trim() === targetCode;
+          const matchesCode = targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode;
           if (!matchesId && !matchesCode) return item;
           return {
             ...item,
@@ -4449,6 +4666,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       {(currentUser?.isAdmin || isDataEntry) && showFleetMap && (
         <SaladinFleetMap
           routes={enrichedRoutes}
+          strictAuthoritativeRoutes={routesLoaded}
           salesEntries={allSalesEntries}
           unsuccessfulVisits={unsuccessfulVisits}
           isDarkMode={isDarkMode}
@@ -4458,6 +4676,16 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           selectedDelegateFilter={routeFilterDelegate}
           onSelectCustomerAction={(route) => setCustomerVisitModalRoute(route)}
           canCreateInvoiceForRoute={(route) => canCreateInvoiceOnMap(route)}
+          onFocusUnsuccessfulVisit={(route) => {
+            const queryText = route.customerCode || route.customerName;
+            setFocusedUnsuccessfulQuery(queryText);
+            unsuccessfulSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            addToast?.({
+              title: 'توجيه لجدول الزيارات غير الناجحة',
+              message: `تم الانتقال مباشرة إلى الزيارة غير الناجحة للزبون: ${route.customerName}`,
+              type: 'info',
+            });
+          }}
           onNotify={(msg) =>
             addToast?.({
               title: 'خريطة صلاح الدين',
@@ -4465,6 +4693,33 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               type: 'success',
             })
           }
+          onLocationDeleted={(deletedRoute, clearedAt) => {
+            const targetCode = isRealCustomerCode(deletedRoute.customerCode)
+              ? normalizeLocationCode(deletedRoute.customerCode)
+              : '';
+            setSavedShopLocations((prev) =>
+              prev.filter((rec) => {
+                if (deletedRoute.id && rec.routeId === deletedRoute.id) return false;
+                if (targetCode !== '' && normalizeLocationCode(rec.customerCode) === targetCode) return false;
+                return true;
+              })
+            );
+            setRoutes((prev) =>
+              prev.map((item) => {
+                const matchesId = item.id && deletedRoute.id && item.id === deletedRoute.id;
+                const matchesCode = targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode;
+                if (!matchesId && !matchesCode) return item;
+                return {
+                  ...item,
+                  latitude: null,
+                  longitude: null,
+                  shopLocation: '',
+                  repLocationSaved: false,
+                  locationClearedAt: clearedAt,
+                };
+              })
+            );
+          }}
         />
       )}
 
@@ -4472,6 +4727,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       {isFieldRep && !currentUser?.isAdmin && !isDataEntry && showFleetMap && (
         <SaladinFleetMap
           routes={enrichedRoutes}
+          strictAuthoritativeRoutes={routesLoaded}
           salesEntries={allSalesEntries}
           unsuccessfulVisits={unsuccessfulVisits}
           isDarkMode={isDarkMode}
@@ -5985,9 +6241,16 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
             })
           : filteredRoutes;
 
-        const mappedShopsCount = excelDelegateFilteredRoutes.filter(
+        const mappedExcelRoutes = excelDelegateFilteredRoutes.filter(
           (r) => parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null
-        ).length;
+        );
+        const mappedShopsCount = mappedExcelRoutes.length;
+        const uniqueMappedShopsCount = new Set(
+          mappedExcelRoutes.map((r) => {
+            const c = normalizeLocationCode(r.customerCode);
+            return c && !/^cust-\d+$/i.test(c) ? `code:${c}` : `route:${r.id}`;
+          })
+        ).size;
         const unmappedShopsCount = excelDelegateFilteredRoutes.length - mappedShopsCount;
 
         const excelTableRoutes = excelDelegateFilteredRoutes.filter((r) => {
@@ -6033,7 +6296,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-words mt-0.5">
-                    المسارات المفلترة: {excelDelegateFilter || routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({excelDelegateFilteredRoutes.length} محل | محدد الموقع: {mappedShopsCount} • بدون موقع: {unmappedShopsCount})
+                    المسارات المفلترة: {excelDelegateFilter || routeFilterDelegate || 'كل المندوبين'} • {routeFilterDay || 'كل الأيام'} ({excelDelegateFilteredRoutes.length} صف مسار | محدد الموقع: {mappedShopsCount}{uniqueMappedShopsCount !== mappedShopsCount ? ` (${uniqueMappedShopsCount} محل فريد)` : ''} • بدون موقع: {unmappedShopsCount})
                   </p>
                 </div>
               </div>
@@ -6452,8 +6715,8 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
                 {isPrivilegedShopLocsViewer
-                  ? 'جميع مواقع المحلات التي حددها المندوبون عبر نافذة «إجراء على المحل».'
-                  : 'مواقع محلاتك المحفوظة فقط عبر نافذة «إجراء على المحل».'}
+                  ? 'جميع مواقع المحلات المحفوظة (المثبتة عبر المندوبين أو إدارة المسارات وملفات Excel).'
+                  : 'مواقع محلاتك المحفوظة فقط.'}
               </p>
             </div>
           </div>
@@ -6475,7 +6738,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                       isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   >
-                    <option value="">فلتر المندوب: جميع المناديب ({savedShopLocations.length})</option>
+                    <option value="">فلتر المندوب: جميع المناديب ({mergedSavedShopLocations.length})</option>
                     {shopLocationsDelegateOptions.map((del) => (
                       <option key={del.name} value={del.name}>
                         {del.name} ({del.count})
@@ -6511,45 +6774,66 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
           </div>
         </div>
 
-        {/* Delegate Name Filter Bar */}
-        {isPrivilegedShopLocsViewer && shopLocationsDelegateOptions.length > 0 && (
+        {/* Delegate Name Filter Bar + Duplicate Coordinates Alert Filter */}
+        {isPrivilegedShopLocsViewer && (shopLocationsDelegateOptions.length > 0 || duplicateLocationsCount > 0) && (
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1 ml-1">
-              <User className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-              <span>تصفية حسب المندوب:</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setShopLocationsDelegateFilter('')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
-                shopLocationsDelegateFilter === ''
-                  ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              جميع المناديب ({savedShopLocations.length})
-            </button>
-            {shopLocationsDelegateOptions.map((del) => {
-              const isSelected = normalizeArabic(shopLocationsDelegateFilter) === normalizeArabic(del.name);
-              return (
+            {duplicateLocationsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDuplicateShopLocationsOnly((v) => !v)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black border flex items-center gap-1 transition-colors cursor-pointer ${
+                  showDuplicateShopLocationsOnly
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : isDarkMode
+                    ? 'bg-amber-950/50 text-amber-300 border-amber-700/70 hover:bg-amber-900/60'
+                    : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                }`}
+                title="عرض المحلات المختلفة التي تشترك بنفس الإحداثيات تماماً لمراجعتها وحذف الموقع الخاطئ"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>مواقع مكررة الإحداثيات ({duplicateLocationsCount})</span>
+              </button>
+            )}
+            {shopLocationsDelegateOptions.length > 0 && (
+              <>
+                <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 flex items-center gap-1 ml-1">
+                  <User className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                  <span>تصفية حسب المندوب:</span>
+                </span>
                 <button
-                  key={del.name}
                   type="button"
-                  onClick={() => setShopLocationsDelegateFilter(isSelected ? '' : del.name)}
+                  onClick={() => setShopLocationsDelegateFilter('')}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
-                    isSelected
+                    shopLocationsDelegateFilter === ''
                       ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
                       : isDarkMode
                       ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  {del.name} ({del.count})
+                  جميع المناديب ({mergedSavedShopLocations.length})
                 </button>
-              );
-            })}
+                {shopLocationsDelegateOptions.map((del) => {
+                  const isSelected = normalizeArabic(shopLocationsDelegateFilter) === normalizeArabic(del.name);
+                  return (
+                    <button
+                      key={del.name}
+                      type="button"
+                      onClick={() => setShopLocationsDelegateFilter(isSelected ? '' : del.name)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                          : isDarkMode
+                          ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {del.name} ({del.count})
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </div>
         )}
 
@@ -6583,12 +6867,19 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 {visibleShopLocations.map((rec, idx) => {
                   const coordsText = rec.shopLocation || formatShopLocationString(rec.latitude, rec.longitude);
                   const isConfirmingDelete = confirmDeleteShopLocId === rec.id;
+                  const duplicatePeers = duplicateCoordPeersMap.get(rec.id) || [];
 
                   return (
                     <tr
                       key={rec.id}
                       className={`transition-colors align-top ${
-                        isDarkMode ? 'hover:bg-slate-800/70' : 'hover:bg-teal-50/40'
+                        duplicatePeers.length > 0
+                          ? isDarkMode
+                            ? 'bg-amber-950/20 hover:bg-amber-950/35'
+                            : 'bg-amber-50/60 hover:bg-amber-100/50'
+                          : isDarkMode
+                          ? 'hover:bg-slate-800/70'
+                          : 'hover:bg-teal-50/40'
                       }`}
                     >
                       <td className="px-2 py-2">
@@ -6599,6 +6890,15 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
                             محفوظ ✓
                           </span>
+                          {duplicatePeers.length > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/40"
+                              title={`يشترك بنفس الإحداثيات مع: ${duplicatePeers.map((p) => `${p.customerName} (${p.customerCode})`).join('، ')}`}
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              <span>نفس إحداثيات: {duplicatePeers[0].customerName}</span>
+                            </span>
+                          )}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400">
                           <span className="font-mono font-bold">كود: {rec.customerCode || '-'}</span>
@@ -6672,13 +6972,14 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                             <button
                               type="button"
                               onClick={() => {
+                                const targetRecCode = isRealCustomerCode(rec.customerCode)
+                                  ? normalizeLocationCode(rec.customerCode)
+                                  : '';
                                 const matchedRoute =
-                                  routes.find(
-                                    (mr) =>
-                                      mr.id === rec.routeId ||
-                                      (rec.customerCode &&
-                                        normalizeLocationCode(mr.customerCode) === normalizeLocationCode(rec.customerCode))
-                                  ) ||
+                                  (targetRecCode
+                                    ? routes.find((mr) => normalizeLocationCode(mr.customerCode) === targetRecCode)
+                                    : undefined) ||
+                                  routes.find((mr) => mr.id === rec.routeId) ||
                                   ({
                                     id: rec.routeId || rec.id,
                                     customerCode: rec.customerCode || '',
@@ -6770,23 +7071,26 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
       />
 
       {/* Unsuccessful Visits & Red Unvisited Shops Section at End of Routes Page (خاص بالأدمن فقط - يضم الفقرتين معاً) */}
-      {isStrictAdmin && (
-        <UnsuccessfulVisitsSection
-          visits={unsuccessfulVisits}
-          onDeleteVisit={handleDeleteUnsuccessfulVisit}
-          todayDateString={baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0]}
-          todayRouteDayName={routeDayInfo.todayDayName}
-          formattedClosingTime={formattedTargetTime}
-          isPastClosing={Boolean(baghdadStatus.isPastClosing)}
-          completedDelegatesCount={completedDelegatesCountToday}
-          todayLiveRedShops={todayLiveRedShops}
-          savedRedSnapshots={dailyUnvisitedSnapshots}
-          onDeleteRedShopRow={handleDeleteUnvisitedShopRow}
-          onDeleteRedDaySnapshot={handleDeleteUnvisitedDaySnapshot}
-          isDarkMode={isDarkMode}
-          onNotify={(title, message, type) => addToast?.({ title, message, type: type || 'info' })}
-        />
-      )}
+      <div ref={unsuccessfulSectionRef}>
+        {isStrictAdmin && (
+          <UnsuccessfulVisitsSection
+            visits={unsuccessfulVisits}
+            onDeleteVisit={handleDeleteUnsuccessfulVisit}
+            todayDateString={baghdadStatus.todayBaghdad || new Date().toISOString().split('T')[0]}
+            todayRouteDayName={routeDayInfo.todayDayName}
+            formattedClosingTime={formattedTargetTime}
+            isPastClosing={Boolean(baghdadStatus.isPastClosing)}
+            completedDelegatesCount={completedDelegatesCountToday}
+            todayLiveRedShops={todayLiveRedShops}
+            savedRedSnapshots={dailyUnvisitedSnapshots}
+            onDeleteRedShopRow={handleDeleteUnvisitedShopRow}
+            onDeleteRedDaySnapshot={handleDeleteUnvisitedDaySnapshot}
+            isDarkMode={isDarkMode}
+            externalSearchQuery={focusedUnsuccessfulQuery}
+            onNotify={(title, message, type) => addToast?.({ title, message, type: type || 'info' })}
+          />
+        )}
+      </div>
 
       {/* Customer Visit Modal (عند النقر على زيارة في الخريطة) */}
       <CustomerVisitModal
@@ -7304,7 +7608,7 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
                 <button
                   type="button"
                   disabled={isCapturingGps || isSavingShopLocationOnce}
-                  onClick={captureShopLocationGps}
+                  onClick={() => captureShopLocationGps()}
                   className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-[11px] font-black cursor-pointer flex items-center gap-1"
                 >
                   {isCapturingGps ? (

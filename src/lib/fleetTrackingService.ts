@@ -337,6 +337,16 @@ export const getCachedShopCoordinates = (): Record<string, CachedShopCoord> => {
   }
 };
 
+const isPlaceholderShopCode = (code?: string | null): boolean => {
+  const c = String(code || '').trim();
+  return !c || /^cust-\d+$/i.test(c);
+};
+
+const getRealShopCacheKey = (customerCode?: string | null): string => {
+  if (isPlaceholderShopCode(customerCode)) return '';
+  return String(customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+};
+
 export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
   if (typeof window === 'undefined' || !Array.isArray(routesList) || routesList.length === 0) return;
   try {
@@ -346,13 +356,16 @@ export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
     for (const r of routesList) {
       const lat = parseCoordinate(r.latitude);
       const lng = parseCoordinate(r.longitude);
-      const candidateKeys = [String(r.customerCode || '').trim(), String(r.id || '').trim()].filter(Boolean);
-      if (candidateKeys.length === 0) continue;
+      const realCodeKey = getRealShopCacheKey(r.customerCode);
+      const routeIdKey = String(r.id || '').trim();
+      const cacheKey = realCodeKey || routeIdKey;
+      if (!cacheKey) continue;
 
       if (lat === null || lng === null) {
         const clearedAt = Number(r.locationClearedAt) || 0;
         if (clearedAt > 0) {
-          for (const k of candidateKeys) {
+          const keysToClear = realCodeKey ? [realCodeKey] : [routeIdKey];
+          for (const k of keysToClear) {
             const cached = existing[k];
             if (cached && (!cached.updatedAt || cached.updatedAt <= clearedAt)) {
               delete existing[k];
@@ -363,7 +376,7 @@ export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
         continue;
       }
 
-      const key = candidateKeys[0];
+      const key = cacheKey;
       const prev = existing[key];
       if (!prev || prev.latitude !== lat || prev.longitude !== lng) {
         existing[key] = { latitude: lat, longitude: lng, updatedAt: now };
@@ -378,12 +391,40 @@ export const cacheShopCoordinatesLocally = (routesList: RouteItem[]): void => {
   }
 };
 
+/**
+ * Reconcile localStorage shop coordinate cache with the authoritative merged routes list
+ * from Firestore (`routes` + `rep_shop_locations`) so deleted/stale browser cache entries
+ * never reappear as phantom pins on the map.
+ */
+export const reconcileShopCoordinatesCache = (routesList: RouteItem[]): void => {
+  if (typeof window === 'undefined' || !Array.isArray(routesList) || routesList.length === 0) return;
+  try {
+    const nextCache: Record<string, CachedShopCoord> = {};
+    const now = Date.now();
+    for (const r of routesList) {
+      const lat = parseCoordinate(r.latitude);
+      const lng = parseCoordinate(r.longitude);
+      if (lat === null || lng === null) continue;
+      const realCodeKey = getRealShopCacheKey(r.customerCode);
+      const routeIdKey = String(r.id || '').trim();
+      const key = realCodeKey || routeIdKey;
+      if (!key) continue;
+      nextCache[key] = { latitude: lat, longitude: lng, updatedAt: now };
+    }
+    window.localStorage.setItem(SHOP_COORDS_CACHE_KEY, JSON.stringify(nextCache));
+  } catch {
+    // Ignore localStorage quota/privacy mode errors
+  }
+};
+
 export const removeCachedShopCoordinates = (route: Pick<RouteItem, 'id' | 'customerCode'>): void => {
   if (typeof window === 'undefined') return;
   try {
     const existing = getCachedShopCoordinates();
     let changed = false;
-    const candidateKeys = [String(route.customerCode || '').trim(), String(route.id || '').trim()].filter(Boolean);
+    const rawCode = String(route.customerCode || '').trim();
+    const realCodeKey = getRealShopCacheKey(route.customerCode);
+    const candidateKeys = [realCodeKey, rawCode && !isPlaceholderShopCode(rawCode) ? rawCode : '', String(route.id || '').trim()].filter(Boolean);
     for (const k of candidateKeys) {
       if (k in existing) {
         delete existing[k];
@@ -408,8 +449,14 @@ export const resolveRouteCoordinatesWithCache = (
     return { latitude: directLat, longitude: directLng };
   }
   const cache = cachedMap || getCachedShopCoordinates();
-  const key = String(route.customerCode || route.id || '').trim();
-  const hit = key ? cache[key] : undefined;
+  const realCodeKey = getRealShopCacheKey(route.customerCode);
+  const rawRealCode = !isPlaceholderShopCode(route.customerCode) ? String(route.customerCode || '').trim() : '';
+  const routeIdKey = String(route.id || '').trim();
+  const hit = realCodeKey
+    ? cache[realCodeKey] || (rawRealCode ? cache[rawRealCode] : undefined)
+    : routeIdKey
+    ? cache[routeIdKey]
+    : undefined;
   const clearedAt = Number(route.locationClearedAt) || 0;
   if (clearedAt > 0 && (!hit?.updatedAt || hit.updatedAt <= clearedAt)) {
     return { latitude: null, longitude: null };
@@ -971,28 +1018,34 @@ export const subscribeToRepLiveLocations = (
  * Safely resolve Firestore DocumentReference for a RouteItem
  */
 const resolveRouteDocRef = async (route: RouteItem): Promise<{ ref: DocumentReference; exists: boolean }> => {
+  const targetRealCode = !isPlaceholderShopCode(route.customerCode)
+    ? String(route.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase()
+    : '';
+
   if (route.id) {
     const directRef = doc(db, 'routes', route.id);
     const directSnap = await getDoc(directRef);
     if (directSnap.exists()) {
-      return { ref: directRef, exists: true };
+      const dCode = String(directSnap.data()?.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+      if (!targetRealCode || !dCode || dCode === targetRealCode) {
+        return { ref: directRef, exists: true };
+      }
     }
 
     const byFieldIdSnap = await getDocs(query(collection(db, 'routes'), where('id', '==', route.id), limit(1)));
     if (!byFieldIdSnap.empty) {
-      return { ref: byFieldIdSnap.docs[0].ref, exists: true };
+      const matchedDoc = byFieldIdSnap.docs[0];
+      const dCode = String(matchedDoc.data()?.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+      if (!targetRealCode || !dCode || dCode === targetRealCode) {
+        return { ref: matchedDoc.ref, exists: true };
+      }
     }
   }
 
-  if (route.customerCode) {
+  if (route.customerCode && !isPlaceholderShopCode(route.customerCode)) {
     const byCodeSnap = await getDocs(query(collection(db, 'routes'), where('customerCode', '==', route.customerCode)));
     if (!byCodeSnap.empty) {
-      const matched =
-        byCodeSnap.docs.find((d) => {
-          const data = d.data();
-          return String(data.customerName || '').trim() === String(route.customerName || '').trim();
-        }) || byCodeSnap.docs[0];
-      return { ref: matched.ref, exists: true };
+      return { ref: byCodeSnap.docs[0].ref, exists: true };
     }
   }
 
@@ -1031,8 +1084,8 @@ export const saveCustomerCoordinates = async (
       await setDoc(ref, cleanFirestoreData({ ...route, ...payload, id: ref.id }), { merge: true });
     }
 
-    // Ensure ALL route documents sharing the same customerCode receive the pinned coordinates & extraFields
-    const cleanCustomerCode = String(route.customerCode || '').trim();
+    // Ensure ALL route documents sharing the same real customerCode receive the pinned coordinates & extraFields
+    const cleanCustomerCode = !isPlaceholderShopCode(route.customerCode) ? String(route.customerCode || '').trim() : '';
     if (cleanCustomerCode) {
       try {
         const allCodeSnap = await getDocs(
@@ -1059,9 +1112,11 @@ export const saveCustomerCoordinates = async (
       },
     ]);
 
-    // Mirror updates to any matching documents in Firestore `rep_shop_locations` (non-blocking)
+    // Mirror updates to any matching documents in Firestore `rep_shop_locations` (non-blocking),
+    // and create a canonical doc if none existed yet so "مواقع المحلات المحفوظة" matches "إدارة المسارات"
     try {
       const updatedIso = new Date().toISOString();
+      const nowMs = Date.now();
       const locUpdatePayload = cleanFirestoreData({
         latitude: normalizedLat,
         longitude: normalizedLng,
@@ -1070,25 +1125,30 @@ export const saveCustomerCoordinates = async (
         updatedBy: updatedBy || 'الأدمن',
       });
       const updatedLocIds = new Set<string>();
-      const cleanCode = String(route.customerCode || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      const rawCleanCode = !isPlaceholderShopCode(route.customerCode)
+        ? String(route.customerCode || '').trim().replace(/\.0+$/, '')
+        : '';
+      const cleanCode = rawCleanCode.replace(/[^a-zA-Z0-9_-]/g, '_');
       const cleanRouteId = String(route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
       const candidateIds = [
-        cleanCode ? `cust_${cleanCode}` : '',
-        cleanRouteId ? `route_${cleanRouteId}` : '',
+        cleanCode && !/^_+$/.test(cleanCode) ? `cust_${cleanCode}` : '',
+        !rawCleanCode && cleanRouteId ? `route_${cleanRouteId}` : '',
       ].filter(Boolean);
 
       for (const candId of candidateIds) {
         const candRef = doc(db, 'rep_shop_locations', candId);
         const candSnap = await getDoc(candRef);
         if (candSnap.exists()) {
+          const existingCode = String(candSnap.data()?.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+          if (rawCleanCode && existingCode && existingCode !== rawCleanCode.toLowerCase()) continue;
           await updateDoc(candRef, locUpdatePayload);
           updatedLocIds.add(candId);
         }
       }
 
-      if (route.customerCode) {
+      if (rawCleanCode) {
         const byCodeLocs = await getDocs(
-          query(collection(db, 'rep_shop_locations'), where('customerCode', '==', String(route.customerCode).trim()))
+          query(collection(db, 'rep_shop_locations'), where('customerCode', '==', rawCleanCode))
         );
         for (const d of byCodeLocs.docs) {
           if (!updatedLocIds.has(d.id)) {
@@ -1096,9 +1156,7 @@ export const saveCustomerCoordinates = async (
             updatedLocIds.add(d.id);
           }
         }
-      }
-
-      if (route.id) {
+      } else if (route.id) {
         const byRouteLocs = await getDocs(
           query(collection(db, 'rep_shop_locations'), where('routeId', '==', route.id))
         );
@@ -1108,6 +1166,33 @@ export const saveCustomerCoordinates = async (
             updatedLocIds.add(d.id);
           }
         }
+      }
+
+      if (updatedLocIds.size === 0) {
+        const canonicalLocId = cleanCode ? `cust_${cleanCode}` : cleanRouteId ? `route_${cleanRouteId}` : `shop_${nowMs}`;
+        await setDoc(
+          doc(db, 'rep_shop_locations', canonicalLocId),
+          cleanFirestoreData({
+            id: canonicalLocId,
+            routeId: route.id || canonicalLocId,
+            customerCode: rawCleanCode,
+            customerName: route.customerName || '',
+            customerAddress: route.customerAddress || '',
+            customerType: route.customerType === 'جملة' ? 'جملة' : 'مفرد',
+            path: route.path || '',
+            delegateName: route.delegateName || updatedBy || 'الأدمن',
+            delegateCode: route.delegateCode || '',
+            latitude: normalizedLat,
+            longitude: normalizedLng,
+            shopLocation,
+            savedBy: updatedBy || route.delegateName || 'الأدمن',
+            savedByCode: route.delegateCode || '',
+            savedAt: updatedIso,
+            timestamp: nowMs,
+            dateString: updatedIso.split('T')[0],
+          }),
+          { merge: true }
+        );
       }
     } catch {
       // Non-blocking sync to rep_shop_locations
@@ -1176,8 +1261,8 @@ export const deleteCustomerCoordinates = async (
       await updateDoc(ref, clearPayload);
     }
 
-    // Clear coordinates on ALL route documents sharing the same customerCode
-    const cleanCustomerCode = String(route.customerCode || '').trim();
+    // Clear coordinates on ALL route documents sharing the same real customerCode
+    const cleanCustomerCode = !isPlaceholderShopCode(route.customerCode) ? String(route.customerCode || '').trim() : '';
     if (cleanCustomerCode) {
       try {
         const allCodeSnap = await getDocs(
@@ -1199,14 +1284,16 @@ export const deleteCustomerCoordinates = async (
       const cleanCodeKey = cleanCustomerCode.replace(/[^a-zA-Z0-9_-]/g, '_');
       const cleanRouteKey = String(route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
       const candidateIds = [
-        cleanCodeKey ? `cust_${cleanCodeKey}` : '',
-        cleanRouteKey ? `route_${cleanRouteKey}` : '',
+        cleanCodeKey && !/^_+$/.test(cleanCodeKey) ? `cust_${cleanCodeKey}` : '',
+        !cleanCustomerCode && cleanRouteKey ? `route_${cleanRouteKey}` : '',
       ].filter(Boolean);
 
       for (const candId of candidateIds) {
         const candRef = doc(db, 'rep_shop_locations', candId);
         const candSnap = await getDoc(candRef);
         if (candSnap.exists()) {
+          const existingCode = String(candSnap.data()?.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+          if (cleanCustomerCode && existingCode && existingCode !== cleanCustomerCode.toLowerCase()) continue;
           await deleteDoc(candRef);
           deletedIds.add(candId);
         }
@@ -1222,9 +1309,7 @@ export const deleteCustomerCoordinates = async (
             deletedIds.add(d.id);
           }
         }
-      }
-
-      if (route.id) {
+      } else if (route.id) {
         const byRouteLocs = await getDocs(
           query(collection(db, 'rep_shop_locations'), where('routeId', '==', route.id))
         );
@@ -1531,7 +1616,11 @@ export const bulkUpdateRouteLocations = async (
 
   let updatedCount = 0;
   const now = Date.now();
-  const routesSnap = await getDocs(collection(db, 'routes'));
+  const nowIso = new Date(now).toISOString();
+  const [routesSnap, repLocsSnap] = await Promise.all([
+    getDocs(collection(db, 'routes')),
+    getDocs(collection(db, 'rep_shop_locations')),
+  ]);
   const docById = new Map<string, DocumentReference>();
   const docByFieldId = new Map<string, DocumentReference>();
   const docsByCode = new Map<string, DocumentReference[]>();
@@ -1550,18 +1639,42 @@ export const bulkUpdateRouteLocations = async (
     }
   });
 
+  const locRefsByCode = new Map<string, DocumentReference>();
+  const locRefsByRouteId = new Map<string, DocumentReference>();
+  const locRefsByDocId = new Map<string, DocumentReference>();
+  repLocsSnap.docs.forEach((d) => {
+    locRefsByDocId.set(d.id, d.ref);
+    const data = d.data();
+    const cCode = String(data?.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+    if (cCode && !locRefsByCode.has(cCode)) locRefsByCode.set(cCode, d.ref);
+    const rId = String(data?.routeId || '').trim();
+    if (rId && !locRefsByRouteId.has(rId)) locRefsByRouteId.set(rId, d.ref);
+  });
+
   let batch = writeBatch(db);
   let batchOps = 0;
+  const commitIfNeeded = async () => {
+    if (batchOps >= 400) {
+      await batch.commit();
+      batch = writeBatch(db);
+      batchOps = 0;
+    }
+  };
   const supabaseRoutes: RouteItem[] = [];
 
   for (const item of updates) {
+    const normalizedLat = Number(item.latitude.toFixed(6));
+    const normalizedLng = Number(item.longitude.toFixed(6));
+    const shopLocation = formatShopLocationString(normalizedLat, normalizedLng);
+
     const refsToUpdate = new Set<DocumentReference>();
     if (item.route.id && docById.has(item.route.id)) {
       refsToUpdate.add(docById.get(item.route.id)!);
     } else if (item.route.id && docByFieldId.has(item.route.id)) {
       refsToUpdate.add(docByFieldId.get(item.route.id)!);
     }
-    const code = String(item.route.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+    const rawCleanCode = String(item.route.customerCode || '').trim().replace(/\.0+$/, '');
+    const code = rawCleanCode.toLowerCase();
     if (code && docsByCode.has(code)) {
       docsByCode.get(code)!.forEach((r) => refsToUpdate.add(r));
     }
@@ -1571,34 +1684,80 @@ export const bulkUpdateRouteLocations = async (
     }
 
     for (const ref of refsToUpdate) {
-      const normalizedLat = Number(item.latitude.toFixed(6));
-      const normalizedLng = Number(item.longitude.toFixed(6));
       batch.set(
         ref,
         cleanFirestoreData({
           id: ref.id,
           latitude: normalizedLat,
           longitude: normalizedLng,
-          shopLocation: formatShopLocationString(normalizedLat, normalizedLng),
+          shopLocation,
+          repLocationSaved: true,
+          locationClearedAt: 0,
           updatedAt: now,
           updatedBy: updatedBy || 'الأدمن (ملف إكسل)',
         }),
         { merge: true }
       );
       batchOps++;
-      if (batchOps === 400) {
-        await batch.commit();
-        batch = writeBatch(db);
-        batchOps = 0;
-      }
+      await commitIfNeeded();
     }
+
+    // Mirror to `rep_shop_locations` so "مواقع المحلات المحفوظة" reflects Excel-uploaded locations identically
+    const isRealCode = code !== '' && !/^cust-\d+$/i.test(code);
+    const safeCode = isRealCode ? rawCleanCode.replace(/[^a-zA-Z0-9_-]/g, '_') : '';
+    const safeRouteId = String(item.route.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const existingLocRef = isRealCode
+      ? (locRefsByCode.get(code) || (safeCode ? locRefsByDocId.get(`cust_${safeCode}`) : undefined))
+      : ((item.route.id ? locRefsByRouteId.get(item.route.id) : undefined) ||
+         (safeRouteId ? locRefsByDocId.get(`route_${safeRouteId}`) : undefined));
+
+    if (existingLocRef) {
+      batch.set(
+        existingLocRef,
+        cleanFirestoreData({
+          latitude: normalizedLat,
+          longitude: normalizedLng,
+          shopLocation,
+          updatedAt: nowIso,
+          updatedBy: updatedBy || 'الأدمن (ملف إكسل)',
+        }),
+        { merge: true }
+      );
+    } else {
+      const canonicalLocId = safeCode ? `cust_${safeCode}` : safeRouteId ? `route_${safeRouteId}` : `shop_${now}_${updatedCount}`;
+      batch.set(
+        doc(db, 'rep_shop_locations', canonicalLocId),
+        cleanFirestoreData({
+          id: canonicalLocId,
+          routeId: item.route.id || canonicalLocId,
+          customerCode: rawCleanCode,
+          customerName: item.route.customerName || '',
+          customerAddress: item.route.customerAddress || '',
+          customerType: item.route.customerType === 'جملة' ? 'جملة' : 'مفرد',
+          path: item.route.path || '',
+          delegateName: item.route.delegateName || updatedBy || 'الأدمن',
+          delegateCode: item.route.delegateCode || '',
+          latitude: normalizedLat,
+          longitude: normalizedLng,
+          shopLocation,
+          savedBy: updatedBy || item.route.delegateName || 'الأدمن (ملف إكسل)',
+          savedByCode: item.route.delegateCode || '',
+          savedAt: nowIso,
+          timestamp: now,
+          dateString: nowIso.split('T')[0],
+        }),
+        { merge: true }
+      );
+    }
+    batchOps++;
+    await commitIfNeeded();
 
     updatedCount++;
     supabaseRoutes.push({
       ...item.route,
-      latitude: Number(item.latitude.toFixed(6)),
-      longitude: Number(item.longitude.toFixed(6)),
-      shopLocation: formatShopLocationString(item.latitude, item.longitude),
+      latitude: normalizedLat,
+      longitude: normalizedLng,
+      shopLocation,
     });
   }
 

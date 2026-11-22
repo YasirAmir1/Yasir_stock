@@ -1880,6 +1880,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         parseArabicDigits(String(val ?? '')).trim().replace(/\.0+$/, '').toLowerCase();
 
       const preservedCoordsByCode = new Map<string, { latitude: number; longitude: number; shopLocation?: string; repLocationSaved?: boolean }>();
+      const existingRepLocRefsByCode = new Map<string, any>();
+      const existingRepLocIds = new Set<string>();
       let oldRoutesSnap: any = null;
       try {
         const [routesSnapRes, repLocsSnapRes] = await Promise.allSettled([
@@ -1907,19 +1909,21 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         if (repLocsSnapRes.status === 'fulfilled') {
           repLocsSnapRes.value.forEach((docSnap: any) => {
+            existingRepLocIds.add(docSnap.id);
             const d = docSnap.data();
+            const cCode = normalizeShopCodeKey(d?.customerCode);
+            if (cCode && !/^cust-\d+$/i.test(cCode)) {
+              existingRepLocRefsByCode.set(cCode, docSnap.ref);
+            }
             const lat = parseCoordinate(d?.latitude);
             const lng = parseCoordinate(d?.longitude);
-            if (lat !== null && lng !== null) {
-              const cCode = normalizeShopCodeKey(d?.customerCode);
-              if (cCode && !/^cust-\d+$/i.test(cCode)) {
-                preservedCoordsByCode.set(cCode, {
-                  latitude: lat,
-                  longitude: lng,
-                  shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
-                  repLocationSaved: true,
-                });
-              }
+            if (lat !== null && lng !== null && cCode && !/^cust-\d+$/i.test(cCode)) {
+              preservedCoordsByCode.set(cCode, {
+                latitude: lat,
+                longitude: lng,
+                shopLocation: d?.shopLocation || formatShopLocationString(lat, lng),
+                repLocationSaved: true,
+              });
             }
           });
         }
@@ -2062,6 +2066,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setRoutes(parsedRoutes);
       try {
         localStorage.setItem('cache_routes', JSON.stringify(parsedRoutes));
+        const { reconcileShopCoordinatesCache } = await import('../lib/fleetTrackingService');
+        reconcileShopCoordinatesCache(parsedRoutes);
       } catch {}
 
       // Batch save to Firestore in safe chunks (400 items per batch)
@@ -2101,6 +2107,80 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (insCount > 0) {
           await insBatch.commit();
         }
+
+        // Also mirror any mapped imported routes into `rep_shop_locations` so saved shop locations match routes
+        const nowMs = Date.now();
+        const nowIso = new Date(nowMs).toISOString();
+        let locBatch = writeBatch(db);
+        let locCount = 0;
+        const seenLocKeys = new Set<string>();
+        for (const item of parsedRoutes) {
+          if (item.latitude === null || item.longitude === null || item.latitude === undefined || item.longitude === undefined) continue;
+          const normCode = normalizeShopCodeKey(item.customerCode);
+          const dedupeKey = normCode && !/^cust-\d+$/i.test(normCode) ? `code:${normCode}` : `route:${item.id}`;
+          if (seenLocKeys.has(dedupeKey)) continue;
+          seenLocKeys.add(dedupeKey);
+
+          const isRealCode = normCode !== '' && !/^cust-\d+$/i.test(normCode);
+          const safeCode = isRealCode ? String(item.customerCode || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_') : '';
+          const canonicalLocId = safeCode ? `cust_${safeCode}` : `route_${item.id}`;
+          const existingRef =
+            (isRealCode ? existingRepLocRefsByCode.get(normCode) : undefined) ||
+            (existingRepLocIds.has(canonicalLocId) ? doc(db, 'rep_shop_locations', canonicalLocId) : undefined);
+
+          if (existingRef) {
+            locBatch.set(
+              existingRef,
+              cleanFirestoreData({
+                routeId: item.id,
+                customerName: item.customerName || '',
+                customerAddress: item.customerAddress || '',
+                customerType: item.customerType === 'جملة' ? 'جملة' : 'مفرد',
+                path: item.path || '',
+                delegateName: item.delegateName || '',
+                delegateCode: item.delegateCode || '',
+                latitude: item.latitude,
+                longitude: item.longitude,
+                shopLocation: item.shopLocation || formatShopLocationString(item.latitude, item.longitude),
+              }),
+              { merge: true }
+            );
+          } else {
+            locBatch.set(
+              doc(db, 'rep_shop_locations', canonicalLocId),
+              cleanFirestoreData({
+                id: canonicalLocId,
+                routeId: item.id,
+                customerCode: String(item.customerCode || '').trim(),
+                customerName: item.customerName || '',
+                customerAddress: item.customerAddress || '',
+                customerType: item.customerType === 'جملة' ? 'جملة' : 'مفرد',
+                path: item.path || '',
+                delegateName: item.delegateName || '',
+                delegateCode: item.delegateCode || '',
+                latitude: item.latitude,
+                longitude: item.longitude,
+                shopLocation: item.shopLocation || formatShopLocationString(item.latitude, item.longitude),
+                savedBy: item.delegateName || 'ملف المسارات (Excel)',
+                savedByCode: item.delegateCode || '',
+                savedAt: nowIso,
+                timestamp: nowMs,
+                dateString: nowIso.split('T')[0],
+              }),
+              { merge: true }
+            );
+          }
+          locCount++;
+          if (locCount === 400) {
+            await locBatch.commit();
+            locBatch = writeBatch(db);
+            locCount = 0;
+          }
+        }
+        if (locCount > 0) {
+          await locBatch.commit();
+        }
+
         await syncCustomerRowsToSupabase(parsedRoutes);
       } catch (err) {
         console.error('Error saving routes to Firestore:', err);

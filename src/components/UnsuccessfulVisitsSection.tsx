@@ -43,6 +43,7 @@ interface UnsuccessfulVisitsSectionProps {
   onDeleteRedShopRow: (dateString: string, shopId: string) => Promise<void> | void;
   onDeleteRedDaySnapshot: (dateString: string) => Promise<void> | void;
   isDarkMode?: boolean;
+  externalSearchQuery?: string;
   onNotify?: (title: string, message: string, type?: 'success' | 'reminder' | 'info') => void;
 }
 
@@ -142,14 +143,23 @@ export const UnsuccessfulVisitsSection: React.FC<UnsuccessfulVisitsSectionProps>
   onDeleteRedShopRow,
   onDeleteRedDaySnapshot,
   isDarkMode = false,
+  externalSearchQuery,
   onNotify,
 }) => {
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>(externalSearchQuery || '');
   const [delegateFilter, setDelegateFilter] = useState<string>('');
   const [activeSubView, setActiveSubView] = useState<'both' | 'unsuccessful' | 'red'>('both');
   const [redScopeFilter, setRedScopeFilter] = useState<'all_cumulative' | 'today_only'>('all_cumulative');
   const [onlyPinnedOnMap, setOnlyPinnedOnMap] = useState<boolean>(false);
   const [isSectionCollapsed, setIsSectionCollapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (externalSearchQuery !== undefined) {
+      setSearchQuery(externalSearchQuery);
+      setActiveSubView((prev) => (prev === 'red' ? 'both' : prev));
+      setIsSectionCollapsed(false);
+    }
+  }, [externalSearchQuery]);
 
   // Pagination counts (always start at first 10 customers, then "عرض المزيد")
   const [todayUnsuccessfulLimit, setTodayUnsuccessfulLimit] = useState<number>(PAGE_SIZE);
@@ -1660,31 +1670,84 @@ export const UnsuccessfulVisitsSection: React.FC<UnsuccessfulVisitsSectionProps>
                             </p>
                           </div>
 
-                          {v.refrigeratorPhoto ? (
-                            <div
-                              onClick={() =>
-                                setLightboxImage({
-                                  src: v.refrigeratorPhoto!,
-                                  title: `صورة براد: ${v.customerName} (الزيارة #${idx + 1})`,
-                                  subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName} | السبب: ${v.reason}`,
-                                })
-                              }
-                              className="group relative max-h-40 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
-                            >
-                              <img
-                                src={v.refrigeratorPhoto}
-                                alt={`براد ${v.customerName}`}
-                                className="max-h-40 w-full object-contain"
-                              />
-                              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-black gap-1.5">
-                                <Eye className="w-4 h-4" />
-                                <span>عرض بالحجم الكامل</span>
+                          {/* Refrigerator Photo (Mandatory) */}
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
+                              صورة براد الزبون (إلزامي):
+                            </span>
+                            {v.refrigeratorPhoto ? (
+                              <div
+                                onClick={() =>
+                                  setLightboxImage({
+                                    src: v.refrigeratorPhoto!,
+                                    title: `صورة براد: ${v.customerName} (الزيارة #${idx + 1})`,
+                                    subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName} | السبب: ${v.reason}`,
+                                  })
+                                }
+                                className="group relative max-h-40 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
+                              >
+                                <img
+                                  src={v.refrigeratorPhoto}
+                                  alt={`براد ${v.customerName}`}
+                                  className="max-h-40 w-full object-contain"
+                                />
+                                <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-black gap-1.5">
+                                  <Eye className="w-4 h-4" />
+                                  <span>عرض بالحجم الكامل</span>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="text-[11px] text-slate-400 flex items-center gap-1 font-bold">
-                              <FileX className="w-3.5 h-3.5" />
-                              <span>بدون صورة براد مرفقة</span>
+                            ) : (
+                              <div className="text-[11px] text-slate-400 flex items-center gap-1 font-bold">
+                                <FileX className="w-3.5 h-3.5" />
+                                <span>بدون صورة براد مرفقة</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Optional Photos 1 & 2 */}
+                          {(v.optionalPhoto1 || v.optionalPhoto2) && (
+                            <div className="space-y-1.5 pt-1">
+                              <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
+                                الصور الإضافية الاختيارية:
+                              </span>
+                              <div className="grid grid-cols-2 gap-2">
+                                {v.optionalPhoto1 && (
+                                  <div
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        src: v.optionalPhoto1!,
+                                        title: `صورة إضافية 1: ${v.customerName}`,
+                                        subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
+                                      })
+                                    }
+                                    className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
+                                  >
+                                    <img src={v.optionalPhoto1} alt="صورة إضافية 1" className="h-28 w-full object-contain" />
+                                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1">
+                                      <Eye className="w-3 h-3" />
+                                      <span>معاينة</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {v.optionalPhoto2 && (
+                                  <div
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        src: v.optionalPhoto2!,
+                                        title: `صورة إضافية 2: ${v.customerName}`,
+                                        subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
+                                      })
+                                    }
+                                    className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
+                                  >
+                                    <img src={v.optionalPhoto2} alt="صورة إضافية 2" className="h-28 w-full object-contain" />
+                                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1">
+                                      <Eye className="w-3 h-3" />
+                                      <span>معاينة</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>

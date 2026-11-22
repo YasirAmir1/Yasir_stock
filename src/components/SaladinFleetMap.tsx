@@ -13,6 +13,7 @@ import {
   RepLiveCoords,
   resolveRouteCoordinatesWithCache,
   saveCustomerCoordinates,
+  deleteCustomerCoordinates,
   subscribeToRepLiveLocations,
   calculateHaversineDistanceMeters,
 } from '../lib/fleetTrackingService';
@@ -62,6 +63,9 @@ interface SaladinFleetMapProps {
   onSelectCustomerAction?: (route: RouteItem) => void;
   canCreateInvoiceForRoute?: (route: RouteItem) => boolean;
   onNotify?: (msg: string) => void;
+  onLocationDeleted?: (route: RouteItem, clearedAt: number) => void;
+  strictAuthoritativeRoutes?: boolean;
+  onFocusUnsuccessfulVisit?: (route: RouteItem) => void;
 }
 
 const escapeHtml = (text: string): string =>
@@ -169,6 +173,9 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   onSelectCustomerAction,
   canCreateInvoiceForRoute,
   onNotify,
+  onLocationDeleted,
+  strictAuthoritativeRoutes = false,
+  onFocusUnsuccessfulVisit,
 }) => {
   const { geofenceRadiusMeters, updateGeofenceRadiusMeters, currentUser } = useSales();
   const isDataEntryUser = Boolean(
@@ -203,6 +210,13 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   onSelectActionRef.current = onSelectCustomerAction;
   const canCreateInvoiceRef = useRef(canCreateInvoiceForRoute);
   canCreateInvoiceRef.current = canCreateInvoiceForRoute;
+  const onNotifyRef = useRef(onNotify);
+  onNotifyRef.current = onNotify;
+  const onLocationDeletedRef = useRef(onLocationDeleted);
+  onLocationDeletedRef.current = onLocationDeleted;
+  const onFocusUnsuccessfulVisitRef = useRef(onFocusUnsuccessfulVisit);
+  onFocusUnsuccessfulVisitRef.current = onFocusUnsuccessfulVisit;
+  const duplicateFocusIdxRef = useRef<number>(0);
 
   const [liveReps, setLiveReps] = useState<RepLiveLocation[]>([]);
   const [localRepCoords, setLocalRepCoords] = useState<RepLiveCoords | null>(() =>
@@ -248,9 +262,10 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
 
   // Cache static shop coordinates locally whenever route list loads/updates
   const cachedCoordsMap = useMemo(() => {
+    if (strictAuthoritativeRoutes) return {};
     cacheShopCoordinatesLocally(routes);
     return getCachedShopCoordinates();
-  }, [routes]);
+  }, [routes, strictAuthoritativeRoutes]);
 
   // Build lookup set for customers that have at least one non-cancelled invoice today (by exact customerCode)
   const visitedTodayKeys = useMemo(() => {
@@ -302,13 +317,13 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
 
       if (!isToday) return;
 
-      const cCode = String(v.customerCode || '').trim();
-      if (cCode) codeSet.add(cCode);
-      if (v.customerName) {
+      const cCode = String(v.customerCode || '').trim().replace(/\.0+$/, '');
+      const hasRealCode = cCode !== '' && !/^cust-\d+$/i.test(cCode);
+      if (hasRealCode) codeSet.add(cCode);
+      if (!hasRealCode && v.customerName) {
         nameDelegateSet.add(
           `${normalizeTrackingText(v.customerName)}::${normalizeTrackingText(v.delegateName)}`
         );
-        nameDelegateSet.add(normalizeTrackingText(v.customerName));
       }
     });
 
@@ -316,8 +331,11 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   }, [unsuccessfulVisits, todayIsoDate]);
 
   const isCustomerUnsuccessfulToday = (r: RouteItem): boolean => {
-    const cCode = String(r.customerCode || '').trim();
-    if (cCode && unsuccessfulTodayKeys.codeSet.has(cCode)) return true;
+    const cCode = String(r.customerCode || '').trim().replace(/\.0+$/, '');
+    const hasRealCode = cCode !== '' && !/^cust-\d+$/i.test(cCode);
+    if (hasRealCode) {
+      return unsuccessfulTodayKeys.codeSet.has(cCode);
+    }
     const cNorm = normalizeTrackingText(r.customerName);
     const delNorm = normalizeTrackingText(r.delegateName);
     if (cNorm && unsuccessfulTodayKeys.nameDelegateSet.has(`${cNorm}::${delNorm}`)) return true;
@@ -386,32 +404,99 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   ]);
 
   const mappedCustomers = useMemo(() => {
-    return mapTargetRoutes
-      .map((r) => {
-        const { latitude: lat, longitude: lng } = resolveRouteCoordinatesWithCache(r, cachedCoordsMap);
-        if (lat === null || lng === null) return null;
-        return {
-          key: String(r.id || `${r.customerCode}_${r.path}_${r.delegateName}`),
-          route: r,
-          lat,
-          lng,
-          visited: isCustomerVisitedToday(r),
-          unsuccessfulVisitedToday: isCustomerUnsuccessfulToday(r),
-        };
-      })
-      .filter(
-        (
-          x
-        ): x is {
-          key: string;
-          route: RouteItem;
-          lat: number;
-          lng: number;
-          visited: boolean;
-          unsuccessfulVisitedToday: boolean;
-        } => x !== null
-      );
-  }, [mapTargetRoutes, visitedTodayKeys, unsuccessfulTodayKeys, cachedCoordsMap]);
+    type RawMappedItem = {
+      key: string;
+      identityKey: string;
+      route: RouteItem;
+      routeDays: string[];
+      lat: number;
+      lng: number;
+      visited: boolean;
+      unsuccessfulVisitedToday: boolean;
+    };
+
+    // Bind every map pin STRICTLY by customerCode (when present) and NEVER by customerName.
+    // customerName is used ONLY for display; deduplicate multi-day route entries for the same customerCode
+    // so one physical shop appears as ONE pin on the map instead of duplicating/spiderfying with itself.
+    const dedupedByIdentity = new Map<string, RawMappedItem>();
+
+    mapTargetRoutes.forEach((r) => {
+      const coords = strictAuthoritativeRoutes
+        ? { latitude: parseCoordinate(r.latitude), longitude: parseCoordinate(r.longitude) }
+        : resolveRouteCoordinatesWithCache(r, cachedCoordsMap);
+      const { latitude: lat, longitude: lng } = coords;
+      if (lat === null || lng === null) return;
+
+      const cleanCode = String(r.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+      const isRealCode = cleanCode !== '' && !/^cust-\d+$/i.test(cleanCode);
+      const identityKey = isRealCode
+        ? `code:${cleanCode}`
+        : `route:${String(r.id || `${r.path || ''}_${lat}_${lng}`)}`;
+
+      const visited = isCustomerVisitedToday(r);
+      const unsuccessfulVisitedToday = isCustomerUnsuccessfulToday(r);
+      const effDay = getEffectiveRouteDay(r);
+
+      const existing = dedupedByIdentity.get(identityKey);
+      if (existing) {
+        if (effDay && !existing.routeDays.includes(effDay)) {
+          existing.routeDays.push(effDay);
+        }
+        existing.visited = existing.visited || visited;
+        existing.unsuccessfulVisitedToday = existing.unsuccessfulVisitedToday || unsuccessfulVisitedToday;
+        return;
+      }
+
+      dedupedByIdentity.set(identityKey, {
+        key: identityKey,
+        identityKey,
+        route: r,
+        routeDays: effDay ? [effDay] : [],
+        lat,
+        lng,
+        visited,
+        unsuccessfulVisitedToday,
+      });
+    });
+
+    const rawItems = Array.from(dedupedByIdentity.values());
+
+    // Group by rounded coordinates (~1.1m) to detect genuinely DIFFERENT customerCodes sharing coordinates
+    const coordGroups = new Map<string, RawMappedItem[]>();
+    rawItems.forEach((item) => {
+      const bucketKey = `${item.lat.toFixed(5)}_${item.lng.toFixed(5)}`;
+      const arr = coordGroups.get(bucketKey) || [];
+      arr.push(item);
+      coordGroups.set(bucketKey, arr);
+    });
+
+    return rawItems.map((item) => {
+      const bucketKey = `${item.lat.toFixed(5)}_${item.lng.toFixed(5)}`;
+      const group = coordGroups.get(bucketKey) || [item];
+      const uniquePeersMap = new Map<string, RouteItem>();
+      group.forEach((g) => {
+        if (g.identityKey !== item.identityKey && !uniquePeersMap.has(g.identityKey)) {
+          uniquePeersMap.set(g.identityKey, g.route);
+        }
+      });
+      const sharedPeers = Array.from(uniquePeersMap.values());
+
+      const displayLat = item.lat;
+      const displayLng = item.lng;
+
+      return {
+        ...item,
+        displayLat,
+        displayLng,
+        sharedPeers,
+      };
+    });
+  }, [mapTargetRoutes, visitedTodayKeys, unsuccessfulTodayKeys, cachedCoordsMap, strictAuthoritativeRoutes]);
+
+  const overlappingCustomerItems = useMemo(
+    () => mappedCustomers.filter((c) => c.sharedPeers.length > 0),
+    [mappedCustomers]
+  );
 
   const visitedCount = useMemo(() => mappedCustomers.filter((c) => c.visited).length, [mappedCustomers]);
   const unsuccessfulCount = useMemo(
@@ -635,7 +720,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     }
 
     // 2. Add new markers or update existing ones in-place
-    mappedCustomers.forEach(({ key, route, lat, lng, visited, unsuccessfulVisitedToday }) => {
+    mappedCustomers.forEach(({ key, route, routeDays, lat, lng, displayLat, displayLng, visited, unsuccessfulVisitedToday, sharedPeers }) => {
       const delNameNorm = normalizeTrackingText(route.delegateName);
       const rep = visibleLiveReps.find(r => {
         const rName = normalizeTrackingText(r.rep_name);
@@ -665,16 +750,12 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         : false;
       const canCreateInvoice = baseCanCreate && (!repViewOnly || isWithinGeofence);
       const showVisitBtn = Boolean(onSelectActionRef.current && !visited && (!repViewOnly || isWithinGeofence));
+      const sharedKeySig = sharedPeers.map((p) => `${p.customerCode}:${p.customerName}`).join(',');
+      const routeDaysLabel = routeDays.length > 0 ? routeDays.join('، ') : getEffectiveRouteDay(route);
 
-      const metaSig = `${visited ? 1 : 0}|${unsuccessfulVisitedToday ? 1 : 0}|${isWithinGeofence ? 1 : 0}|${showVisitBtn ? 1 : 0}|${canCreateInvoice ? 1 : 0}|${geofenceRadiusMeters}|${lat}|${lng}|${route.customerName}|${route.customerAddress || ''}|${getEffectiveRouteDay(route)}|${route.delegateName || ''}`;
+      const metaSig = `${visited ? 1 : 0}|${unsuccessfulVisitedToday ? 1 : 0}|${isWithinGeofence ? 1 : 0}|${showVisitBtn ? 1 : 0}|${canCreateInvoice ? 1 : 0}|${geofenceRadiusMeters}|${lat}|${lng}|${displayLat}|${displayLng}|${route.customerCode}|${route.customerName}|${route.customerAddress || ''}|${routeDaysLabel}|${route.delegateName || ''}|${isStrictAdminOnMap ? 1 : 0}|${sharedKeySig}`;
 
       const buildPopupContent = () => {
-        const statusBadge = visited
-          ? `<span style="display:inline-block;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;">✅ تم حفظ فاتورة اليوم</span>`
-          : unsuccessfulVisitedToday
-          ? `<span style="display:inline-block;background:#fef9c3;color:#854d0e;border:1px solid #fde047;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;">🟡 زيارة غير ناجحة اليوم</span>`
-          : `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;">🔴 ضمن المسار - لم يُزار بعد</span>`;
-
         const distanceBadge = repViewOnly
           ? (isWithinGeofence
               ? `<div style="margin-top:4px;"><span style="display:inline-block;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:10px;">📍 متواجد عند موقع المحل</span></div>`
@@ -685,6 +766,15 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
           ? `<div style="margin-top:4px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:2px 8px;border-radius:9999px;font-weight:800;font-size:10px;">🔒 انتهى وقت إكمال المبيعات</span></div>`
           : '';
 
+        const sharedWarningHtml = sharedPeers.length > 0
+          ? `<div style="margin-top:6px;padding:5px 7px;border-radius:8px;background:#fffbeb;border:1px solid #f59e0b;color:#92400e;font-size:10px;font-weight:800;line-height:1.45;">
+              ⚠️ تنبيه: يشترك بنفس الإحداثيات مع ${sharedPeers
+                .slice(0, 3)
+                .map((p) => `<b>${escapeHtml(p.customerName)}</b> (${escapeHtml(p.customerCode || '-')})`)
+                .join('، ')}${sharedPeers.length > 3 ? ` و${sharedPeers.length - 3} آخرين` : ''}
+            </div>`
+          : '';
+
         const popupContent = document.createElement('div');
         popupContent.dir = 'rtl';
         popupContent.style.minWidth = '215px';
@@ -693,16 +783,41 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
           <div style="margin-bottom:3px;">
             <span style="font-weight:900;font-size:13px;color:#0f172a;">${escapeHtml(route.customerName)}</span>
           </div>
-          <div style="font-size:11px;color:#475569;">الكود: <b>${escapeHtml(route.customerCode)}</b> | المسار: <b>${escapeHtml(getEffectiveRouteDay(route))}</b></div>
+          <div style="font-size:11px;color:#475569;">الكود: <b>${escapeHtml(route.customerCode)}</b> | المسار: <b>${escapeHtml(routeDaysLabel)}</b></div>
           <div style="font-size:11px;color:#475569;">المندوب: <b>${escapeHtml(route.delegateName || '-')}</b></div>
           ${route.customerAddress ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">📍 ${escapeHtml(route.customerAddress)}</div>` : ''}
-          <div>${statusBadge}</div>
+          <div id="popup-status-badge-wrap"></div>
           <div>${distanceBadge}</div>
           ${closedBadge}
+          ${sharedWarningHtml}
         `;
 
+        const statusBadgeWrap = popupContent.querySelector('#popup-status-badge-wrap');
+        if (statusBadgeWrap) {
+          const badgeSpan = document.createElement('span');
+          if (visited) {
+            badgeSpan.style.cssText = 'display:inline-block;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;';
+            badgeSpan.textContent = '✅ تم حفظ فاتورة اليوم';
+          } else if (unsuccessfulVisitedToday) {
+            const isClickableAdmin = isStrictAdminOnMap;
+            badgeSpan.style.cssText = `display:inline-block;background:#fef9c3;color:#854d0e;border:1.5px solid #fde047;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;${isClickableAdmin ? 'cursor:pointer;box-shadow:0 1px 4px rgba(202,138,4,0.4);text-decoration:underline;' : ''}`;
+            badgeSpan.textContent = isClickableAdmin ? '🟡 زيارة غير ناجحة اليوم (انقر للانتقال للجدول ↗)' : '🟡 زيارة غير ناجحة اليوم';
+            if (isClickableAdmin) {
+              badgeSpan.title = 'انقر للانتقال إلى تفاصيل هذه الزيارة في جدول الزيارات غير الناجحة';
+              badgeSpan.onclick = (e) => {
+                e.stopPropagation();
+                onFocusUnsuccessfulVisitRef.current?.(route);
+              };
+            }
+          } else {
+            badgeSpan.style.cssText = 'display:inline-block;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9999px;font-weight:900;font-size:11px;margin-top:4px;';
+            badgeSpan.textContent = '🔴 ضمن المسار - لم يُزار بعد';
+          }
+          statusBadgeWrap.appendChild(badgeSpan);
+        }
+
         const actionsRow = document.createElement('div');
-        actionsRow.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:6px;';
+        actionsRow.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
 
         if (showVisitBtn) {
           const btn = document.createElement('button');
@@ -731,6 +846,29 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
           });
         actionsRow.appendChild(locBtn);
 
+        if (isStrictAdminOnMap) {
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.textContent = sharedPeers.length > 0 ? '🗑️ حذف الموقع المكرر' : '🗑️ حذف الموقع';
+          delBtn.title = 'حذف إحداثيات هذا المحل ليتم تحديدها من جديد';
+          delBtn.style.cssText =
+            'width:100%;padding:5px 8px;border-radius:8px;border:1px solid #fecdd3;background:#fff1f2;color:#be123c;font-weight:800;font-size:10.5px;cursor:pointer;white-space:nowrap;';
+          delBtn.onclick = async () => {
+            delBtn.disabled = true;
+            delBtn.textContent = 'جاري الحذف...';
+            const res = await deleteCustomerCoordinates(route, currentUser?.name || 'الأدمن');
+            if (res.success) {
+              onLocationDeletedRef.current?.(route, res.clearedAt);
+              onNotifyRef.current?.(res.message);
+            } else {
+              delBtn.disabled = false;
+              delBtn.textContent = sharedPeers.length > 0 ? '🗑️ حذف الموقع المكرر' : '🗑️ حذف الموقع';
+              onNotifyRef.current?.(res.message);
+            }
+          };
+          actionsRow.appendChild(delBtn);
+        }
+
         popupContent.appendChild(actionsRow);
         return popupContent;
       };
@@ -738,8 +876,8 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
       const existingMarker = shopMarkersRef.current.get(key);
       if (existingMarker) {
         const curLatLng = existingMarker.getLatLng();
-        if (Math.abs(curLatLng.lat - lat) > 1e-6 || Math.abs(curLatLng.lng - lng) > 1e-6) {
-          existingMarker.setLatLng([lat, lng]);
+        if (Math.abs(curLatLng.lat - displayLat) > 1e-6 || Math.abs(curLatLng.lng - displayLng) > 1e-6) {
+          existingMarker.setLatLng([displayLat, displayLng]);
         }
         if (shopMarkerMetaRef.current.get(key) !== metaSig) {
           existingMarker.setIcon(createShopDivIcon(visited, route.customerName, isWithinGeofence, unsuccessfulVisitedToday));
@@ -747,7 +885,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
           shopMarkerMetaRef.current.set(key, metaSig);
         }
       } else {
-        const marker = L.marker([lat, lng], {
+        const marker = L.marker([displayLat, displayLng], {
           icon: createShopDivIcon(visited, route.customerName, isWithinGeofence, unsuccessfulVisitedToday),
         });
         marker.bindPopup(buildPopupContent());
@@ -756,7 +894,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         shopMarkerMetaRef.current.set(key, metaSig);
       }
     });
-  }, [mappedCustomers, canCreateInvoiceForRoute, visibleLiveReps, localRepCoords, geofenceRadiusMeters, repViewOnly]);
+  }, [mappedCustomers, canCreateInvoiceForRoute, visibleLiveReps, localRepCoords, geofenceRadiusMeters, repViewOnly, isStrictAdminOnMap, currentUser?.name]);
 
   // Draw planned route line only when Admin filters by a specific delegate (never draw lines between shops for representatives)
   useEffect(() => {
@@ -925,6 +1063,21 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     if (repMarker) {
       repMarker.openPopup();
     }
+  };
+
+  const handleFocusNextOverlappingShop = () => {
+    const map = mapInstanceRef.current;
+    if (!map || overlappingCustomerItems.length === 0) return;
+    const idx = duplicateFocusIdxRef.current % overlappingCustomerItems.length;
+    duplicateFocusIdxRef.current = (idx + 1) % overlappingCustomerItems.length;
+    const target = overlappingCustomerItems[idx];
+    try {
+      map.flyTo([target.displayLat, target.displayLng], 17, { animate: true, duration: 0.7 });
+    } catch {
+      map.setView([target.displayLat, target.displayLng], 17, { animate: true });
+    }
+    const marker = shopMarkersRef.current.get(target.key);
+    if (marker) marker.openPopup();
   };
 
   return (
@@ -1249,6 +1402,29 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Admin Overlapping / Duplicate Shop Coordinates Alert */}
+      {!repViewOnly && (isStrictAdminOnMap || isDataEntryUser) && overlappingCustomerItems.length > 0 && (
+        <div
+          className={`px-3 py-2 border-b flex flex-wrap items-center justify-between gap-2 text-xs ${
+            isDarkMode ? 'bg-amber-950/40 border-amber-800/60 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 font-black text-[11px]">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              تنبيه: يوجد ({overlappingCustomerItems.length}) محلات مختلفة مسجلة على نفس الإحداثيات تماماً (تم فصل دبابيسها مؤقتاً لسهولة النقر عليها).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleFocusNextOverlappingShop}
+            className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-black shadow-xs cursor-pointer transition-colors shrink-0"
+          >
+            الانتقال للموقع المكرر التالي
+          </button>
         </div>
       )}
 
