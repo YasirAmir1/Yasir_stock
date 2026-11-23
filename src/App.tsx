@@ -696,25 +696,7 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
-          {/* OLD INVOICES TAB (الفواتير القديمة) - DIRECTLY ADJACENT TO ENTRY - STRICTLY ADMIN ONLY */}
-          {currentUser?.isAdmin && !isSauceUser && (
-            <button
-              onClick={() => handleTabChange('old_invoices')}
-              onMouseEnter={() => prefetchModule(() => import('./components/OldInvoicesScreen'))}
-              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
-                activeTab === 'old_invoices'
-                  ? isDarkMode
-                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
-                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
-                  : isDarkMode
-                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
-              }`}
-            >
-              <History className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'old_invoices' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-              <span>الارشفة</span>
-            </button>
-          )}
+
 
           {!isSauceUser && (
             <button
@@ -814,6 +796,29 @@ const MainAppContent: React.FC = () => {
             <span>المنتجات</span>
           </button>
 
+          {/* RETURNS TAB (المرتجعات) - DIRECTLY ADJACENT TO PRODUCTS */}
+          {!isSauceUser && (
+            <button
+              onClick={() => {
+                setShowQuickAdd(false);
+                handleTabChange('returns');
+              }}
+              onMouseEnter={() => prefetchModule(() => import('./components/ReturnsScreen'))}
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
+                activeTab === 'returns'
+                  ? isDarkMode
+                    ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
+                    : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
+                  : isDarkMode
+                  ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <RotateCcw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'returns' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+              <span>المرتجعات</span>
+            </button>
+          )}
+
           {/* FORECAST TAB (فوركاست) - STRICTLY ADMIN ONLY */}
           {isStrictAdmin && (
             <button
@@ -837,16 +842,13 @@ const MainAppContent: React.FC = () => {
             </button>
           )}
 
-          {/* RETURNS TAB (المرتجعات) */}
-          {!isSauceUser && (
+          {/* OLD INVOICES TAB (الارشفة) - DIRECTLY ADJACENT TO FORECAST - STRICTLY ADMIN ONLY */}
+          {currentUser?.isAdmin && !isSauceUser && (
             <button
-              onClick={() => {
-                setShowQuickAdd(false);
-                handleTabChange('returns');
-              }}
-              onMouseEnter={() => prefetchModule(() => import('./components/ReturnsScreen'))}
-              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[65px] ${
-                activeTab === 'returns'
+              onClick={() => handleTabChange('old_invoices')}
+              onMouseEnter={() => prefetchModule(() => import('./components/OldInvoicesScreen'))}
+              className={`flex-1 py-1.5 px-2 text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 rounded-xl border-2 transition-all min-w-[75px] ${
+                activeTab === 'old_invoices'
                   ? isDarkMode
                     ? 'border-emerald-400 text-emerald-300 bg-emerald-950/80 shadow-sm scale-105'
                     : 'border-emerald-700 text-emerald-900 bg-emerald-50 shadow-sm scale-105'
@@ -855,8 +857,8 @@ const MainAppContent: React.FC = () => {
                   : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold'
               }`}
             >
-              <RotateCcw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'returns' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-              <span>المرتجعات</span>
+              <History className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${activeTab === 'old_invoices' ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+              <span>الارشفة</span>
             </button>
           )}
 
