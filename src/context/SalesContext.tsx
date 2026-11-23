@@ -1070,9 +1070,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Use allSalesEntries which is already synced with Firestore
     allSalesEntries.forEach(entry => {
       if (entry.dateString === todayBaghdad && entry.status !== 'cancelled') {
-        if (entry.timestamp && lastInventoryUploadTimestamp > 0 && entry.timestamp <= lastInventoryUploadTimestamp) {
-          return;
-        }
         const nameKey = normalizeNameKey(entry.productName || '');
         if (nameKey) {
           map[nameKey] = (map[nameKey] || 0) + (Number(entry.quantity) || 0);
@@ -1080,7 +1077,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
     return map;
-  }, [allSalesEntries, lastInventoryUploadTimestamp]);
+  }, [allSalesEntries]);
 
   const getProductLiveStock = useCallback((prod: ProductItem) => {
     const nameKey = normalizeNameKey(prod.productName || '');
