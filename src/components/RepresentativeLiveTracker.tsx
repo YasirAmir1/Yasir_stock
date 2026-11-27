@@ -38,10 +38,10 @@ import { playBroadcastAlertToneAndVibrate } from '../utils/soundAlert';
 import { RouteItem } from '../types';
 import { X, AlertTriangle, RefreshCw, BellRing, ClipboardList, Loader2 } from 'lucide-react';
 
-const SYNC_INTERVAL_MS = 30000; // 30 seconds live GPS capture & sync interval
-const MIN_MOVEMENT_SYNC_MS = 10000; // Push faster (10s) when rep moves >= 40m
-const MOVEMENT_SYNC_DISTANCE_METERS = 40;
-const RETRY_SYNC_DELAY_MS = 5000; // Fast 5s retry if upload failed while network recovers
+const SYNC_INTERVAL_MS = 10000; // 10 seconds live GPS capture & sync interval
+const MIN_MOVEMENT_SYNC_MS = 3000; // Push faster (3s) when rep moves >= 40m
+const MOVEMENT_SYNC_DISTANCE_METERS = 30;
+const RETRY_SYNC_DELAY_MS = 3000; // Fast 3s retry if upload failed while network recovers
 
 export const RepresentativeLiveTracker: React.FC = () => {
   const {
@@ -752,7 +752,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
     // Every 30 seconds: acquire a brand-new uncached GPS position, discard previous location, and push to server
     const intervalId = window.setInterval(() => {
       const now = Date.now();
-      if (now - lastWatchFixAt > 35000) {
+      if (now - lastWatchFixAt > 15000) {
         startWatch();
       }
       requestFreshPosition(true);
@@ -807,7 +807,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
       if (pendingOnlineSyncRef.current && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
         void syncNowIfDue(true);
       }
-      const staleWatch = Date.now() - lastWatchFixAt > 35000;
+      const staleWatch = Date.now() - lastWatchFixAt > 15000;
       const staleSync = Date.now() - lastSyncTimestampRef.current >= 15000;
       if (staleWatch) {
         startWatch();

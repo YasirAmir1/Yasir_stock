@@ -5,12 +5,13 @@ import { db } from '../lib/firebase';
 import { collection, query, where, doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
 import { GridRow, SalesEntry } from '../types';
-import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X, Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, RefreshCw, UserCheck, Shield, Calendar, ChevronDown, ChevronUp, Scale, Phone, Store, ShoppingBag, TrendingUp, MapPin, FileText, CreditCard } from 'lucide-react';
+import { Star, Save, Plus, Trash2, Check, AlertCircle, AlertTriangle, Pencil, X, Download, ShoppingCart, Package, Printer, MessageCircle, Clock, RotateCcw, RefreshCw, UserCheck, Shield, Calendar, ChevronDown, ChevronUp, Scale, Phone, Store, ShoppingBag, TrendingUp, MapPin, FileText, CreditCard, Search, ArrowLeftRight } from 'lucide-react';
 import { DelegateLoginModal } from './DelegateLoginModal';
 import { parseArabicDigits, parseArabicNumber, formatWithCommas, getInvoiceKey } from '../utils/numberUtils';
 import { getFormattedWeekday } from '../utils/dateUtils';
 import { getEffectiveRouteDay } from '../utils/routeUtils';
 import { PullToRefresh } from './PullToRefresh';
+import { markCustomerVisitedToday } from '../lib/fleetTrackingService';
 import logoImg from '../assets/images/logo.png';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas-pro';
@@ -265,13 +266,43 @@ export const EntryScreen: React.FC = () => {
     }
   };
 
+  const isDataEntryUser = Boolean(
+    currentUser?.role === 'dataEntry' ||
+    currentUser?.username?.toLowerCase() === 'rafatdata' ||
+    currentUser?.roleName?.includes('مدخل') ||
+    currentUser?.name?.includes('مدخل') ||
+    currentUser?.name === 'رأفت جمال' ||
+    currentUser?.delegateName === 'رأفت جمال'
+  );
+  const isStrictAdmin = Boolean(
+    !isDataEntryUser &&
+    (currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن')
+  );
+
   // Edit Saved Entry State
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [transferModal, setTransferModal] = useState<{
     isOpen: boolean;
     invoiceId: string;
     currentDelegate: string;
+    entryIds?: string[];
   } | null>(null);
+  const [customerTransferModal, setCustomerTransferModal] = useState<{
+    isOpen: boolean;
+    entryIds: string[];
+    entries: SalesEntry[];
+    currentCustomerName: string;
+    currentCustomerDisplayName: string;
+    currentCustomerCode: string;
+    currentCustomerAddress: string;
+    currentDelegate: string;
+    currentPriceMode: 'retail' | 'wholesale';
+  } | null>(null);
+  const [transferTargetDelegate, setTransferTargetDelegate] = useState<string>('');
+  const [transferCustomerSearch, setTransferCustomerSearch] = useState<string>('');
+  const [transferTargetRouteId, setTransferTargetRouteId] = useState<string>('');
+  const [transferShowAllRoutes, setTransferShowAllRoutes] = useState<boolean>(false);
+  const [isTransferringCustomer, setIsTransferringCustomer] = useState<boolean>(false);
   const [minInvoiceAlertData, setMinInvoiceAlertData] = useState<{
     total: number;
     count: number;
@@ -495,6 +526,186 @@ export const EntryScreen: React.FC = () => {
     return Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'ar'));
   }, [productsList, safeSavedEntries]);
   const activeAccountObj = safeDelegateAccounts.find((a) => a.delegateName === activeDelegateName);
+
+  const transferAvailableDelegates = useMemo(() => {
+    const set = new Set<string>(delegatesList);
+    routes.forEach((r) => {
+      const del = (r.delegateName || '').trim();
+      if (del) set.add(del);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [delegatesList, routes]);
+
+  const transferCandidateRoutes = useMemo(() => {
+    const normTargetDel = normalizeArabicText(transferTargetDelegate);
+    const deduped = new Map<string, (typeof routes)[number]>();
+
+    routes.forEach((r) => {
+      if (!transferShowAllRoutes && normTargetDel) {
+        const rDel = normalizeArabicText(r.delegateName || '');
+        if (!rDel || (!rDel.includes(normTargetDel) && !normTargetDel.includes(rDel))) {
+          return;
+        }
+      }
+      const cleanCode = parseArabicDigits(String(r.customerCode || '')).trim().replace(/\.0+$/, '').toLowerCase();
+      const isRealCode = cleanCode !== '' && !/^cust-\d+$/i.test(cleanCode);
+      const delKey = normalizeArabicText(r.delegateName || '');
+      const key = isRealCode
+        ? `code:${cleanCode}::${delKey}`
+        : `name:${normalizeArabicText(r.customerName || '')}::${delKey}`;
+
+      const existing = deduped.get(key);
+      if (!existing) {
+        deduped.set(key, r);
+      } else {
+        const existingScore = (existing.customerPhone ? 1 : 0) + (existing.customerAddress ? 1 : 0);
+        const curScore = (r.customerPhone ? 1 : 0) + (r.customerAddress ? 1 : 0);
+        if (curScore > existingScore) deduped.set(key, r);
+      }
+    });
+
+    const list = Array.from(deduped.values()).sort((a, b) =>
+      String(a.customerName || '').localeCompare(String(b.customerName || ''), 'ar')
+    );
+
+    const rawQ = parseArabicDigits(transferCustomerSearch).trim();
+    if (!rawQ) return list;
+    const qLower = rawQ.toLowerCase();
+    const qNorm = normalizeArabicText(rawQ);
+    return list.filter((r) => {
+      const codeStr = parseArabicDigits(String(r.customerCode || '')).trim().replace(/\.0+$/, '').toLowerCase();
+      const nameNorm = normalizeArabicText(r.customerName || '');
+      const addrNorm = normalizeArabicText(r.customerAddress || '');
+      const delNorm = normalizeArabicText(r.delegateName || '');
+      return (
+        (codeStr !== '' && codeStr.includes(qLower)) ||
+        (qNorm !== '' && (nameNorm.includes(qNorm) || addrNorm.includes(qNorm) || delNorm.includes(qNorm)))
+      );
+    });
+  }, [routes, transferTargetDelegate, transferShowAllRoutes, transferCustomerSearch]);
+
+  const selectedTransferTargetRoute = useMemo(
+    () =>
+      transferCandidateRoutes.find((r) => r.id === transferTargetRouteId) ||
+      routes.find((r) => r.id === transferTargetRouteId) ||
+      null,
+    [transferCandidateRoutes, routes, transferTargetRouteId]
+  );
+
+  const transferPriceSummary = useMemo(() => {
+    if (!customerTransferModal || !selectedTransferTargetRoute) return null;
+    const targetIsWholesale = selectedTransferTargetRoute.customerType === 'جملة';
+    const currentIsWholesale = customerTransferModal.currentPriceMode === 'wholesale';
+
+    const calcTotal = (isWs: boolean) =>
+      customerTransferModal.entries.reduce((sum, e) => {
+        if (e.isGift) return sum;
+        const normName = (e.productName || '').trim().toLowerCase();
+        const prod = productsList.find((p) => (p.productName || '').trim().toLowerCase() === normName);
+        if (!prod) return sum;
+        const ws = typeof prod.wholesalePrice === 'string' ? parseArabicNumber(prod.wholesalePrice) : Number(prod.wholesalePrice) || 0;
+        const rt = typeof prod.retailPrice === 'string' ? parseArabicNumber(prod.retailPrice) : Number(prod.retailPrice) || 0;
+        const price = isWs ? (ws > 0 ? ws : rt) : (rt > 0 ? rt : ws);
+        return sum + price * (Number(e.quantity) || 0);
+      }, 0);
+
+    return {
+      currentTotal: calcTotal(currentIsWholesale),
+      newTotal: calcTotal(targetIsWholesale),
+      targetCustomerType: (targetIsWholesale ? 'جملة' : 'مفرد') as 'مفرد' | 'جملة',
+      targetPriceMode: (targetIsWholesale ? 'wholesale' : 'retail') as 'retail' | 'wholesale',
+    };
+  }, [customerTransferModal, selectedTransferTargetRoute, productsList]);
+
+  const handleConfirmCustomerTransfer = async () => {
+    if (!isStrictAdmin || !customerTransferModal || isTransferringCustomer) return;
+    const chosenDelegate = transferTargetDelegate.trim();
+    if (!chosenDelegate) {
+      addToast?.({
+        title: 'بيانات ناقصة',
+        message: 'يجب تحديد اسم المندوب الجديد أولاً.',
+        type: 'info',
+      });
+      return;
+    }
+    if (!selectedTransferTargetRoute) {
+      addToast?.({
+        title: 'بيانات ناقصة',
+        message: 'يجب تحديد اسم الزبون الجديد أولاً.',
+        type: 'info',
+      });
+      return;
+    }
+
+    const newCustomerName = String(selectedTransferTargetRoute.customerName || '').trim();
+    const newCustomerCode = String(selectedTransferTargetRoute.customerCode || '').trim();
+    const newCustomerAddress = String(selectedTransferTargetRoute.customerAddress || '').trim();
+    const newCustomerPhone = String(selectedTransferTargetRoute.customerPhone || '').trim();
+    const newCustomerType: 'مفرد' | 'جملة' = selectedTransferTargetRoute.customerType === 'جملة' ? 'جملة' : 'مفرد';
+    const newPriceMode: 'retail' | 'wholesale' = newCustomerType === 'جملة' ? 'wholesale' : 'retail';
+
+    const isSameDelegate = normalizeArabicText(chosenDelegate) === normalizeArabicText(customerTransferModal.currentDelegate);
+    const isSameCustomerName = normalizeArabicText(newCustomerName) === normalizeArabicText(customerTransferModal.currentCustomerName);
+    const isSameCode =
+      newCustomerCode &&
+      customerTransferModal.currentCustomerCode &&
+      newCustomerCode.replace(/\.0+$/, '').toLowerCase() === customerTransferModal.currentCustomerCode.replace(/\.0+$/, '').toLowerCase();
+
+    if (isSameDelegate && (isSameCode || isSameCustomerName)) {
+      addToast?.({
+        title: 'تنبيه',
+        message: 'الزبون والمندوب المختاران مطابقان للفاتورة الحالية بالفعل.',
+        type: 'info',
+      });
+      return;
+    }
+
+    setIsTransferringCustomer(true);
+    try {
+      const targetInvoiceId =
+        customerTransferModal.entries[0]?.invoiceId ||
+        `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      await Promise.all(
+        customerTransferModal.entryIds.map((entryId) =>
+          updateSalesEntry(entryId, {
+            invoiceId: targetInvoiceId,
+            delegateName: chosenDelegate,
+            customerName: newCustomerName,
+            customerCode: newCustomerCode,
+            customerAddress: newCustomerAddress,
+            customerPhone: newCustomerPhone,
+            customerType: newCustomerType,
+            priceMode: newPriceMode,
+          })
+        )
+      );
+
+      await markCustomerVisitedToday(newCustomerCode, newCustomerName);
+
+      addToast?.({
+        title: 'تم تحويل البضاعة والفاتورة بنجاح ✅',
+        message: `من (${customerTransferModal.currentCustomerDisplayName}) إلى (${newCustomerName}) • المندوب: ${chosenDelegate} • الأسعار: ${newCustomerType}`,
+        type: 'success',
+        delegateName: chosenDelegate,
+      });
+
+      setCustomerTransferModal(null);
+      setTransferTargetDelegate('');
+      setTransferCustomerSearch('');
+      setTransferTargetRouteId('');
+      setTransferShowAllRoutes(false);
+    } catch (err) {
+      console.error('Error transferring customer invoice:', err);
+      addToast?.({
+        title: 'تعذر التحويل',
+        message: 'حدث خطأ أثناء تحويل البضاعة إلى الزبون الجديد.',
+        type: 'info',
+      });
+    } finally {
+      setIsTransferringCustomer(false);
+    }
+  };
 
   // Active delegate targets
   const delCategoryTargets = safeDelegateTargets.filter((t) => t.delegateName === activeDelegateName);
@@ -894,7 +1105,7 @@ export const EntryScreen: React.FC = () => {
     });
   };
 
-  const handleSaveGrid = () => {
+  const handleSaveGrid = async () => {
     if (isCompleted) {
       setErrorMessage('لا يمكن حفظ فواتير جديدة بعد إكمال مبيعات اليوم');
       return;
@@ -969,20 +1180,27 @@ export const EntryScreen: React.FC = () => {
           break;
         }
 
-        // Validate requested quantity against available stock in inventory
+        // Validate requested quantity against available stock and presence in inventory
         const matchedProd = productsList.find(p => p.productName?.trim().toLowerCase() === name.toLowerCase());
-        if (matchedProd) {
-          const liveStock = getProductLiveStock(matchedProd);
-          const unitsPerCarton = liveStock.unitsPerCarton;
-          const totalUnits = liveStock.totalUnits;
-          
-          if (effectiveQ > totalUnits) {
-            const availCartons = Math.floor(totalUnits / unitsPerCarton);
-            const availPieces = totalUnits % unitsPerCarton;
-            setErrorMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${matchedProd.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`);
-            invalidFound = true;
-            break;
-          }
+        if (!matchedProd) {
+          setErrorMessage(`المنتج (${name}) في الصف رقم ${i + 1} انتهى واختفى من الجرد الحالي. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`);
+          invalidFound = true;
+          break;
+        }
+        const liveStock = getProductLiveStock(matchedProd);
+        const unitsPerCarton = liveStock.unitsPerCarton;
+        const totalUnits = matchedProd.isAvailable === false ? 0 : liveStock.totalUnits;
+
+        if (effectiveQ > totalUnits) {
+          const availCartons = Math.floor(totalUnits / unitsPerCarton);
+          const availPieces = totalUnits % unitsPerCarton;
+          setErrorMessage(
+            matchedProd.isAvailable === false
+              ? `المنتج (${matchedProd.productName}) غير متوفر حالياً بالمخزن. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`
+              : `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${matchedProd.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`
+          );
+          invalidFound = true;
+          break;
         }
 
         itemsToSave.push({
@@ -1140,7 +1358,15 @@ export const EntryScreen: React.FC = () => {
       }
     });
 
-    processOrder(itemsToSave);
+    const result = await processOrder(itemsToSave);
+    if (!result.success) {
+      setErrorMessage(
+        result.message ||
+        'تعذر حفظ الفاتورة لأن أحد الأصناف أصبح أقل من الكمية المطلوبة أو اختفى من الجرد. يرجى مسحه ثم إعادة الحفظ.'
+      );
+      return;
+    }
+
     setErrorMessage(null);
 
     setGridRows(
@@ -2519,7 +2745,43 @@ export const EntryScreen: React.FC = () => {
                     }`}>
                       {/* Customer Name Header with Phone Box & WhatsApp Button */}
                       <div className="flex-1 flex items-center justify-start gap-2 flex-wrap min-w-0 px-1">
-                        <h3 className="font-black text-xs sm:text-base md:text-lg text-[#1f4e78] dark:text-blue-300 tracking-wide">
+                        <h3
+                          onClick={() => {
+                            if (!isStrictAdmin) return;
+                            const allInvoiceEntries = fullGroupedInvoices[customerName] || entries;
+                            setTransferTargetDelegate('');
+                            setTransferCustomerSearch('');
+                            setTransferTargetRouteId('');
+                            setTransferShowAllRoutes(false);
+                            setIsTransferringCustomer(false);
+                            setCustomerTransferModal({
+                              isOpen: true,
+                              entryIds: allInvoiceEntries.map((e) => e.id),
+                              entries: allInvoiceEntries,
+                              currentCustomerName: allInvoiceEntries[0]?.customerName || customerDisplayName,
+                              currentCustomerDisplayName: customerDisplayName,
+                              currentCustomerCode: allInvoiceEntries[0]?.customerCode || '',
+                              currentCustomerAddress: allInvoiceEntries[0]?.customerAddress || '',
+                              currentDelegate: allInvoiceEntries[0]?.delegateName || 'غير محدد',
+                              currentPriceMode:
+                                allInvoiceEntries[0]?.priceMode === 'wholesale' ||
+                                (allInvoiceEntries[0]?.priceMode as unknown as string) === 'جملة' ||
+                                allInvoiceEntries[0]?.customerType === 'جملة'
+                                  ? 'wholesale'
+                                  : 'retail',
+                            });
+                          }}
+                          title={
+                            isStrictAdmin
+                              ? 'اضغط لتحويل البضاعة والفاتورة إلى زبون ومندوب آخر (خاص بالأدمن فقط)'
+                              : undefined
+                          }
+                          className={`font-black text-xs sm:text-base md:text-lg text-[#1f4e78] dark:text-blue-300 tracking-wide ${
+                            isStrictAdmin
+                              ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded-lg px-1.5 py-0.5 -mx-1.5 transition-colors'
+                              : ''
+                          }`}
+                        >
                           {customerDisplayName}
                         </h3>
                         {(() => {
@@ -2687,10 +2949,12 @@ export const EntryScreen: React.FC = () => {
                           }`}
                           onClick={() => {
                             if (currentUser?.isAdmin) {
+                              const allInvoiceEntries = fullGroupedInvoices[customerName] || entries;
                               setTransferModal({
                                 isOpen: true,
                                 invoiceId: entries[0]?.invoiceId || '',
-                                currentDelegate: entries[0]?.delegateName || 'غير محدد'
+                                currentDelegate: entries[0]?.delegateName || 'غير محدد',
+                                entryIds: allInvoiceEntries.map((e) => e.id),
                               });
                             }
                           }}
@@ -2740,10 +3004,12 @@ export const EntryScreen: React.FC = () => {
                               }`}
                               onClick={() => {
                                 if (currentUser?.isAdmin) {
+                                  const allInvoiceEntries = fullGroupedInvoices[customerName] || entries;
                                   setTransferModal({
                                     isOpen: true,
                                     invoiceId: entries[0]?.invoiceId || '',
-                                    currentDelegate: entries[0]?.delegateName || 'غير محدد'
+                                    currentDelegate: entries[0]?.delegateName || 'غير محدد',
+                                    entryIds: allInvoiceEntries.map((e) => e.id),
                                   });
                                 }
                               }}
@@ -3387,7 +3653,9 @@ export const EntryScreen: React.FC = () => {
               </button>
             </div>
           </div>
-    
+        </div>
+      )}
+
       {/* Delegate Transfer Modal */}
       {transferModal?.isOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setTransferModal(null)}>
@@ -3399,8 +3667,9 @@ export const EntryScreen: React.FC = () => {
               onChange={(e) => {
                 const newDelegate = e.target.value;
                 if (newDelegate && newDelegate !== transferModal.currentDelegate) {
-                  // Perform transfer
-                  const affectedEntries = safeSavedEntries.filter(e => e.invoiceId === transferModal.invoiceId);
+                  const affectedEntries = transferModal.entryIds && transferModal.entryIds.length > 0
+                    ? safeSavedEntries.filter(entry => transferModal.entryIds!.includes(entry.id))
+                    : safeSavedEntries.filter(entry => entry.invoiceId && entry.invoiceId === transferModal.invoiceId);
                   affectedEntries.forEach(entry => {
                     updateSalesEntry(entry.id, { delegateName: newDelegate });
                   });
@@ -3418,36 +3687,255 @@ export const EntryScreen: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
-      )}
 
-      {/* Delegate Transfer Modal */}
-      {transferModal?.isOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setTransferModal(null)}>
-          <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm border text-right space-y-4 ring-1 ring-black/10 dark:ring-white/10 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
-            <h3 className="font-black text-lg text-slate-800 dark:text-white">نقل الفاتورة إلى مندوب آخر</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">اختر المندوب الجديد لنقل جميع محتويات الفاتورة له:</p>
-            <select
-              className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold text-sm"
-              onChange={(e) => {
-                const newDelegate = e.target.value;
-                if (newDelegate && newDelegate !== transferModal.currentDelegate) {
-                  // Perform transfer
-                  const affectedEntries = safeSavedEntries.filter(e => e.invoiceId === transferModal.invoiceId);
-                  affectedEntries.forEach(entry => {
-                    updateSalesEntry(entry.id, { delegateName: newDelegate });
-                  });
-                  setTransferModal(null);
-                  addToast?.({ title: 'تم تحويل الفاتورة', message: `تم تحويل الفاتورة للمندوب: ${newDelegate}`, type: 'success' });
-                }
-              }}
+      {/* Strict Admin-Only Customer & Goods Transfer Modal */}
+      {isStrictAdmin && customerTransferModal?.isOpen && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200"
+          dir="rtl"
+          onClick={() => {
+            if (!isTransferringCustomer) setCustomerTransferModal(null);
+          }}
+        >
+          <div
+            className={`p-5 sm:p-6 rounded-3xl shadow-2xl w-full max-w-lg border text-right space-y-4 ring-1 ring-black/10 dark:ring-white/10 max-h-[90vh] overflow-y-auto ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                  <ArrowLeftRight className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">
+                    تحويل البضاعة إلى زبون آخر
+                  </h3>
+                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    خاص بالأدمن فقط • يتم اعتماد أسعار وتفاصيل الزبون الجديد تلقائياً
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isTransferringCustomer}
+                onClick={() => setCustomerTransferModal(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Source Invoice Summary */}
+            <div
+              className={`p-3 rounded-2xl border text-xs space-y-1 ${
+                isDarkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-slate-50 border-slate-200'
+              }`}
             >
-              <option value="">اختر مندوباً...</option>
-              {delegatesList.map(del => (
-                <option key={del} value={del}>{del}</option>
-              ))}
-            </select>
-            <button onClick={() => setTransferModal(null)} className="w-full py-2.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">إلغاء</button>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-black text-slate-700 dark:text-slate-200">
+                  الزبون الحالي: <span className="text-[#1f4e78] dark:text-blue-300">{customerTransferModal.currentCustomerDisplayName}</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                  {customerTransferModal.currentPriceMode === 'wholesale' ? 'جملة' : 'مفرد'} • {customerTransferModal.entries.length} مواد
+                </span>
+              </div>
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-3 gap-y-0.5">
+                <span>الكود: <b className="font-mono text-slate-700 dark:text-slate-200">{customerTransferModal.currentCustomerCode || '---'}</b></span>
+                <span>المندوب الحالي: <b className="text-slate-700 dark:text-slate-200">{customerTransferModal.currentDelegate}</b></span>
+              </div>
+            </div>
+
+            {/* Required Step 1: Select New Delegate */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-700 dark:text-slate-200">
+                1. اسم المندوب الجديد <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={transferTargetDelegate}
+                onChange={(e) => {
+                  setTransferTargetDelegate(e.target.value);
+                  setTransferTargetRouteId('');
+                }}
+                className={`w-full p-2.5 rounded-xl border font-bold text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 ${
+                  isDarkMode
+                    ? 'bg-slate-800 border-slate-600 text-white'
+                    : 'bg-white border-slate-300 text-slate-900'
+                }`}
+              >
+                <option value="">-- اختر اسم المندوب الجديد --</option>
+                {transferAvailableDelegates.map((del) => (
+                  <option key={del} value={del}>
+                    {del}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Required Step 2: Select New Customer (with Search by Name or Code) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-200">
+                  2. اسم الزبون / المحل الجديد <span className="text-red-500">*</span>
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={transferShowAllRoutes}
+                    onChange={(e) => {
+                      setTransferShowAllRoutes(e.target.checked);
+                      setTransferTargetRouteId('');
+                    }}
+                    className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>عرض زبائن جميع المندوبين</span>
+                </label>
+              </div>
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={transferCustomerSearch}
+                  onChange={(e) => {
+                    setTransferCustomerSearch(e.target.value);
+                    if (transferTargetRouteId) setTransferTargetRouteId('');
+                  }}
+                  placeholder="ابحث باسم المحل أو كود الزبون..."
+                  className={`w-full pr-9 pl-8 py-2 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 ${
+                    isDarkMode
+                      ? 'bg-slate-800 border-slate-600 text-white placeholder:text-slate-500'
+                      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                  }`}
+                />
+                {transferCustomerSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTransferCustomerSearch('');
+                      setTransferTargetRouteId('');
+                    }}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <select
+                value={transferTargetRouteId}
+                onChange={(e) => setTransferTargetRouteId(e.target.value)}
+                disabled={!transferTargetDelegate && !transferShowAllRoutes}
+                className={`w-full p-2.5 rounded-xl border font-bold text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 ${
+                  isDarkMode
+                    ? 'bg-slate-800 border-slate-600 text-white'
+                    : 'bg-white border-slate-300 text-slate-900'
+                }`}
+              >
+                <option value="">
+                  {!transferTargetDelegate && !transferShowAllRoutes
+                    ? '-- اختر اسم المندوب الجديد أولاً --'
+                    : `-- اختر الزبون الجديد (${transferCandidateRoutes.length}) --`}
+                </option>
+                {transferCandidateRoutes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.customerName} | كود: {r.customerCode || '-'} | {r.customerType === 'جملة' ? 'جملة' : 'مفرد'}
+                    {transferShowAllRoutes && r.delegateName ? ` (${r.delegateName})` : ''}
+                  </option>
+                ))}
+              </select>
+
+              {/* Quick clickable chips while searching */}
+              {transferCustomerSearch.trim() !== '' && !selectedTransferTargetRoute && (
+                <div className="flex flex-wrap gap-1.5">
+                  {transferCandidateRoutes.length === 0 ? (
+                    <span className="text-[11px] font-bold text-rose-500">
+                      لا يوجد زبون مطابق — جرّب تفعيل &quot;عرض زبائن جميع المندوبين&quot;
+                    </span>
+                  ) : (
+                    transferCandidateRoutes.slice(0, 6).map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setTransferTargetRouteId(r.id)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-black transition-colors cursor-pointer ${
+                          isDarkMode
+                            ? 'bg-slate-800 hover:bg-amber-900/50 border-amber-700/60 text-amber-200'
+                            : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
+                        }`}
+                      >
+                        {r.customerName} ({r.customerCode || '-'}) • {r.customerType === 'جملة' ? 'جملة' : 'مفرد'}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* New Customer Details & Price Re-calculation Preview */}
+            {selectedTransferTargetRoute && transferPriceSummary && (
+              <div
+                className={`p-3 rounded-2xl border space-y-1.5 text-xs ${
+                  isDarkMode
+                    ? 'bg-emerald-950/35 border-emerald-700/60 text-emerald-100'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                }`}
+              >
+                <div className="font-black text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2">
+                  <span>تفاصيل وأسعار الزبون الجديد بعد التحويل:</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white">
+                    سعر {transferPriceSummary.targetCustomerType}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 text-[11px] font-bold">
+                  <div>الاسم: <b className="font-black">{selectedTransferTargetRoute.customerName}</b></div>
+                  <div>الكود: <b className="font-mono">{selectedTransferTargetRoute.customerCode || '---'}</b></div>
+                  <div>العنوان: <b>{selectedTransferTargetRoute.customerAddress || 'غير مسجل'}</b></div>
+                  <div>الهاتف: <b dir="ltr">{selectedTransferTargetRoute.customerPhone || 'غير مسجل'}</b></div>
+                </div>
+                <div className="pt-1.5 mt-1 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-[11px] font-black">
+                  <span>إجمالي الفاتورة بأسعار الزبون الجديد:</span>
+                  <span className="text-sm font-mono text-emerald-700 dark:text-emerald-300">
+                    {transferPriceSummary.newTotal.toLocaleString('en-US')} د.ع
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={isTransferringCustomer}
+                onClick={() => setCustomerTransferModal(null)}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm border transition-colors cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                    : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                }`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCustomerTransfer}
+                disabled={
+                  isTransferringCustomer ||
+                  !transferTargetDelegate.trim() ||
+                  !selectedTransferTargetRoute
+                }
+                className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                {isTransferringCustomer ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowLeftRight className="w-4 h-4" />
+                )}
+                <span>{isTransferringCustomer ? 'جاري التحويل...' : 'تحويل البضاعة والفاتورة'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

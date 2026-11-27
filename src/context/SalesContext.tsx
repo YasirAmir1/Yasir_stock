@@ -36,6 +36,21 @@ import {
   SupabaseUploadResult
 } from '../lib/supabaseService';
 
+export interface ProcessOrderOversoldItem {
+  productId?: string;
+  productName: string;
+  requestedUnits: number;
+  availableUnits: number;
+  unitsPerCarton: number;
+  reason: 'insufficient_stock' | 'removed_from_inventory' | 'unavailable';
+}
+
+export interface ProcessOrderResult {
+  success: boolean;
+  oversoldItems?: ProcessOrderOversoldItem[];
+  message?: string;
+}
+
 export const ORDERED_CATEGORY_PRIORITY = [
   'قشطة',
   'جبن بيتزا',
@@ -398,7 +413,7 @@ interface SalesContextType {
   inventoryLogs: InventoryLogRecord[];
   deleteInventoryLog: (logId: string) => Promise<void>;
   resetInventory: () => Promise<void>;
-  processOrder: (orderEntries: Omit<SalesEntry, 'id' | 'timestamp'>[]) => Promise<void>;
+  processOrder: (orderEntries: Omit<SalesEntry, 'id' | 'timestamp'>[]) => Promise<ProcessOrderResult>;
   todaySalesByProductName: Record<string, number>;
   getProductLiveStock: (prod: ProductItem) => { totalUnits: number, cartons: number, pieces: number, unitsPerCarton: number, soldToday: number };
   report11Targets: Report11CategoryTarget[];
@@ -2497,119 +2512,200 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const processOrder = async (orderEntries: Omit<SalesEntry, 'id' | 'timestamp'>[]) => {
-    if (orderEntries.length === 0) return;
+  const processOrder = async (orderEntries: Omit<SalesEntry, 'id' | 'timestamp'>[]): Promise<ProcessOrderResult> => {
+    if (orderEntries.length === 0) {
+      return { success: false, message: 'لا توجد منتجات في الفاتورة للحفظ.' };
+    }
 
-    // 1. Group requested quantities by product to handle duplicate rows in the order
+    // 1. Group requested quantities by product and track any items missing from current inventory
     const requestedUnitsByProduct = new Map<string, { product: ProductItem; requestedUnits: number }>();
+    const missingFromCatalogItems: ProcessOrderOversoldItem[] = [];
 
     for (const entry of orderEntries) {
+      if (entry.isGift) continue;
+
+      const entryNameNorm = normalizeNameKey(entry.productName || '');
       const product = productsList.find(
-        p => p.productName?.trim().toLowerCase() === entry.productName?.trim().toLowerCase()
+        p =>
+          (p.productName?.trim().toLowerCase() === entry.productName?.trim().toLowerCase()) ||
+          (entryNameNorm && normalizeNameKey(p.productName || '') === entryNameNorm)
       );
-      if (product) {
-        const unitsPerCarton = Number(product.unitsPerCarton || product.cartonQuantity) || 12;
-        const requestedUnits = entry.entryUnit === 'carton' 
-          ? Number(entry.enteredQuantity || 0) * unitsPerCarton 
-          : Number(entry.quantity || entry.enteredQuantity || 0);
 
-        const current = requestedUnitsByProduct.get(product.id) || { product, requestedUnits: 0 };
-        current.requestedUnits += requestedUnits;
-        requestedUnitsByProduct.set(product.id, current);
-      }
-    }
-
-    // Pre-validate locally against current productsList
-    for (const [, item] of requestedUnitsByProduct) {
-      const currentPieces = Number(item.product.totalUnits ?? item.product.totalPieces ?? 0);
-      if (currentPieces < item.requestedUnits) {
-        const unitsPerCarton = Number(item.product.unitsPerCarton || item.product.cartonQuantity) || 12;
-        const availCartons = Math.floor(currentPieces / unitsPerCarton);
-        const availPieces = currentPieces % unitsPerCarton;
-        const msg = `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${item.product.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`;
-        setUserMessage(msg);
-        addToast?.({
-          type: 'reminder',
-          title: 'الكمية المطلوبة تتجاوز المخزون المتوفر ⚠️',
-          message: msg
+      if (!product) {
+        const reqUnits = Number(entry.quantity || entry.enteredQuantity || 0);
+        missingFromCatalogItems.push({
+          productName: entry.productName || 'منتج غير معروف',
+          requestedUnits: reqUnits,
+          availableUnits: 0,
+          unitsPerCarton: 12,
+          reason: 'removed_from_inventory'
         });
-        return; // Abort order
+        continue;
+      }
+
+      const unitsPerCarton = Number(product.unitsPerCarton || product.cartonQuantity) || 12;
+      const requestedUnits = entry.entryUnit === 'carton'
+        ? Number(entry.enteredQuantity || 0) * unitsPerCarton
+        : Number(entry.quantity || entry.enteredQuantity || 0);
+
+      const current = requestedUnitsByProduct.get(product.id) || { product, requestedUnits: 0 };
+      current.requestedUnits += requestedUnits;
+      requestedUnitsByProduct.set(product.id, current);
+    }
+
+    // Pre-validate locally against live stock (totalUnits minus today's sales) and missing items
+    const oversoldItems: ProcessOrderOversoldItem[] = [...missingFromCatalogItems];
+
+    for (const [, item] of requestedUnitsByProduct) {
+      const liveStock = getProductLiveStock(item.product);
+      const effectiveAvailable = item.product.isAvailable === false ? 0 : liveStock.totalUnits;
+      if (effectiveAvailable < item.requestedUnits) {
+        oversoldItems.push({
+          productId: item.product.id,
+          productName: item.product.productName,
+          requestedUnits: item.requestedUnits,
+          availableUnits: effectiveAvailable,
+          unitsPerCarton: liveStock.unitsPerCarton,
+          reason: item.product.isAvailable === false ? 'unavailable' : 'insufficient_stock'
+        });
       }
     }
 
-    // 2. Process stock reduction in Firestore Transaction for safe concurrency
+    if (oversoldItems.length > 0) {
+      const firstIssue = oversoldItems[0];
+      let msg = '';
+      if (firstIssue.reason === 'removed_from_inventory') {
+        msg = `المنتج (${firstIssue.productName}) انتهى واختفى من الجرد الحالي. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`;
+      } else if (firstIssue.reason === 'unavailable') {
+        msg = `المنتج (${firstIssue.productName}) غير متوفر حالياً بالمخزن. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`;
+      } else {
+        const availCartons = Math.floor(firstIssue.availableUnits / firstIssue.unitsPerCarton);
+        const availPieces = firstIssue.availableUnits % firstIssue.unitsPerCarton;
+        msg = `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${firstIssue.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`;
+      }
+      setUserMessage(msg);
+      addToast?.({
+        type: 'reminder',
+        title: 'تعذر حفظ الفاتورة ⚠️',
+        message: msg
+      });
+      return { success: false, oversoldItems, message: msg };
+    }
+
+    // 2. Verify live stock in Firestore Transaction for safe concurrency
     try {
       if (navigator.onLine) {
         await runTransaction(db, async (transaction) => {
-          // Read all product documents first
-          const productUpdates: {
-            docRef: any;
-            newTotalUnits: number;
-            newTotalCartons: number;
-            isAvailable: boolean;
-            unitsPerCarton: number;
-            prodId: string;
-          }[] = [];
-
           for (const [prodId, item] of requestedUnitsByProduct) {
             const prodRef = doc(db, 'products_catalog', prodId);
             const snap = await transaction.get(prodRef);
 
-            let currentTotalUnits = Number(item.product.totalUnits ?? item.product.totalPieces ?? 0);
-            let unitsPerCarton = Number(item.product.unitsPerCarton || item.product.cartonQuantity) || 12;
-
-            if (snap.exists()) {
-              const data = snap.data() as any;
-              unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity) || unitsPerCarton;
-              currentTotalUnits = Number(data.totalUnits ?? data.totalPieces ?? 0);
+            if (!snap.exists()) {
+              throw new Error(`REMOVED|||${JSON.stringify({
+                productId: prodId,
+                productName: item.product.productName,
+                requestedUnits: item.requestedUnits,
+                unitsPerCarton: Number(item.product.unitsPerCarton || item.product.cartonQuantity) || 12
+              })}`);
             }
 
-            if (currentTotalUnits < item.requestedUnits) {
-              throw new Error(`OVERSELL:${item.product.productName}:${currentTotalUnits}:${unitsPerCarton}`);
-            }
-
-            const newTotalUnits = Math.max(0, currentTotalUnits - item.requestedUnits);
-            const newTotalCartons = Math.floor(newTotalUnits / unitsPerCarton);
-            const isAvailable = newTotalUnits >= (6 * unitsPerCarton);
-
-            productUpdates.push({
-              docRef: prodRef,
-              newTotalUnits,
-              newTotalCartons,
-              isAvailable,
-              unitsPerCarton,
-              prodId
+            const data = snap.data() as any;
+            const unitsPerCarton = Number(data.unitsPerCarton || data.cartonQuantity || item.product.unitsPerCarton || item.product.cartonQuantity) || 12;
+            const baselineUnits = Number(
+              data.totalUnits !== undefined
+                ? data.totalUnits
+                : (data.totalPieces !== undefined
+                    ? data.totalPieces
+                    : ((Number(data.totalCartons ?? data.stockCartons ?? 0)) * unitsPerCarton))
+            );
+            const liveStock = getProductLiveStock({
+              ...item.product,
+              ...data,
+              totalUnits: baselineUnits,
+              unitsPerCarton
             });
-          }
+            const availableLiveUnits = data.isAvailable === false ? 0 : liveStock.totalUnits;
 
-          // Write all updates - STOCK DECREMENT REMOVED AS PER REQUEST TO USE FORMULA (TOTAL - TODAY SALES)
-          // ONLY UPDATING OTHER FIELDS IF NECESSARY, BUT CURRENTLY NOT NEEDED IN TRANSACTION
+            if (availableLiveUnits < item.requestedUnits) {
+              throw new Error(`OVERSELL|||${JSON.stringify({
+                productId: prodId,
+                productName: data.productName || item.product.productName,
+                availableUnits: availableLiveUnits,
+                unitsPerCarton,
+                requestedUnits: item.requestedUnits,
+                reason: data.isAvailable === false ? 'unavailable' : 'insufficient_stock'
+              })}`);
+            }
+          }
         });
       }
 
-      // Update local state immediately - NO LOCAL DECREMENT, FORMULA HANDLES IT
-      // 3. Save sales entries
+      // 3. Save sales entries only after stock verification succeeded
       await saveSalesEntries(orderEntries);
+      return { success: true };
 
     } catch (err: any) {
-      if (err?.message?.startsWith('OVERSELL:')) {
-        const [, pName, currentUnitsStr, upcStr] = err.message.split(':');
-        const cUnits = Number(currentUnitsStr) || 0;
-        const upc = Number(upcStr) || 12;
+      const errMsg = String(err?.message || '');
+      if (errMsg.startsWith('REMOVED|||')) {
+        let payload: any = {};
+        try { payload = JSON.parse(errMsg.slice('REMOVED|||'.length)); } catch {}
+        const pName = payload.productName || 'المنتج';
+        const msg = `المنتج (${pName}) انتهى واختفى من الجرد الحالي. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`;
+        setUserMessage(msg);
+        addToast?.({
+          type: 'reminder',
+          title: 'المنتج غير موجود في الجرد ⚠️',
+          message: msg
+        });
+        return {
+          success: false,
+          oversoldItems: [{
+            productId: payload.productId,
+            productName: pName,
+            requestedUnits: Number(payload.requestedUnits) || 0,
+            availableUnits: 0,
+            unitsPerCarton: Number(payload.unitsPerCarton) || 12,
+            reason: 'removed_from_inventory'
+          }],
+          message: msg
+        };
+      }
+
+      if (errMsg.startsWith('OVERSELL|||')) {
+        let payload: any = {};
+        try { payload = JSON.parse(errMsg.slice('OVERSELL|||'.length)); } catch {}
+        const pName = payload.productName || 'المنتج';
+        const cUnits = Number(payload.availableUnits) || 0;
+        const upc = Number(payload.unitsPerCarton) || 12;
         const cCartons = Math.floor(cUnits / upc);
         const cPieces = cUnits % upc;
-        const msg = `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${pName}). المتاح حالياً: ${cCartons} كارتون و ${cPieces} قطعة.`;
+        const msg = payload.reason === 'unavailable'
+          ? `المنتج (${pName}) غير متوفر حالياً بالمخزن. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`
+          : `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${pName}). المتاح حالياً: ${cCartons} كارتون و ${cPieces} قطعة.`;
         setUserMessage(msg);
         addToast?.({
           type: 'reminder',
           title: 'الكمية المطلوبة تتجاوز المخزون المتوفر ⚠️',
           message: msg
         });
-      } else {
-        console.error('Error processing real-time stock reduction:', err);
-        // Fallback: still save offline
-        await saveSalesEntries(orderEntries);
+        return {
+          success: false,
+          oversoldItems: [{
+            productId: payload.productId,
+            productName: pName,
+            requestedUnits: Number(payload.requestedUnits) || 0,
+            availableUnits: cUnits,
+            unitsPerCarton: upc,
+            reason: payload.reason === 'unavailable' ? 'unavailable' : 'insufficient_stock'
+          }],
+          message: msg
+        };
       }
+
+      console.error('Error processing real-time stock verification:', err);
+      // Fallback: still save offline for genuine network/Firestore transport issues
+      await saveSalesEntries(orderEntries);
+      return { success: true };
     }
   };
 

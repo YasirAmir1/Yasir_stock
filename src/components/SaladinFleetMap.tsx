@@ -35,6 +35,7 @@ import {
   Copy,
   Save,
   AlertTriangle,
+  Search,
 } from 'lucide-react';
 
 // Saladin Governorate center & bounds covering all districts (Shirqat, Baiji, Tikrit, Samarra, Balad, Dujail, Tuz Khurmatu)
@@ -63,6 +64,7 @@ interface SaladinFleetMapProps {
   onSelectCustomerAction?: (route: RouteItem) => void;
   canCreateInvoiceForRoute?: (route: RouteItem) => boolean;
   onNotify?: (msg: string) => void;
+  onLocationSaved?: (route: RouteItem, latitude: number, longitude: number) => void;
   onLocationDeleted?: (route: RouteItem, clearedAt: number) => void;
   strictAuthoritativeRoutes?: boolean;
   onFocusUnsuccessfulVisit?: (route: RouteItem) => void;
@@ -155,6 +157,33 @@ const createShopDivIcon = (
   });
 };
 
+const createPendingPinDivIcon = (customerName: string): L.DivIcon => {
+  const safeName = escapeHtml(customerName);
+  return L.divIcon({
+    className: 'custom-pending-pin',
+    html: `
+      <div dir="rtl" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);cursor:grab;">
+        <div style="display:inline-flex;align-items:center;gap:4px;background:#f59e0b;color:#0f172a;padding:3px 9px;border-radius:10px;font-size:10.5px;font-weight:900;white-space:nowrap;box-shadow:0 4px 12px rgba(245,158,11,0.45);border:2px solid #ffffff;margin-bottom:4px;font-family:'Cairo',sans-serif;">
+          <span>📍 موقع التثبيت:</span>
+          <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;">${safeName}</span>
+        </div>
+        <div style="position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center;">
+          <div class="rep-marker-pulse-ring" style="position:absolute;inset:-5px;border-radius:9999px;background:rgba(245,158,11,0.4);border:2px solid rgba(217,119,6,0.9);"></div>
+          <div style="position:relative;width:28px;height:28px;border-radius:9999px;background:linear-gradient(135deg,#f59e0b,#d97706);border:2.5px solid #ffffff;box-shadow:0 4px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;color:#ffffff;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+          </div>
+        </div>
+      </div>
+    `,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+    popupAnchor: [0, -34],
+  });
+};
+
 export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   routes,
   salesEntries,
@@ -173,6 +202,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   onSelectCustomerAction,
   canCreateInvoiceForRoute,
   onNotify,
+  onLocationSaved,
   onLocationDeleted,
   strictAuthoritativeRoutes = false,
   onFocusUnsuccessfulVisit,
@@ -191,6 +221,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     !isDataEntryUser &&
     (currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.name === 'الأدمن')
   );
+  const canAdminPinShop = Boolean(canEditCoordinates && isStrictAdminOnMap && !repViewOnly);
   const isStrictlyAdminForGeofence = Boolean(
     canManageGeofence && isStrictAdminOnMap
   );
@@ -200,6 +231,7 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const routePathLayerRef = useRef<L.LayerGroup | null>(null);
   const shopsLayerRef = useRef<L.LayerGroup | null>(null);
   const repsLayerRef = useRef<L.LayerGroup | null>(null);
+  const pendingPinLayerRef = useRef<L.LayerGroup | null>(null);
 
   // Persistent marker maps enable smooth animated position transitions without tile/marker re-creation
   const shopMarkersRef = useRef<Map<string, L.Marker>>(new Map());
@@ -212,6 +244,8 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   canCreateInvoiceRef.current = canCreateInvoiceForRoute;
   const onNotifyRef = useRef(onNotify);
   onNotifyRef.current = onNotify;
+  const onLocationSavedRef = useRef(onLocationSaved);
+  onLocationSavedRef.current = onLocationSaved;
   const onLocationDeletedRef = useRef(onLocationDeleted);
   onLocationDeletedRef.current = onLocationDeleted;
   const onFocusUnsuccessfulVisitRef = useRef(onFocusUnsuccessfulVisit);
@@ -226,6 +260,8 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
   const hasAutoFittedRef = useRef<boolean>(false);
   const [assignMode, setAssignMode] = useState<boolean>(false);
   const [assignRouteId, setAssignRouteId] = useState<string>('');
+  const [assignSearchQuery, setAssignSearchQuery] = useState<string>('');
+  const [pendingPinCoords, setPendingPinCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isSavingCoord, setIsSavingCoord] = useState<boolean>(false);
   const [geofenceInput, setGeofenceInput] = useState<string>(() => String(geofenceRadiusMeters || 100));
   const [isSavingGeofence, setIsSavingGeofence] = useState<boolean>(false);
@@ -627,11 +663,13 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
     const routePathLayer = L.layerGroup().addTo(map);
     const shopsLayer = L.layerGroup().addTo(map);
     const repsLayer = L.layerGroup().addTo(map);
+    const pendingPinLayer = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
     routePathLayerRef.current = routePathLayer;
     shopsLayerRef.current = shopsLayer;
     repsLayerRef.current = repsLayer;
+    pendingPinLayerRef.current = pendingPinLayer;
 
     // Ensure proper tile rendering inside dynamically expanded containers
     const resizeTimer = window.setTimeout(() => {
@@ -661,39 +699,73 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
       routePathLayerRef.current = null;
       shopsLayerRef.current = null;
       repsLayerRef.current = null;
+      pendingPinLayerRef.current = null;
     };
   }, []);
 
-  // Handle Admin click-on-map coordinate pinning mode
+  // Deduplicated shop list for Admin coordinate pinning (searches across all shops by name or customer code)
+  const assignableRoutes = useMemo(() => {
+    const deduped = new Map<string, RouteItem>();
+    routes.forEach((r) => {
+      const cleanCode = String(r.customerCode || '').trim().replace(/\.0+$/, '').toLowerCase();
+      const isRealCode = cleanCode !== '' && !/^cust-\d+$/i.test(cleanCode);
+      const key = isRealCode ? `code:${cleanCode}` : `id:${r.id}`;
+      const existing = deduped.get(key);
+      if (!existing) {
+        deduped.set(key, r);
+      } else if (
+        parseCoordinate(existing.latitude) === null &&
+        parseCoordinate(r.latitude) !== null
+      ) {
+        deduped.set(key, r);
+      }
+    });
+    return Array.from(deduped.values()).sort((a, b) =>
+      String(a.customerName || '').localeCompare(String(b.customerName || ''), 'ar')
+    );
+  }, [routes]);
+
+  const filteredAssignableRoutes = useMemo(() => {
+    const raw = parseArabicDigits(assignSearchQuery).trim();
+    if (!raw) return assignableRoutes;
+    const rawLower = raw.toLowerCase();
+    const normQuery = normalizeTrackingText(raw);
+    return assignableRoutes.filter((r) => {
+      const rawCode = parseArabicDigits(String(r.customerCode || '')).trim().replace(/\.0+$/, '').toLowerCase();
+      const normName = normalizeTrackingText(r.customerName);
+      const normDel = normalizeTrackingText(r.delegateName);
+      return (
+        (rawCode !== '' && rawCode.includes(rawLower)) ||
+        (normQuery !== '' && (normName.includes(normQuery) || normDel.includes(normQuery)))
+      );
+    });
+  }, [assignableRoutes, assignSearchQuery]);
+
+  const selectedAssignRoute = useMemo(
+    () =>
+      assignableRoutes.find((r) => r.id === assignRouteId) ||
+      routes.find((r) => r.id === assignRouteId) ||
+      null,
+    [assignableRoutes, routes, assignRouteId]
+  );
+
+  // Handle strict Admin-only click-on-map preview pin placement (Save requires clicking "حفظ")
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
     const container = map.getContainer();
-    container.style.cursor = assignMode && assignRouteId ? 'crosshair' : '';
+    const isPinningReady = canAdminPinShop && assignMode && Boolean(assignRouteId);
+    container.style.cursor = isPinningReady ? 'crosshair' : '';
 
-    const onMapClick = async (ev: L.LeafletMouseEvent) => {
-      if (!assignMode || !assignRouteId || isSavingCoord) return;
-      const targetRoute = routes.find((r) => r.id === assignRouteId);
-      if (!targetRoute) return;
-
-      setIsSavingCoord(true);
-      const { lat, lng } = ev.latlng;
-      const res = await saveCustomerCoordinates(
-        targetRoute,
-        Number(lat.toFixed(6)),
-        Number(lng.toFixed(6)),
-        'الأدمن (خريطة صلاح الدين)'
-      );
-      setIsSavingCoord(false);
-
-      if (res.success) {
-        onNotify?.(res.message);
-        setAssignMode(false);
-        setAssignRouteId('');
-      } else {
-        onNotify?.(res.message);
-      }
+    const onMapClick = (ev: L.LeafletMouseEvent) => {
+      if (!canAdminPinShop || !assignMode || !assignRouteId || isSavingCoord) return;
+      const targetExists = routes.some((r) => r.id === assignRouteId);
+      if (!targetExists) return;
+      setPendingPinCoords({
+        lat: Number(ev.latlng.lat.toFixed(6)),
+        lng: Number(ev.latlng.lng.toFixed(6)),
+      });
     };
 
     map.on('click', onMapClick);
@@ -701,7 +773,88 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
       map.off('click', onMapClick);
       container.style.cursor = '';
     };
-  }, [assignMode, assignRouteId, isSavingCoord, routes, onNotify]);
+  }, [canAdminPinShop, assignMode, assignRouteId, isSavingCoord, routes]);
+
+  // Render & drag-adjust the pending shop location marker before Admin clicks Save
+  useEffect(() => {
+    const layer = pendingPinLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!canAdminPinShop || !assignMode || !selectedAssignRoute || !pendingPinCoords) {
+      return;
+    }
+
+    const previewMarker = L.marker([pendingPinCoords.lat, pendingPinCoords.lng], {
+      icon: createPendingPinDivIcon(selectedAssignRoute.customerName || selectedAssignRoute.customerCode || 'المحل'),
+      draggable: true,
+      zIndexOffset: 2000,
+    });
+
+    previewMarker.on('dragend', () => {
+      const pos = previewMarker.getLatLng();
+      setPendingPinCoords({
+        lat: Number(pos.lat.toFixed(6)),
+        lng: Number(pos.lng.toFixed(6)),
+      });
+    });
+
+    previewMarker.addTo(layer);
+  }, [canAdminPinShop, assignMode, selectedAssignRoute, pendingPinCoords]);
+
+  const handleSelectAssignRoute = (routeId: string) => {
+    setAssignRouteId(routeId);
+    setPendingPinCoords(null);
+    if (!routeId) return;
+    const chosen = assignableRoutes.find((r) => r.id === routeId) || routes.find((r) => r.id === routeId);
+    if (!chosen) return;
+    const coords = strictAuthoritativeRoutes
+      ? { latitude: parseCoordinate(chosen.latitude), longitude: parseCoordinate(chosen.longitude) }
+      : resolveRouteCoordinatesWithCache(chosen, cachedCoordsMap);
+    const map = mapInstanceRef.current;
+    if (map && coords.latitude !== null && coords.longitude !== null) {
+      try {
+        map.flyTo([coords.latitude, coords.longitude], Math.max(map.getZoom(), 15), {
+          animate: true,
+          duration: 0.65,
+        });
+      } catch {
+        map.setView([coords.latitude, coords.longitude], Math.max(map.getZoom(), 15), { animate: true });
+      }
+    }
+  };
+
+  const handleSavePinnedLocation = async () => {
+    if (!canAdminPinShop || !selectedAssignRoute || !pendingPinCoords || isSavingCoord) return;
+    setIsSavingCoord(true);
+    const { lat, lng } = pendingPinCoords;
+    const res = await saveCustomerCoordinates(
+      selectedAssignRoute,
+      lat,
+      lng,
+      currentUser?.name || 'الأدمن (خريطة صلاح الدين)'
+    );
+    setIsSavingCoord(false);
+
+    if (res.success) {
+      onLocationSavedRef.current?.(selectedAssignRoute, lat, lng);
+      onNotifyRef.current?.(res.message);
+      const map = mapInstanceRef.current;
+      if (map) {
+        try {
+          map.flyTo([lat, lng], Math.max(map.getZoom(), 16), { animate: true, duration: 0.6 });
+        } catch {
+          // Ignore flyTo errors
+        }
+      }
+      setAssignMode(false);
+      setAssignRouteId('');
+      setAssignSearchQuery('');
+      setPendingPinCoords(null);
+    } else {
+      onNotifyRef.current?.(res.message);
+    }
+  };
 
   // Incrementally update Customer Shop Markers without recreating existing unchanged markers or tiles
   useEffect(() => {
@@ -1205,12 +1358,14 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
             </button>
           )}
 
-          {canEditCoordinates && !repViewOnly && (
+          {canAdminPinShop && (
             <button
               type="button"
               onClick={() => {
                 setAssignMode((m) => !m);
                 setAssignRouteId('');
+                setAssignSearchQuery('');
+                setPendingPinCoords(null);
               }}
               className={`px-2.5 py-1.5 rounded-xl font-black text-[11px] flex items-center gap-1 border transition-colors cursor-pointer ${
                 assignMode
@@ -1241,45 +1396,180 @@ export const SaladinFleetMap: React.FC<SaladinFleetMapProps> = ({
         </div>
       </div>
 
-      {/* Admin Click-to-Assign Customer Location Bar */}
-      {assignMode && canEditCoordinates && (
+      {/* Strict Admin-Only Step-by-Step Shop Coordinate Pinning Panel */}
+      {assignMode && canAdminPinShop && (
         <div
-          className={`p-3 border-b flex flex-wrap items-center gap-2 text-xs ${
-            isDarkMode ? 'bg-amber-950/40 border-amber-800/60' : 'bg-amber-50 border-amber-200'
+          className={`p-3 border-b space-y-2.5 text-xs ${
+            isDarkMode ? 'bg-amber-950/35 border-amber-800/60' : 'bg-amber-50/90 border-amber-200'
           }`}
         >
-          <span className="font-black text-amber-800 dark:text-amber-300">
-            1- اختر المحل:
-          </span>
-          <select
-            value={assignRouteId}
-            onChange={(e) => setAssignRouteId(e.target.value)}
-            className={`flex-1 min-w-[200px] p-2 rounded-xl border text-xs font-bold ${
-              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-amber-300 text-slate-900'
-            }`}
-          >
-            <option value="">-- اختر المحل لتحديد موقعه على الخريطة --</option>
-            {mapTargetRoutes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.customerName} ({r.customerCode}) - {r.delegateName}
-                {parseCoordinate(r.latitude) ? ' 📍' : ' (غير محدد)'}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-black text-amber-900 dark:text-amber-200">
+              <MapPin className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>تثبيت موقع محل على الخريطة (خاص بالأدمن فقط)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setAssignMode(false);
+                setAssignRouteId('');
+                setAssignSearchQuery('');
+                setPendingPinCoords(null);
+              }}
+              title="إغلاق"
+              className="p-1.5 rounded-lg hover:bg-amber-200/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Step 1: Choose Shop or Customer Code */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <span className="font-black text-amber-800 dark:text-amber-300 shrink-0">
+              1- اختر المحل أو كود الزبون:
+            </span>
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={assignSearchQuery}
+                onChange={(e) => {
+                  setAssignSearchQuery(e.target.value);
+                  if (assignRouteId) {
+                    setAssignRouteId('');
+                    setPendingPinCoords(null);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && filteredAssignableRoutes.length > 0 && !assignRouteId) {
+                    e.preventDefault();
+                    const rawQ = parseArabicDigits(assignSearchQuery).trim().replace(/\.0+$/, '').toLowerCase();
+                    const exactCodeMatch = filteredAssignableRoutes.find(
+                      (r) => parseArabicDigits(String(r.customerCode || '')).trim().replace(/\.0+$/, '').toLowerCase() === rawQ
+                    );
+                    handleSelectAssignRoute((exactCodeMatch || filteredAssignableRoutes[0]).id);
+                  }
+                }}
+                placeholder="ابحث باسم المحل أو كود الزبون..."
+                className={`w-full pr-8 pl-7 py-2 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 ${
+                  isDarkMode
+                    ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-500'
+                    : 'bg-white border-amber-300 text-slate-900 placeholder:text-slate-400'
+                }`}
+              />
+              {assignSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignSearchQuery('');
+                    setAssignRouteId('');
+                    setPendingPinCoords(null);
+                  }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <select
+              value={assignRouteId}
+              onChange={(e) => handleSelectAssignRoute(e.target.value)}
+              className={`flex-1 min-w-[230px] p-2 rounded-xl border text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 ${
+                isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-amber-300 text-slate-900'
+              }`}
+            >
+              <option value="">
+                -- اختر المحل أو كود الزبون ({filteredAssignableRoutes.length}) --
               </option>
-            ))}
-          </select>
-          <span className="font-bold text-amber-700 dark:text-amber-300">
-            {assignRouteId ? '2- انقر الآن على موقع المحل فوق الخريطة لحفظ الإحداثيات' : ''}
-          </span>
-          {isSavingCoord && <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />}
-          <button
-            type="button"
-            onClick={() => {
-              setAssignMode(false);
-              setAssignRouteId('');
-            }}
-            className="p-1.5 rounded-lg hover:bg-amber-200/60 text-amber-800 dark:text-amber-200 cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+              {filteredAssignableRoutes.map((r) => {
+                const hasPin = parseCoordinate(r.latitude) !== null && parseCoordinate(r.longitude) !== null;
+                return (
+                  <option key={r.id} value={r.id}>
+                    {r.customerName} | كود: {r.customerCode || '-'} {r.delegateName ? `- ${r.delegateName}` : ''} {hasPin ? '📍' : '(غير محدد)'}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* Quick 1-click search matches when typing shop name or customer code */}
+          {assignSearchQuery.trim() !== '' && !selectedAssignRoute && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {filteredAssignableRoutes.length === 0 ? (
+                <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                  لا يوجد محل مطابق لـ &quot;{assignSearchQuery}&quot;
+                </span>
+              ) : (
+                filteredAssignableRoutes.slice(0, 6).map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => handleSelectAssignRoute(r.id)}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-black transition-colors cursor-pointer ${
+                      isDarkMode
+                        ? 'bg-slate-900 hover:bg-amber-900/50 border-amber-700/60 text-amber-200'
+                        : 'bg-white hover:bg-amber-100 border-amber-300 text-amber-900'
+                    }`}
+                  >
+                    {r.customerName} ({r.customerCode || '-'})
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Step 2 & Step 3: Map Click Selection & Explicit Save Button */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-amber-200/70 dark:border-amber-800/40">
+            <div className="flex flex-wrap items-center gap-2 font-bold text-amber-800 dark:text-amber-300">
+              {!selectedAssignRoute ? (
+                <span>2- اختر المحل أو كود الزبون أولاً لتتمكن من تحديد موقعه على الخريطة.</span>
+              ) : !pendingPinCoords ? (
+                <span>
+                  2- المحل المختار:{' '}
+                  <b className="text-slate-900 dark:text-white">
+                    {selectedAssignRoute.customerName} ({selectedAssignRoute.customerCode || '-'})
+                  </b>{' '}
+                  — انقر الآن على موقع المحل فوق الخريطة لتحديده ثم اضغط حفظ.
+                </span>
+              ) : (
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span>
+                    2- تم تحديد موقع{' '}
+                    <b className="text-slate-900 dark:text-white">
+                      {selectedAssignRoute.customerName} ({selectedAssignRoute.customerCode || '-'})
+                    </b>
+                    :
+                  </span>
+                  <span
+                    dir="ltr"
+                    className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-mono text-[11px]"
+                  >
+                    {pendingPinCoords.lat.toFixed(6)}, {pendingPinCoords.lng.toFixed(6)}
+                  </span>
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                    (يمكنك سحب الدبوس أو النقر بمكان آخر للتعديل)
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleSavePinnedLocation}
+                disabled={!selectedAssignRoute || !pendingPinCoords || isSavingCoord}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed text-white font-black text-xs shadow-sm flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                {isSavingCoord ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>{isSavingCoord ? 'جاري الحفظ...' : 'حفظ'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

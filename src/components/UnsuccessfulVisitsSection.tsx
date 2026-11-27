@@ -18,6 +18,7 @@ import {
   MapPin,
   Phone,
   Search,
+  Share2,
   Store,
   Trash2,
   User,
@@ -174,6 +175,73 @@ export const UnsuccessfulVisitsSection: React.FC<UnsuccessfulVisitsSectionProps>
   const [isDeletingRedKey, setIsDeletingRedKey] = useState<string | null>(null);
   const [confirmClearRedDay, setConfirmClearRedDay] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; title: string; subtitle?: string } | null>(null);
+  const [sharingVisitId, setSharingVisitId] = useState<string | null>(null);
+
+  const handleShareVisitCardToWhatsApp = async (v: UnsuccessfulVisit) => {
+    if (sharingVisitId) return;
+    setSharingVisitId(v.id);
+    try {
+      const el = document.getElementById(`whatsapp_share_card_${v.id}`);
+      if (!el) {
+        throw new Error('Card element not found');
+      }
+      const html2canvas = (await import('html2canvas-pro')).default;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+      if (!blob) throw new Error('Canvas blob failed');
+
+      const shopName = selectedShopDetails?.customerName || v.customerName;
+      const shopCode = selectedShopDetails?.customerCode || v.customerCode || '-';
+      const shopAddress = selectedShopDetails?.customerAddress || v.customerAddress || '';
+
+      const fileName = `زيارة_غير_ناجحة_${shopName}_${v.date}.png`;
+      const caption = `⚠️ تفاصيل زيارة غير ناجحة:\nالزبون: ${shopName} (${shopCode})\nالعنوان: ${shopAddress}\nالمندوب: ${v.delegateName}\nالتاريخ: ${v.date} - ${v.timeFormatted || ''}\nالسبب: ${v.reason}`;
+
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `زيارة غير ناجحة - ${shopName}`,
+              text: caption,
+            });
+            onNotify?.('تمت المشاركة بنجاح', 'تم إرسال بطاقة الزيارة غير الناجحة بنجاح.', 'success');
+            setSharingVisitId(null);
+            return;
+          } catch (shareErr: any) {
+            if (shareErr?.name === 'AbortError') {
+              setSharingVisitId(null);
+              return;
+            }
+          }
+        }
+      }
+
+      // Fallback: download image + open whatsapp
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(caption)}`;
+      window.open(waUrl, '_blank');
+      onNotify?.('جاري المشاركة', 'تم تنزيل صورة البطاقة وفتح واتساب للمشاركة.', 'info');
+    } catch (err) {
+      console.error('Share visit card error:', err);
+      onNotify?.('خطأ بالمشاركة', 'تعذر مشاركة البطاقة، يرجى المحاولة مرة أخرى.', 'reminder');
+    } finally {
+      setSharingVisitId(null);
+    }
+  };
 
   // Reset pagination to 10 whenever filters change
   useEffect(() => {
@@ -1606,151 +1674,218 @@ export const UnsuccessfulVisitsSection: React.FC<UnsuccessfulVisitsSectionProps>
                       const isConfirming = confirmDeleteVisitId === v.id;
                       const isDeleting = isDeletingVisitId === v.id;
                       return (
-                        <div
-                          key={v.id}
-                          className={`p-3.5 rounded-2xl border space-y-2.5 ${
-                            isDarkMode
-                              ? 'bg-slate-800/60 border-amber-900/50'
-                              : 'bg-amber-50/40 border-amber-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="px-2.5 py-0.5 rounded-lg bg-amber-600 text-white font-black text-[11px]">
-                                الزيارة غير الناجحة #{idx + 1}
-                              </span>
-                              <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                <Calendar className="w-3.5 h-3.5 text-amber-500" />
-                                <span>{v.date}</span>
-                                {v.timeFormatted && <span>• {v.timeFormatted}</span>}
-                              </span>
-                              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                                ({v.delegateName})
-                              </span>
+                        <React.Fragment key={v.id}>
+                          <div
+                            id={`visit_card_${v.id}`}
+                            className={`p-3.5 rounded-2xl border space-y-2.5 ${
+                              isDarkMode
+                                ? 'bg-slate-800/60 border-amber-900/50'
+                                : 'bg-amber-50/40 border-amber-200'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-lg bg-amber-600 text-white font-black text-[11px]">
+                                  الزيارة غير الناجحة #{idx + 1}
+                                </span>
+                                <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                                  <span>{v.date}</span>
+                                  {v.timeFormatted && <span>• {v.timeFormatted}</span>}
+                                </span>
+                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                                  ({v.delegateName})
+                                </span>
+                              </div>
+
+                              <div>
+                                {isConfirming ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={isDeleting}
+                                      onClick={() => handleDeleteVisitConfirm(v.id)}
+                                      className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-black cursor-pointer"
+                                    >
+                                      {isDeleting ? '...' : 'تأكيد الحذف'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteVisitId(null)}
+                                      className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-[10px] font-bold cursor-pointer"
+                                    >
+                                      إلغاء
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteVisitId(v.id)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                                    title="حذف هذه الزيارة"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
-                            <div>
-                              {isConfirming ? (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={isDeleting}
-                                    onClick={() => handleDeleteVisitConfirm(v.id)}
-                                    className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-black cursor-pointer"
-                                  >
-                                    {isDeleting ? '...' : 'تأكيد الحذف'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteVisitId(null)}
-                                    className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-[10px] font-bold cursor-pointer"
-                                  >
-                                    إلغاء
-                                  </button>
+                            <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-700">
+                              <span className="text-[11px] font-black text-amber-700 dark:text-amber-400 block mb-0.5">
+                                السبب:
+                              </span>
+                              <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 whitespace-pre-wrap">
+                                {v.reason}
+                              </p>
+                            </div>
+
+                            {/* Refrigerator Photo (Mandatory) */}
+                            <div className="space-y-1">
+                              <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
+                                صورة براد الزبون (إلزامي):
+                              </span>
+                              {v.refrigeratorPhoto ? (
+                                <div
+                                  onClick={() =>
+                                    setLightboxImage({
+                                      src: v.refrigeratorPhoto!,
+                                      title: `صورة براد: ${v.customerName} (الزيارة #${idx + 1})`,
+                                      subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName} | السبب: ${v.reason}`,
+                                    })
+                                  }
+                                  className="group relative max-h-40 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1.5 cursor-pointer flex items-center justify-center"
+                                >
+                                  <img
+                                    src={v.refrigeratorPhoto}
+                                    alt={`براد ${v.customerName}`}
+                                    className="max-h-40 w-full object-contain rounded-lg"
+                                  />
+                                  <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-black gap-1.5 rounded-xl">
+                                    <Eye className="w-4 h-4" />
+                                    <span>عرض بالحجم الكامل</span>
+                                  </div>
                                 </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteVisitId(v.id)}
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-                                  title="حذف هذه الزيارة"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="text-[11px] text-slate-400 flex items-center gap-1 font-bold">
+                                  <FileX className="w-3.5 h-3.5" />
+                                  <span>بدون صورة براد مرفقة</span>
+                                </div>
                               )}
+                            </div>
+
+                            {/* Optional Photos 1 & 2 */}
+                            {(v.optionalPhoto1 || v.optionalPhoto2) && (
+                              <div className="space-y-1.5 pt-1">
+                                <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
+                                  الصور الإضافية الاختيارية:
+                                </span>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {v.optionalPhoto1 && (
+                                    <div
+                                      onClick={() =>
+                                        setLightboxImage({
+                                          src: v.optionalPhoto1!,
+                                          title: `صورة إضافية 1: ${v.customerName}`,
+                                          subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
+                                        })
+                                      }
+                                      className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 cursor-pointer flex items-center justify-center"
+                                    >
+                                      <img src={v.optionalPhoto1} alt="صورة إضافية 1" className="h-28 w-full object-contain rounded-lg" />
+                                      <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1 rounded-xl">
+                                        <Eye className="w-3 h-3" />
+                                        <span>معاينة</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {v.optionalPhoto2 && (
+                                    <div
+                                      onClick={() =>
+                                        setLightboxImage({
+                                          src: v.optionalPhoto2!,
+                                          title: `صورة إضافية 2: ${v.customerName}`,
+                                          subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
+                                        })
+                                      }
+                                      className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 cursor-pointer flex items-center justify-center"
+                                    >
+                                      <img src={v.optionalPhoto2} alt="صورة إضافية 2" className="h-28 w-full object-contain rounded-lg" />
+                                      <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1 rounded-xl">
+                                        <Eye className="w-3 h-3" />
+                                        <span>معاينة</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* WhatsApp Share Button */}
+                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                disabled={sharingVisitId === v.id}
+                                onClick={() => handleShareVisitCardToWhatsApp(v)}
+                                className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                              >
+                                <Share2 className="w-4 h-4" />
+                                <span>{sharingVisitId === v.id ? 'جاري تجهيز الصورة...' : 'مشاركة صورة البطاقة على واتساب 📲'}</span>
+                              </button>
                             </div>
                           </div>
 
-                          <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-700">
-                            <span className="text-[11px] font-black text-amber-700 dark:text-amber-400 block mb-0.5">
-                              السبب:
-                            </span>
-                            <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 whitespace-pre-wrap">
-                              {v.reason}
-                            </p>
-                          </div>
-
-                          {/* Refrigerator Photo (Mandatory) */}
-                          <div className="space-y-1">
-                            <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
-                              صورة براد الزبون (إلزامي):
-                            </span>
-                            {v.refrigeratorPhoto ? (
-                              <div
-                                onClick={() =>
-                                  setLightboxImage({
-                                    src: v.refrigeratorPhoto!,
-                                    title: `صورة براد: ${v.customerName} (الزيارة #${idx + 1})`,
-                                    subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName} | السبب: ${v.reason}`,
-                                  })
-                                }
-                                className="group relative max-h-40 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
-                              >
-                                <img
-                                  src={v.refrigeratorPhoto}
-                                  alt={`براد ${v.customerName}`}
-                                  className="max-h-40 w-full object-contain"
-                                />
-                                <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-black gap-1.5">
-                                  <Eye className="w-4 h-4" />
-                                  <span>عرض بالحجم الكامل</span>
+                          {/* Hidden snapshot card for WhatsApp sharing (No trash button, no share button, includes shop name, code, and address) */}
+                          <div
+                            id={`whatsapp_share_card_${v.id}`}
+                            className="p-5 rounded-3xl bg-white text-slate-900 border-2 border-amber-500/40 space-y-3.5 shadow-xl"
+                            style={{ width: '480px', position: 'fixed', top: '-9999px', left: '-9999px', zIndex: -1000, direction: 'rtl', fontFamily: "'Cairo', sans-serif" }}
+                          >
+                            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                              <div>
+                                <h3 className="font-black text-base text-slate-900">{selectedShopDetails?.customerName || v.customerName}</h3>
+                                <p className="text-xs text-slate-600 font-bold mt-0.5">
+                                  كود المحل: <span className="font-mono">{selectedShopDetails?.customerCode || v.customerCode || '-'}</span> | العنوان: {selectedShopDetails?.customerAddress || v.customerAddress || 'غير متوفر'}
+                                </p>
+                              </div>
+                              <span className="px-3 py-1 rounded-xl bg-amber-600 text-white font-black text-xs">
+                                زيارة غير ناجحة #{idx + 1}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-800 space-y-1.5 font-bold">
+                              <p><b>المندوب:</b> {v.delegateName}</p>
+                              <p><b>التاريخ والوقت:</b> {v.date} {v.timeFormatted ? `• ${v.timeFormatted}` : ''}</p>
+                            </div>
+                            <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                              <span className="text-[11px] font-black text-amber-800 block mb-1">السبب:</span>
+                              <p className="text-xs font-bold text-slate-900 whitespace-pre-wrap">{v.reason}</p>
+                            </div>
+                            {v.refrigeratorPhoto && (
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-black text-slate-700 block">صورة براد الزبون (إلزامي):</span>
+                                <div className="rounded-2xl overflow-hidden bg-slate-100 p-2 border border-slate-200 flex items-center justify-center max-h-52">
+                                  <img src={v.refrigeratorPhoto} alt="براد الزبون" className="max-h-52 w-full object-contain rounded-xl" />
                                 </div>
                               </div>
-                            ) : (
-                              <div className="text-[11px] text-slate-400 flex items-center gap-1 font-bold">
-                                <FileX className="w-3.5 h-3.5" />
-                                <span>بدون صورة براد مرفقة</span>
+                            )}
+                            {(v.optionalPhoto1 || v.optionalPhoto2) && (
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-black text-slate-700 block">الصور الإضافية الاختيارية:</span>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {v.optionalPhoto1 && (
+                                    <div className="rounded-xl overflow-hidden bg-slate-100 p-1.5 border flex items-center justify-center h-28">
+                                      <img src={v.optionalPhoto1} alt="صورة إضافية 1" className="h-28 w-full object-contain rounded-lg" />
+                                    </div>
+                                  )}
+                                  {v.optionalPhoto2 && (
+                                    <div className="rounded-xl overflow-hidden bg-slate-100 p-1.5 border flex items-center justify-center h-28">
+                                      <img src={v.optionalPhoto2} alt="صورة إضافية 2" className="h-28 w-full object-contain rounded-lg" />
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
-
-                          {/* Optional Photos 1 & 2 */}
-                          {(v.optionalPhoto1 || v.optionalPhoto2) && (
-                            <div className="space-y-1.5 pt-1">
-                              <span className="text-[11px] font-black text-slate-600 dark:text-slate-300 block">
-                                الصور الإضافية الاختيارية:
-                              </span>
-                              <div className="grid grid-cols-2 gap-2">
-                                {v.optionalPhoto1 && (
-                                  <div
-                                    onClick={() =>
-                                      setLightboxImage({
-                                        src: v.optionalPhoto1!,
-                                        title: `صورة إضافية 1: ${v.customerName}`,
-                                        subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
-                                      })
-                                    }
-                                    className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
-                                  >
-                                    <img src={v.optionalPhoto1} alt="صورة إضافية 1" className="h-28 w-full object-contain" />
-                                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1">
-                                      <Eye className="w-3 h-3" />
-                                      <span>معاينة</span>
-                                    </div>
-                                  </div>
-                                )}
-                                {v.optionalPhoto2 && (
-                                  <div
-                                    onClick={() =>
-                                      setLightboxImage({
-                                        src: v.optionalPhoto2!,
-                                        title: `صورة إضافية 2: ${v.customerName}`,
-                                        subtitle: `التاريخ: ${v.date} | المندوب: ${v.delegateName}`,
-                                      })
-                                    }
-                                    className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black cursor-pointer flex items-center justify-center"
-                                  >
-                                    <img src={v.optionalPhoto2} alt="صورة إضافية 2" className="h-28 w-full object-contain" />
-                                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1">
-                                      <Eye className="w-3 h-3" />
-                                      <span>معاينة</span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        </React.Fragment>
                       );
                     })}
                   </div>

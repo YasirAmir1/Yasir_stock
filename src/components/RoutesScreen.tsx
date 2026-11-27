@@ -4693,6 +4693,78 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
               type: 'success',
             })
           }
+          onLocationSaved={(savedRoute, lat, lng) => {
+            const normalizedLat = Number(lat.toFixed(6));
+            const normalizedLng = Number(lng.toFixed(6));
+            const shopLocStr = formatShopLocationString(normalizedLat, normalizedLng);
+            const nowMs = Date.now();
+            const nowIso = new Date(nowMs).toISOString();
+            const targetCode = isRealCustomerCode(savedRoute.customerCode)
+              ? normalizeLocationCode(savedRoute.customerCode)
+              : '';
+
+            setRoutes((prev) =>
+              prev.map((item) => {
+                const matchesId = item.id && savedRoute.id && item.id === savedRoute.id;
+                const matchesCode = targetCode !== '' && normalizeLocationCode(item.customerCode) === targetCode;
+                if (!matchesId && !matchesCode) return item;
+                return {
+                  ...item,
+                  latitude: normalizedLat,
+                  longitude: normalizedLng,
+                  shopLocation: shopLocStr,
+                  repLocationSaved: true,
+                  locationClearedAt: 0,
+                  updatedAt: nowMs,
+                  updatedBy: currentUser?.name || 'الأدمن',
+                };
+              })
+            );
+
+            setSavedShopLocations((prev) => {
+              let updatedExisting = false;
+              const next = prev.map((rec) => {
+                const matchesId = savedRoute.id && rec.routeId === savedRoute.id;
+                const matchesCode = targetCode !== '' && normalizeLocationCode(rec.customerCode) === targetCode;
+                if (!matchesId && !matchesCode) return rec;
+                updatedExisting = true;
+                return {
+                  ...rec,
+                  latitude: normalizedLat,
+                  longitude: normalizedLng,
+                  shopLocation: shopLocStr,
+                  updatedAt: nowIso,
+                  updatedBy: currentUser?.name || 'الأدمن',
+                  timestamp: nowMs,
+                };
+              });
+
+              if (!updatedExisting) {
+                const canonicalId = getShopLocationDocId(savedRoute);
+                next.unshift({
+                  id: canonicalId,
+                  routeId: savedRoute.id || canonicalId,
+                  customerCode: String(savedRoute.customerCode || '').trim(),
+                  customerName: savedRoute.customerName || '',
+                  customerAddress: savedRoute.customerAddress || '',
+                  customerType: savedRoute.customerType === 'جملة' ? 'جملة' : 'مفرد',
+                  path: getEffectiveRouteDay(savedRoute) || savedRoute.path || '',
+                  delegateName: savedRoute.delegateName || currentUser?.name || 'الأدمن',
+                  delegateCode: savedRoute.delegateCode || '',
+                  latitude: normalizedLat,
+                  longitude: normalizedLng,
+                  shopLocation: shopLocStr,
+                  savedBy: currentUser?.name || 'الأدمن',
+                  savedByCode: currentUser?.delegateCode || '',
+                  savedAt: nowIso,
+                  timestamp: nowMs,
+                  dateString: nowIso.split('T')[0],
+                });
+              }
+
+              return next;
+            });
+          }}
           onLocationDeleted={(deletedRoute, clearedAt) => {
             const targetCode = isRealCustomerCode(deletedRoute.customerCode)
               ? normalizeLocationCode(deletedRoute.customerCode)
@@ -7070,9 +7142,9 @@ ${debt.customerAddress ? `📍 *عنوان الزبون:* ${debt.customerAddress
         }}
       />
 
-      {/* Unsuccessful Visits & Red Unvisited Shops Section at End of Routes Page (خاص بالأدمن فقط - يضم الفقرتين معاً) */}
+      {/* Unsuccessful Visits & Red Unvisited Shops Section at End of Routes Page (خاص بالأدمن ومدخل البيانات - يضم الفقرتين معاً) */}
       <div ref={unsuccessfulSectionRef}>
-        {isStrictAdmin && (
+        {(currentUser?.isAdmin || isDataEntry) && (
           <UnsuccessfulVisitsSection
             visits={unsuccessfulVisits}
             onDeleteVisit={handleDeleteUnsuccessfulVisit}

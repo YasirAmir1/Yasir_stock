@@ -41,6 +41,33 @@ export interface PriceChangeStatus {
   priceUpdatedAt?: number;
 }
 
+interface CartProductSnapshot {
+  id: string;
+  productName: string;
+  productCode: string;
+  categoryName: string;
+  cartonQuantity: number;
+  pieceWeightKg: number;
+  retailPrice: number;
+  wholesalePrice: number;
+  imageUrl?: string;
+}
+
+interface CartStockIssue {
+  prodId: string;
+  productName: string;
+  productCode: string;
+  categoryName: string;
+  cartonQuantity: number;
+  imageUrl?: string;
+  reason: 'insufficient' | 'unavailable' | 'removed';
+  requestedQty: number;
+  unit: 'piece' | 'carton';
+  requestedUnits: number;
+  availableUnits: number;
+  unitsPerCarton: number;
+}
+
 export const getPriceChangeStatus = (
   prod: ProductItem,
   currentPriceMode: 'retail' | 'wholesale'
@@ -417,6 +444,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       return saved ? JSON.parse(saved) : {};
     } catch { return {}; }
   });
+  const [selectedProductSnapshots, setSelectedProductSnapshots] = useState<Record<string, CartProductSnapshot>>(() => {
+    try {
+      const saved = localStorage.getItem('app_selected_product_snapshots');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [highlightedIssueId, setHighlightedIssueId] = useState<string | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -427,6 +462,59 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   React.useEffect(() => {
     localStorage.setItem('app_entry_modes', JSON.stringify(entryModes));
   }, [entryModes]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('app_selected_product_snapshots', JSON.stringify(selectedProductSnapshots));
+    } catch {}
+  }, [selectedProductSnapshots]);
+
+  // Keep metadata snapshots synced for active cart items so deleted/disappeared inventory products remain visible & removable
+  React.useEffect(() => {
+    setSelectedProductSnapshots(prev => {
+      let changed = false;
+      const next: Record<string, CartProductSnapshot> = {};
+
+      for (const [prodId, qtyStr] of Object.entries(selectedQuantities)) {
+        const q = parseInt(qtyStr, 10);
+        if (isNaN(q) || q <= 0) continue;
+
+        const liveProd = productsList.find(p => p.id === prodId);
+        if (liveProd) {
+          const snap: CartProductSnapshot = {
+            id: liveProd.id,
+            productName: liveProd.productName,
+            productCode: liveProd.productCode || '',
+            categoryName: liveProd.categoryName || '',
+            cartonQuantity: Number(liveProd.cartonQuantity || liveProd.unitsPerCarton) || 12,
+            pieceWeightKg: Number(liveProd.pieceWeightKg) || 0,
+            retailPrice: Number(liveProd.retailPrice) || 0,
+            wholesalePrice: Number(liveProd.wholesalePrice) || 0,
+            imageUrl: liveProd.imageUrl || ''
+          };
+          const old = prev[prodId];
+          if (
+            !old ||
+            old.productName !== snap.productName ||
+            old.productCode !== snap.productCode ||
+            old.cartonQuantity !== snap.cartonQuantity ||
+            old.imageUrl !== snap.imageUrl
+          ) {
+            changed = true;
+          }
+          next[prodId] = snap;
+        } else if (prev[prodId]) {
+          next[prodId] = prev[prodId];
+        }
+      }
+
+      if (Object.keys(next).length !== Object.keys(prev).length) {
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [selectedQuantities, productsList]);
 
   // Inline editing state for Admin
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -632,22 +720,125 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     });
   }, [productsList, priceMode]);
 
+  // Real-time stock & catalog-presence validation for all items in the active invoice
+  const cartStockIssues = useMemo<CartStockIssue[]>(() => {
+    const issues: CartStockIssue[] = [];
+    for (const [prodId, qtyStr] of Object.entries(selectedQuantities)) {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+
+      const unit = entryModes[prodId] || 'piece';
+      const prod = productsList.find(p => p.id === prodId);
+
+      if (!prod) {
+        const snap = selectedProductSnapshots[prodId];
+        const upc = Number(snap?.cartonQuantity) || 12;
+        issues.push({
+          prodId,
+          productName: snap?.productName || 'منتج غير متوفر بالجرد',
+          productCode: snap?.productCode || '',
+          categoryName: snap?.categoryName || 'اختفى من الجرد',
+          cartonQuantity: upc,
+          imageUrl: snap?.imageUrl || '',
+          reason: 'removed',
+          requestedQty: q,
+          unit,
+          requestedUnits: unit === 'carton' ? q * upc : q,
+          availableUnits: 0,
+          unitsPerCarton: upc
+        });
+        continue;
+      }
+
+      const { totalUnits, unitsPerCarton: upc } = getProductLiveStock(prod);
+      const requestedUnits = unit === 'carton' ? (q * upc) : q;
+      const effectiveAvailable = prod.isAvailable === false ? 0 : totalUnits;
+
+      if (requestedUnits > effectiveAvailable) {
+        issues.push({
+          prodId,
+          productName: prod.productName,
+          productCode: prod.productCode || '',
+          categoryName: prod.categoryName || '',
+          cartonQuantity: Number(prod.cartonQuantity || prod.unitsPerCarton) || upc,
+          imageUrl: prod.imageUrl || '',
+          reason: prod.isAvailable === false ? 'unavailable' : 'insufficient',
+          requestedQty: q,
+          unit,
+          requestedUnits,
+          availableUnits: effectiveAvailable,
+          unitsPerCarton: upc
+        });
+      }
+    }
+    return issues;
+  }, [selectedQuantities, productsList, selectedProductSnapshots, entryModes, getProductLiveStock]);
+
+  const removedCartIssues = useMemo(
+    () => cartStockIssues.filter(issue => issue.reason === 'removed'),
+    [cartStockIssues]
+  );
+
+  const hasAnyOversoldProduct = cartStockIssues.length > 0;
+  const oversoldProductMessage = useMemo(() => {
+    if (cartStockIssues.length === 0) return '';
+    const first = cartStockIssues[0];
+    if (first.reason === 'removed') {
+      return `المنتج (${first.productName}) انتهى واختفى من الجرد الحالي. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`;
+    }
+    if (first.reason === 'unavailable') {
+      return `المنتج (${first.productName}) غير متوفر حالياً بالمخزن. يرجى مسحه من الفاتورة ثم إعادة الحفظ.`;
+    }
+    const availCartons = Math.floor(first.availableUnits / first.unitsPerCarton);
+    const availPieces = first.availableUnits % first.unitsPerCarton;
+    return `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${first.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`;
+  }, [cartStockIssues]);
+
+  const focusProblematicProduct = (targetProdId?: string) => {
+    setShowQuickAdd(true);
+    setSelectedCategoryFilter('الكل');
+    setSearchTerm('');
+    setShowOnlyPriceChanged(false);
+    setAddingQuantityId(null);
+
+    const idToFocus = targetProdId || cartStockIssues[0]?.prodId || null;
+    if (idToFocus) {
+      setHighlightedIssueId(idToFocus);
+      setTimeout(() => {
+        const el = document.getElementById(`product-card-${idToFocus}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+    }
+  };
+
+  const cartIssueIdsSet = useMemo(
+    () => new Set(cartStockIssues.map(i => i.prodId)),
+    [cartStockIssues]
+  );
+
   const filteredProducts = useMemo(() => {
     let filtered = productsList.filter(p => {
-      // If user is mohammedsauce, strictly limit to category "صلصات"
-      if (isSauceUser && p.categoryName?.trim() !== 'صلصات') {
+      const hasCartQty = (parseInt(selectedQuantities[p.id] || '0', 10) || 0) > 0;
+      const isIssueItem = cartIssueIdsSet.has(p.id);
+
+      // If user is mohammedsauce, strictly limit to category "صلصات" unless it's an active invoice issue
+      if (isSauceUser && !isIssueItem && p.categoryName?.trim() !== 'صلصات') {
         return false;
       }
 
-      // فلترة الأصناف المغيرة أسعارها مؤخراً عند تفعيل الخيار
-      if (showOnlyPriceChanged) {
+      // فلترة الأصناف المغيرة أسعارها مؤخراً عند تفعيل الخيار (باستثناء الأصناف المشمولة بمشكلة في الفاتورة)
+      if (showOnlyPriceChanged && !isIssueItem) {
         const status = getPriceChangeStatus(p, priceMode);
         if (!status.hasAnyChange) return false;
       }
 
-      // Hide unavailable products and low stock products (< 3 cartons) for non-admins (مندوبين) using live stock
+      // Never hide products that the rep already entered in the current invoice even if stock dropped < 3 cartons or unavailable
       const liveStock = getProductLiveStock(p);
-      if (!isAdmin && (p.isAvailable === false || liveStock.cartons < 3)) return false;
+      if (!isAdmin && !hasCartQty && (p.isAvailable === false || liveStock.cartons < 3)) return false;
+
+      if (isIssueItem) return true;
 
       const term = (debouncedSearchTerm || '').toLowerCase();
       const matchSearch = 
@@ -660,6 +851,11 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     });
 
     filtered.sort((a, b) => {
+      // 0. Always float problematic cart products to the very top so the rep can fix or delete them immediately
+      const issueA = cartIssueIdsSet.has(a.id) ? 1 : 0;
+      const issueB = cartIssueIdsSet.has(b.id) ? 1 : 0;
+      if (issueA !== issueB) return issueB - issueA;
+
       // 1. Primary Sort: Category Priority Order
       const prioA = getCategoryPriorityIndex(a.categoryName);
       const prioB = getCategoryPriorityIndex(b.categoryName);
@@ -700,7 +896,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     });
 
     return filtered;
-  }, [productsList, debouncedSearchTerm, selectedCategoryFilter, isAdmin, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged, getProductLiveStock]);
+  }, [productsList, debouncedSearchTerm, selectedCategoryFilter, isAdmin, isSauceUser, sortBy, priceMode, rawSavedEntries, showOnlyPriceChanged, getProductLiveStock, selectedQuantities, cartIssueIdsSet]);
 
   const handleStandaloneImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -867,11 +1063,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     let totalAmount = 0;
     let totalWeightKg = 0;
     let itemCount = 0;
+    let cartItemCount = 0;
     const uniqueProducts = new Set<string>();
 
     for (const [prodId, qtyStr] of entries) {
       let q = parseInt(qtyStr, 10);
       if (isNaN(q) || q <= 0) continue;
+      cartItemCount += 1;
+
       const prod = productsList.find(p => p.id === prodId);
       if (!prod) continue;
 
@@ -894,31 +1093,10 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       totalAmount,
       totalWeightKg,
       itemCount,
+      cartItemCount,
       uniqueCount: uniqueProducts.size,
     };
   }, [selectedQuantities, productsList, entryModes, priceMode]);
-
-  // Real-time stock validation check for selected items
-  const { hasAnyOversoldProduct, oversoldProductMessage } = useMemo(() => {
-    for (const [prodId, qtyStr] of Object.entries(selectedQuantities)) {
-      const q = parseInt(qtyStr, 10);
-      if (isNaN(q) || q <= 0) continue;
-      const prod = productsList.find(p => p.id === prodId);
-      if (!prod) continue;
-      const { totalUnits, unitsPerCarton: upc } = getProductLiveStock(prod);
-      const unit = entryModes[prodId] || 'piece';
-      const requestedUnits = unit === 'carton' ? (q * upc) : q;
-      if (requestedUnits > totalUnits) {
-        const availCartons = Math.floor(totalUnits / upc);
-        const availPieces = totalUnits % upc;
-        return {
-          hasAnyOversoldProduct: true,
-          oversoldProductMessage: `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}). المتاح: ${availCartons} كارتون و ${availPieces} قطعة.`
-        };
-      }
-    }
-    return { hasAnyOversoldProduct: false, oversoldProductMessage: '' };
-  }, [selectedQuantities, productsList, entryModes]);
 
   const prepareSave = () => {
     setErrorMessage(null);
@@ -938,7 +1116,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       }
     }
     if (hasAnyOversoldProduct) {
-      setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر');
+      const msg = oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر أو أن الصنف اختفى من الجرد.';
+      setErrorMessage(msg);
+      addToast?.({
+        type: 'reminder',
+        title: 'يرجى مراجعة المنتجات المحددة ⚠️',
+        message: msg
+      });
+      focusProblematicProduct(cartStockIssues[0]?.prodId);
       return;
     }
     const trimmedCustomerName = customerName.trim();
@@ -1070,10 +1255,13 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
     setShowConfirmDialog(true);
   };
 
-  const handleSaveQuickAdd = () => {
+  const handleSaveQuickAdd = async () => {
+    if (isSavingOrder) return;
     // Re-calculating items for the actual save
     if (hasAnyOversoldProduct) {
-      setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر');
+      setShowConfirmDialog(false);
+      setErrorMessage(oversoldProductMessage || 'الكمية المطلوبة تتجاوز المخزون المتوفر أو الصنف اختفى من الجرد.');
+      focusProblematicProduct(cartStockIssues[0]?.prodId);
       return;
     }
     const trimmedCustomerName = customerName.trim();
@@ -1242,27 +1430,59 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       }
     });
 
-    processOrder(itemsToSave);
+    setIsSavingOrder(true);
+    try {
+      const result = await processOrder(itemsToSave);
 
-    if (earnedGiftsList.length > 0) {
-      setGiftAlertNotification({
-        isOpen: true,
-        earnedGifts: earnedGiftsList
-      });
-      setUserMessage(`تم حفظ الفاتورة بنجاح مع إضافة ${earnedGiftsList.reduce((s, g) => s + g.giftPieces, 0)} قطعة هدية مجانية 🎁✅`);
-    } else {
-      setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+      if (!result.success) {
+        // Keep the entire draft invoice intact and direct the representative to the problematic product(s)
+        setShowConfirmDialog(false);
+        setShowQuickAdd(true);
+        setSaveSummary(null);
+        setErrorMessage(
+          result.message ||
+          'تعذر حفظ الفاتورة لأن أحد الأصناف أصبح أقل من الكمية المطلوبة أو انتهى من الجرد. يرجى مسحه ثم إعادة الحفظ.'
+        );
+
+        const firstOversold = result.oversoldItems?.[0];
+        let targetProdId = firstOversold?.productId;
+        if (!targetProdId && firstOversold?.productName) {
+          const targetLower = firstOversold.productName.trim().toLowerCase();
+          targetProdId = Object.keys(selectedQuantities).find(id => {
+            const p = productsList.find(item => item.id === id);
+            const snap = selectedProductSnapshots[id];
+            const name = (p?.productName || snap?.productName || '').trim().toLowerCase();
+            return name && name === targetLower;
+          });
+        }
+        focusProblematicProduct(targetProdId);
+        return;
+      }
+
+      if (earnedGiftsList.length > 0) {
+        setGiftAlertNotification({
+          isOpen: true,
+          earnedGifts: earnedGiftsList
+        });
+        setUserMessage(`تم حفظ الفاتورة بنجاح مع إضافة ${earnedGiftsList.reduce((s, g) => s + g.giftPieces, 0)} قطعة هدية مجانية 🎁✅`);
+      } else {
+        setUserMessage(`تم حفظ ${itemsToSave.length} منتجات للزبون ${trimmedCustomerName} وتم إرسالها لصفحة الإدخالات.`);
+      }
+
+      setSelectedQuantities({});
+      setSelectedProductSnapshots({});
+      setHighlightedIssueId(null);
+      setCustomerName('');
+      setCustomerCode('');
+      setCustomerAddress('');
+      setErrorMessage(null);
+      setShowQuickAdd(false);
+      setShowConfirmDialog(false);
+      setSaveSummary(null);
+      setPrefilledEntryData(null);
+    } finally {
+      setIsSavingOrder(false);
     }
-
-    setSelectedQuantities({});
-    setCustomerName('');
-    setCustomerCode('');
-    setCustomerAddress('');
-    setErrorMessage(null);
-    setShowQuickAdd(false);
-    setShowConfirmDialog(false);
-    setSaveSummary(null);
-    setPrefilledEntryData(null);
   };
 
   const handleUpdateQuantity = (prodId: string, val: string) => {
@@ -1270,7 +1490,33 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       const newQ = { ...selectedQuantities };
       delete newQ[prodId];
       setSelectedQuantities(newQ);
+      setSelectedProductSnapshots(prev => {
+        if (!prev[prodId]) return prev;
+        const next = { ...prev };
+        delete next[prodId];
+        return next;
+      });
+      if (highlightedIssueId === prodId) {
+        setHighlightedIssueId(null);
+      }
     } else {
+      const liveProd = productsList.find(p => p.id === prodId);
+      if (liveProd) {
+        setSelectedProductSnapshots(prev => ({
+          ...prev,
+          [prodId]: {
+            id: liveProd.id,
+            productName: liveProd.productName,
+            productCode: liveProd.productCode || '',
+            categoryName: liveProd.categoryName || '',
+            cartonQuantity: Number(liveProd.cartonQuantity || liveProd.unitsPerCarton) || 12,
+            pieceWeightKg: Number(liveProd.pieceWeightKg) || 0,
+            retailPrice: Number(liveProd.retailPrice) || 0,
+            wholesalePrice: Number(liveProd.wholesalePrice) || 0,
+            imageUrl: liveProd.imageUrl || ''
+          }
+        }));
+      }
       setSelectedQuantities({ ...selectedQuantities, [prodId]: val });
     }
   };
@@ -1740,8 +1986,29 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setShowConfirmDialog(false)} className={`flex-1 py-2.5 rounded-xl font-bold ${isDarkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>إلغاء</button>
-              <button onClick={handleSaveQuickAdd} className="flex-1 py-2.5 rounded-xl font-black bg-emerald-600 hover:bg-emerald-500 text-white">حفظ</button>
+              <button
+                type="button"
+                disabled={isSavingOrder}
+                onClick={() => setShowConfirmDialog(false)}
+                className={`flex-1 py-2.5 rounded-xl font-bold disabled:opacity-50 ${isDarkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isSavingOrder}
+                onClick={handleSaveQuickAdd}
+                className="flex-1 py-2.5 rounded-xl font-black bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center justify-center gap-1.5"
+              >
+                {isSavingOrder ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>جاري التحقق والحفظ...</span>
+                  </>
+                ) : (
+                  <span>حفظ</span>
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -1787,6 +2054,65 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
             <div className="mb-3 p-2.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg flex items-center justify-between">
               <span>{errorMessage}</span>
               <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-700 font-bold p-1">&times;</button>
+            </div>
+          )}
+          {cartStockIssues.length > 0 && (
+            <div className="mb-3 p-3 rounded-xl border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/60 text-rose-900 dark:text-rose-100 space-y-2 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs sm:text-sm font-black">
+                      لم يتم حفظ الفاتورة (الفاتورة محفوظة مؤقتاً ولم تُفقد) — توجد {cartStockIssues.length} مواد تحتاج تعديل أو مسح:
+                    </div>
+                    <p className="text-[11px] font-bold text-rose-700 dark:text-rose-300 mt-0.5">
+                      يرجى مسح المنتج غير المتوفر أو تعديل كميته ثم الضغط على «حفظ» مرة ثانية.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {cartStockIssues.map(issue => {
+                  const availCartons = Math.floor(issue.availableUnits / issue.unitsPerCarton);
+                  const availPieces = issue.availableUnits % issue.unitsPerCarton;
+                  return (
+                    <div
+                      key={issue.prodId}
+                      className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-white/90 dark:bg-slate-900/80 border border-rose-300 dark:border-rose-800"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-black text-slate-900 dark:text-white truncate">
+                          {issue.productName}
+                        </div>
+                        <div className="text-[10px] font-bold text-rose-700 dark:text-rose-300">
+                          {issue.reason === 'removed'
+                            ? `انتهى واختفى من الجرد الحالي (المطلوب: ${issue.requestedQty} ${issue.unit === 'carton' ? 'كارتون' : 'قطعة'})`
+                            : issue.reason === 'unavailable'
+                            ? `الصنف غير متوفر حالياً بالمخزن (المطلوب: ${issue.requestedQty} ${issue.unit === 'carton' ? 'كارتون' : 'قطعة'})`
+                            : `المطلوب يتجاوز المخزون — المتاح حالياً: ${availCartons} كارتون و ${availPieces} قطعة`}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => focusProblematicProduct(issue.prodId)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] sm:text-xs transition-all cursor-pointer"
+                        >
+                          الانتقال للمنتج
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQuantity(issue.prodId, '')}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] sm:text-xs flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>مسح من الفاتورة</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
@@ -2024,7 +2350,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
 
       {/* Products Grid */}
       <div className="mt-4 pb-12">
-        {filteredProducts.length === 0 ? (
+        {filteredProducts.length === 0 && removedCartIssues.length === 0 ? (
           <div className={`rounded-2xl border shadow-xl flex flex-col items-center justify-center py-12 px-4 text-center ${
             isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}>
@@ -2038,9 +2364,66 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
           </div>
         ) : (
           <div className={`grid ${mobileGridCols === '1' ? 'grid-cols-1' : mobileGridCols === '3' ? 'grid-cols-3' : 'grid-cols-2'} sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-1.5 sm:gap-2`}>
+            {/* Synthetic Red Cards for products entered in invoice that disappeared completely after inventory update */}
+            {removedCartIssues.map(issue => (
+              <div
+                key={`removed-${issue.prodId}`}
+                id={`product-card-${issue.prodId}`}
+                className={`relative overflow-hidden flex flex-col justify-between gap-2 p-2.5 rounded-lg border-2 border-rose-500 ring-2 ring-rose-500/40 shadow-md ${
+                  isDarkMode ? 'bg-rose-950/40 text-white' : 'bg-rose-50 text-slate-900'
+                } ${highlightedIssueId === issue.prodId ? 'animate-pulse' : ''}`}
+              >
+                <div className="w-full py-1 px-2 rounded-md flex items-center justify-between font-black text-[9px] sm:text-[10px] bg-rose-600 text-white shadow-xs">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">اختفى من الجرد</span>
+                  </div>
+                  <span className="shrink-0">0 كارتون</span>
+                </div>
+
+                {issue.productCode && (
+                  <div className="font-mono text-[9px] sm:text-[10px] font-black text-rose-700 dark:text-rose-300 text-left">
+                    {issue.productCode}
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-1.5 items-center justify-center my-1 w-full">
+                  <h3 className="font-black leading-tight text-rose-800 dark:text-rose-200 text-center text-xs sm:text-sm">
+                    {issue.productName}
+                  </h3>
+                  {issue.imageUrl ? (
+                    <img
+                      src={issue.imageUrl}
+                      alt={issue.productName}
+                      className="w-[120px] h-[130px] object-contain rounded-md border border-rose-300 dark:border-rose-700 bg-white p-1 opacity-75"
+                    />
+                  ) : (
+                    <div className={`w-[120px] h-[130px] flex flex-col items-center justify-center rounded-md border border-rose-300 text-white opacity-80 ${getAvatarProps(issue.productName).colorClass} p-2 text-center`}>
+                      <span className="text-4xl font-black">{getAvatarProps(issue.productName).initial}</span>
+                      <span className="text-[10px] font-black mt-1 px-1.5 py-0.5 rounded bg-black/30">انتهى من الجرد</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-1.5 rounded-md bg-rose-100 dark:bg-rose-900/50 border border-rose-300 dark:border-rose-700 text-[10px] font-black text-rose-800 dark:text-rose-200 text-center">
+                  تم إدخال {issue.requestedQty} {issue.unit === 'carton' ? 'كارتون' : 'قطعة'} — هذا الصنف انتهى بعد تحديث الجرد
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleUpdateQuantity(issue.prodId, '')}
+                  className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white rounded-lg font-black text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>مسح من الفاتورة</span>
+                </button>
+              </div>
+            ))}
+
             {filteredProducts.map((prod, idx) => {
               const isEditing = editingId === prod.id;
               const hasQuantity = !!selectedQuantities[prod.id];
+              const isCardIssue = cartIssueIdsSet.has(prod.id);
               const norm = (s: any) => 
                 String(s || '')
                   .trim()
@@ -2081,11 +2464,14 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               return (
                 <div
                   key={prod.id || idx}
+                  id={`product-card-${prod.id}`}
                   onClick={() => !isEditing && setExpandedId(expandedId === prod.id ? null : prod.id)}
-                  className={`relative overflow-hidden flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm ${prod.isAvailable === false && !isEditing ? 'opacity-60 grayscale-[30%]' : ''} ${
-                    isDarkMode 
-                      ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-500/80 ring-1 ring-amber-500/50 shadow-amber-500/10' : 'border-emerald-500/80 ring-1 ring-emerald-500/50 shadow-emerald-500/10') : 'border-slate-800'}` 
-                      : `bg-white ${hasQuantity ? 'border-emerald-600' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-400 ring-1 ring-amber-400/60 shadow-amber-500/10' : 'border-emerald-400 ring-1 ring-emerald-400/60 shadow-emerald-500/10') : 'border-slate-200'}`
+                  className={`relative overflow-hidden flex flex-col gap-1 p-2 sm:p-2.5 rounded-lg border shadow-sm ${prod.isAvailable === false && !isEditing && !isCardIssue ? 'opacity-60 grayscale-[30%]' : ''} ${
+                    isCardIssue
+                      ? `${isDarkMode ? 'bg-rose-950/30' : 'bg-rose-50/70'} border-2 border-rose-500 ring-2 ${highlightedIssueId === prod.id ? 'ring-rose-500 shadow-lg shadow-rose-500/20' : 'ring-rose-500/40'}`
+                      : isDarkMode 
+                        ? `bg-slate-900 ${hasQuantity ? 'border-emerald-700' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-500/80 ring-1 ring-amber-500/50 shadow-amber-500/10' : 'border-emerald-500/80 ring-1 ring-emerald-500/50 shadow-emerald-500/10') : 'border-slate-800'}` 
+                        : `bg-white ${hasQuantity ? 'border-emerald-600' : priceStatus.hasAnyChange ? (priceStatus.isIncrease ? 'border-amber-400 ring-1 ring-amber-400/60 shadow-amber-500/10' : 'border-emerald-400 ring-1 ring-emerald-400/60 shadow-emerald-500/10') : 'border-slate-200'}`
                   } ${expandedId === prod.id ? (isDarkMode ? 'ring-1 ring-emerald-500/50' : 'ring-1 ring-emerald-400') : ''} sm:hover:shadow-md sm:cursor-pointer`}
                 >
                     {/* Dynamic Real-time Stock Header at Top of Product Card */}
@@ -2488,7 +2874,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                         const cardQtyVal = parseInt(selectedQuantities[prod.id] || '0', 10);
                         const cardMode = entryModes[prod.id] || 'piece';
                         const cardReqPieces = cardMode === 'carton' ? (cardQtyVal * unitsPerCarton) : cardQtyVal;
-                        const isCardOversold = cardQtyVal > 0 && cardReqPieces > cardTotalUnits;
+                        const effectiveCardUnits = prod.isAvailable === false ? 0 : cardTotalUnits;
+                        const isCardOversold = cardQtyVal > 0 && cardReqPieces > effectiveCardUnits;
 
                         return addingQuantityId === prod.id ? (
                           <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -2523,7 +2910,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                                   if (e.key === 'Enter') {
                                     e.stopPropagation();
                                     if (isCardOversold) {
-                                      setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر (${totalUnits} قطعة متاحة)`);
+                                      setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر (${effectiveCardUnits} قطعة متاحة)`);
                                       return;
                                     }
                                     triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
@@ -2562,41 +2949,76 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                               <Check className="w-5 h-5 stroke-[2.5]" />
                             </button>
 
-                            {/* Inline error message if oversold */}
+                            {/* Inline error message & delete option if oversold */}
                             {isCardOversold && (
-                              <div className="col-span-7 p-1 text-[9px] font-black text-rose-700 bg-rose-50 dark:bg-rose-950/80 dark:text-rose-300 rounded border border-rose-300 dark:border-rose-800 text-center flex items-center justify-center gap-1">
-                                <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                                <span>الكمية المطلوبة تتجاوز المخزون المتوفر ({cardTotalUnits} قطعة متاحة)</span>
+                              <div className="col-span-7 flex flex-col gap-1">
+                                <div className="p-1 text-[9px] font-black text-rose-700 bg-rose-50 dark:bg-rose-950/80 dark:text-rose-300 rounded border border-rose-300 dark:border-rose-800 text-center flex items-center justify-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                                  <span>
+                                    {prod.isAvailable === false
+                                      ? 'الصنف غير متوفر حالياً بالمخزن'
+                                      : `الكمية المطلوبة تتجاوز المخزون المتوفر (${effectiveCardUnits} قطعة متاحة)`}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateQuantity(prod.id, '');
+                                    setAddingQuantityId(null);
+                                  }}
+                                  className="w-full py-1 px-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>مسح من الفاتورة</span>
+                                </button>
                               </div>
                             )}
                           </div>
                         ) : selectedQuantities[prod.id] ? (
-                          <div 
-                            className={`flex items-center justify-between w-full p-1.5 rounded-lg cursor-pointer border ${
-                              isCardOversold 
-                                ? 'bg-rose-100 dark:bg-rose-950/50 border-rose-500 text-rose-800 dark:text-rose-200' 
-                                : 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-500 text-emerald-800 dark:text-emerald-300'
-                            }`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAddingQuantityId(prod.id);
-                            }}
-                          >
-                            <span className="text-[10px] font-bold">
-                              {entryModes[prod.id] === 'carton' ? 
-                                `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
-                                `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(0))} كارتون`}
-                              {isCardOversold && ' (يتجاوز المخزون ⚠️)'}
-                            </span>
-                            <button
+                          <div className="flex flex-col gap-1 w-full">
+                            <div 
+                              className={`flex items-center justify-between w-full p-1.5 rounded-lg cursor-pointer border ${
+                                isCardOversold 
+                                  ? 'bg-rose-100 dark:bg-rose-950/50 border-rose-500 text-rose-800 dark:text-rose-200' 
+                                  : 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-500 text-emerald-800 dark:text-emerald-300'
+                              }`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleUpdateQuantity(prod.id, '');
+                                setAddingQuantityId(prod.id);
                               }}
-                              className="text-slate-600 hover:text-red-600 transition-colors"
                             >
-                              <X className="w-3 h-3" />
-                            </button>
+                              <span className="text-[10px] font-bold">
+                                {entryModes[prod.id] === 'carton' ? 
+                                  `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
+                                  `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(0))} كارتون`}
+                                {isCardOversold && (prod.isAvailable === false ? ' (غير متوفر ⚠️)' : ' (يتجاوز المخزون ⚠️)')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateQuantity(prod.id, '');
+                                }}
+                                className="text-slate-600 hover:text-red-600 transition-colors p-0.5"
+                                title="مسح من الفاتورة"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            {isCardOversold && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateQuantity(prod.id, '');
+                                }}
+                                className="w-full py-1.5 px-2 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white rounded-lg font-black text-[10px] flex items-center justify-center gap-1 shadow-sm cursor-pointer transition-all"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>مسح من الفاتورة</span>
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <button
@@ -2787,24 +3209,30 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               <button
                 type="button"
                 onClick={prepareSave}
-                disabled={hasAnyOversoldProduct || currentInvoiceTotals.itemCount === 0}
+                disabled={currentInvoiceTotals.cartItemCount === 0 || isSavingOrder}
                 className={`px-3.5 sm:px-6 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-black shadow-lg flex items-center gap-1.5 transition-all ${
-                  hasAnyOversoldProduct || currentInvoiceTotals.itemCount === 0
+                  currentInvoiceTotals.cartItemCount === 0 || isSavingOrder
                     ? 'bg-slate-400 dark:bg-slate-700 text-slate-200 dark:text-slate-400 cursor-not-allowed opacity-75'
+                    : hasAnyOversoldProduct
+                    ? 'bg-rose-600 hover:bg-rose-500 active:scale-95 text-white shadow-rose-600/30 cursor-pointer'
                     : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white shadow-emerald-600/20 cursor-pointer'
                 }`}
-                title={hasAnyOversoldProduct ? "الكمية المطلوبة تتجاوز المخزون المتوفر" : "معاينة وحفظ الفاتورة"}
+                title={hasAnyOversoldProduct ? "اضغط للانتقال إلى الصنف المتجاوز للمخزون أو المنتهي من الجرد" : "معاينة وحفظ الفاتورة"}
               >
-                <span>حفظ الفاتورة</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-emerald-700/60 text-[10px] font-bold">
-                  {currentInvoiceTotals.itemCount}
+                <span>{hasAnyOversoldProduct ? `مراجعة وحذف غير المتوفر (${cartStockIssues.length})` : 'حفظ الفاتورة'}</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${hasAnyOversoldProduct ? 'bg-rose-800/70' : 'bg-emerald-700/60'}`}>
+                  {currentInvoiceTotals.cartItemCount}
                 </span>
               </button>
               {hasAnyOversoldProduct && (
-                <span className="text-[10px] sm:text-xs font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 animate-pulse">
+                <button
+                  type="button"
+                  onClick={() => focusProblematicProduct(cartStockIssues[0]?.prodId)}
+                  className="text-[10px] sm:text-xs font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 animate-pulse cursor-pointer underline"
+                >
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>الكمية المطلوبة تتجاوز المخزون المتوفر</span>
-                </span>
+                  <span>اضغط للانتقال للمنتج غير المتوفر ومسحه</span>
+                </button>
               )}
             </div>
 

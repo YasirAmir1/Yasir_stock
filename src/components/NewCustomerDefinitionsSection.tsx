@@ -65,7 +65,7 @@ export const NewCustomerDefinitionsSection: React.FC<NewCustomerDefinitionsSecti
   const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
   const [isExportingSinglePdf, setIsExportingSinglePdf] = useState<boolean>(false);
 
-  // Representative only sees requests they submitted; Admin sees all requests from all delegates
+  // Representative only sees requests they submitted; Admin/DataEntry sees all requests from all delegates
   const roleScopedDefinitions = useMemo(() => {
     if (isAdminViewer) return definitions;
 
@@ -78,9 +78,9 @@ export const NewCustomerDefinitionsSection: React.FC<NewCustomerDefinitionsSecti
       const itemUserNorm = normalizeStr(item.submittedByUsername);
       const itemCodeNorm = normalizeStr(item.delegateCode);
 
-      if (myUserNorm && itemUserNorm && myUserNorm === itemUserNorm) return true;
-      if (myCodeNorm && itemCodeNorm && myCodeNorm === itemCodeNorm) return true;
-      if (myNameNorm && itemDelNorm && itemDelNorm === myNameNorm) return true;
+      if (myUserNorm && itemUserNorm && (myUserNorm === itemUserNorm || itemUserNorm.includes(myUserNorm) || myUserNorm.includes(itemUserNorm))) return true;
+      if (myCodeNorm && itemCodeNorm && (myCodeNorm === itemCodeNorm || itemCodeNorm.includes(myCodeNorm) || myCodeNorm.includes(itemCodeNorm))) return true;
+      if (myNameNorm && itemDelNorm && (itemDelNorm === myNameNorm || itemDelNorm.includes(myNameNorm) || myNameNorm.includes(itemDelNorm))) return true;
       return false;
     });
   }, [definitions, isAdminViewer, currentDelegateName, currentDelegateCode, currentUsername]);
