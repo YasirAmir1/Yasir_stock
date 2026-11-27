@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useSales, getCategoryPriorityIndex, getBaghdadDateAndSeconds } from '../context/SalesContext';
 import { useDebounce } from '../hooks/useDebounce';
 import { ProductItem, GiftPromotion } from '../types';
-import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw, Loader2 } from 'lucide-react';
+import { Package, Upload, Search, Edit3, Check, X, Shield, Plus, Minus, Trash2, Camera, ImagePlus, AlertTriangle, HelpCircle, Info, Scale, ShoppingCart, Gift, Boxes, Tag, Filter, History, TrendingUp, TrendingDown, CheckCheck, RefreshCw, Loader2, Banknote, Receipt } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { logFirestoreErrorGracefully, isGlobalQuotaExceeded, safeOnSnapshot } from '../lib/firestoreUtils';
@@ -455,6 +455,9 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
   const [draftCartons, setDraftCartons] = useState<string>('0');
   const [draftPieces, setDraftPieces] = useState<string>('0');
+  const [showLiveInvoiceModal, setShowLiveInvoiceModal] = useState(false);
+  const [liveInvoiceNotes, setLiveInvoiceNotes] = useState('');
+  const [draftModalQty, setDraftModalQty] = useState<{ prodId: string; value: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   React.useEffect(() => {
@@ -1099,6 +1102,88 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       uniqueCount: uniqueProducts.size,
     };
   }, [selectedQuantities, productsList, entryModes, priceMode]);
+
+  const liveInvoiceItems = useMemo(() => {
+    const items: {
+      prodId: string;
+      productName: string;
+      entryUnit: 'piece' | 'carton';
+      enteredQty: number;
+      totalPieces: number;
+      cartonQuantity: number;
+      unitPiecePrice: number;
+      displayUnitPrice: number;
+      lineTotal: number;
+      lineWeightKg: number;
+      availableUnits: number;
+      existsInInventory: boolean;
+      isUnavailable: boolean;
+      isOversold: boolean;
+    }[] = [];
+
+    for (const [prodId, qtyStr] of Object.entries(selectedQuantities)) {
+      const q = parseInt(qtyStr, 10);
+      if (isNaN(q) || q <= 0) continue;
+
+      const prod = productsList.find(p => p.id === prodId);
+      const snap = selectedProductSnapshots[prodId];
+      const entryUnit = entryModes[prodId] || 'piece';
+
+      if (!prod) {
+        const upc = Number(snap?.cartonQuantity) || 12;
+        const totalPieces = entryUnit === 'carton' ? q * upc : q;
+        const unitPiecePrice = snap
+          ? (priceMode === 'retail' ? (snap.retailPrice || 0) : (snap.wholesalePrice || 0))
+          : 0;
+        const displayUnitPrice = entryUnit === 'carton' ? unitPiecePrice * upc : unitPiecePrice;
+        const wGrams = Math.round(Number(snap?.pieceWeightKg || 0) * 1000) || 0;
+        items.push({
+          prodId,
+          productName: snap?.productName || 'منتج غير متوفر بالجرد',
+          entryUnit,
+          enteredQty: q,
+          totalPieces,
+          cartonQuantity: upc,
+          unitPiecePrice,
+          displayUnitPrice,
+          lineTotal: unitPiecePrice * totalPieces,
+          lineWeightKg: (totalPieces * wGrams) / 1000,
+          availableUnits: 0,
+          existsInInventory: false,
+          isUnavailable: true,
+          isOversold: true,
+        });
+        continue;
+      }
+
+      const { totalUnits, unitsPerCarton } = getProductLiveStock(prod);
+      const upc = Number(prod.cartonQuantity || unitsPerCarton) || 12;
+      const totalPieces = entryUnit === 'carton' ? q * upc : q;
+      const unitPiecePrice = priceMode === 'retail' ? (prod.retailPrice || 0) : (prod.wholesalePrice || 0);
+      const displayUnitPrice = entryUnit === 'carton' ? unitPiecePrice * upc : unitPiecePrice;
+      const wGrams = Math.round(Number(prod.pieceWeightKg) * 1000) || 0;
+      const effectiveAvailable = prod.isAvailable === false ? 0 : totalUnits;
+
+      items.push({
+        prodId,
+        productName: prod.productName,
+        entryUnit,
+        enteredQty: q,
+        totalPieces,
+        cartonQuantity: upc,
+        unitPiecePrice,
+        displayUnitPrice,
+        lineTotal: unitPiecePrice * totalPieces,
+        lineWeightKg: (totalPieces * wGrams) / 1000,
+        availableUnits: effectiveAvailable,
+        existsInInventory: true,
+        isUnavailable: prod.isAvailable === false,
+        isOversold: totalPieces > effectiveAvailable,
+      });
+    }
+
+    return items;
+  }, [selectedQuantities, productsList, selectedProductSnapshots, entryModes, priceMode, getProductLiveStock]);
 
   const prepareSave = () => {
     setErrorMessage(null);
@@ -3308,18 +3393,303 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
         </div>
       )}
 
+      {/* Live Invoice Preview & Edit Modal (triggered from Current Weight / Current Total Amount) */}
+      {showQuickAdd && showLiveInvoiceModal && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-3 animate-in fade-in duration-150"
+          onClick={() => setShowLiveInvoiceModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+            className={`w-full max-w-lg max-h-[92vh] rounded-t-2xl sm:rounded-2xl shadow-2xl border flex flex-col overflow-hidden ${
+              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+            }`}
+          >
+            {/* Compact top bar */}
+            <div className={`px-3 py-2 border-b flex items-center justify-between gap-2 shrink-0 ${
+              isDarkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-black text-xs truncate">
+                  {customerName.trim() ? `فاتورة: ${customerName.trim()}` : 'الفاتورة الحالية (معاينة لحظية)'}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${
+                  priceMode === 'wholesale'
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                    : 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                }`}>
+                  {priceMode === 'wholesale' ? 'جملة' : 'مفرد'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] font-black text-slate-600 dark:text-slate-300">
+                  المواد المختارة ({liveInvoiceItems.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowLiveInvoiceModal(false)}
+                  className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  رجوع
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Items List */}
+            <div className="p-2.5 space-y-2 overflow-y-auto flex-1">
+              {liveInvoiceItems.length === 0 ? (
+                <div className={`rounded-xl border p-5 text-center space-y-1.5 ${
+                  isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
+                }`}>
+                  <ShoppingCart className="w-7 h-7 mx-auto opacity-30" />
+                  <p className="text-xs font-bold">لا توجد مواد مضافة في الفاتورة حتى الآن.</p>
+                  <p className="text-[10px]">اضغط خارج النافذة للعودة إلى قائمة المنتجات وإضافة المواد.</p>
+                </div>
+              ) : (
+                <div className={`rounded-xl border divide-y shadow-xs overflow-hidden ${
+                  isDarkMode ? 'bg-slate-950 border-slate-800 divide-slate-800' : 'bg-white border-slate-200 divide-slate-100'
+                }`}>
+                  {liveInvoiceItems.map(item => {
+                    const maxInUnit = item.entryUnit === 'carton'
+                      ? Math.floor(item.availableUnits / item.cartonQuantity)
+                      : item.availableUnits;
+
+                    return (
+                      <div
+                        key={item.prodId}
+                        className={`px-2.5 py-1.5 transition-colors ${
+                          item.isOversold ? (isDarkMode ? 'bg-rose-950/30' : 'bg-rose-50/70') : ''
+                        }`}
+                      >
+                        {/* Top row: Product Name + Unit on right, Trash button on left */}
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="min-w-0 flex-1 text-right truncate">
+                            <span className="text-xs font-black text-slate-900 dark:text-white">
+                              {item.productName}
+                            </span>
+                            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mr-1">
+                              · {item.entryUnit === 'carton' ? 'كارتون' : 'قطعة'}
+                            </span>
+                            {item.entryUnit === 'piece' && item.totalPieces >= item.cartonQuantity && item.cartonQuantity > 1 && (
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mr-1">
+                                ({Math.floor(item.totalPieces / item.cartonQuantity)} ك
+                                {item.totalPieces % item.cartonQuantity > 0 ? `+ ${item.totalPieces % item.cartonQuantity} ق` : ''})
+                              </span>
+                            )}
+                            {item.entryUnit === 'carton' && (
+                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mr-1">
+                                ({item.totalPieces} ق)
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQuantity(item.prodId, '')}
+                            className="p-0.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                            title="حذف من الفاتورة"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Warning badge if oversold / removed from inventory */}
+                        {item.isOversold && (
+                          <div className="mt-0.5 text-[10px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              {!item.existsInInventory
+                                ? 'اختفى من الجرد — يرجى حذفه'
+                                : item.isUnavailable
+                                ? 'غير متوفر حالياً بالمخزن'
+                                : `يتجاوز المتوفر (المتاح: ${maxInUnit} ${item.entryUnit === 'carton' ? 'كارتون' : 'قطعة'})`}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Bottom row: [-] [qty] [+]  |  Unit Price Pill  |  Line Total */}
+                        <div className="mt-1 flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.enteredQty > 1) {
+                                  handleUpdateQuantity(item.prodId, String(item.enteredQty - 1));
+                                } else {
+                                  handleUpdateQuantity(item.prodId, '');
+                                }
+                              }}
+                              className={`w-7 h-7 rounded-md border flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                                isDarkMode
+                                  ? 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-200'
+                                  : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
+                              }`}
+                              title="إنقاص الكمية"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={draftModalQty?.prodId === item.prodId ? draftModalQty.value : String(item.enteredQty)}
+                              onFocus={(e) => {
+                                setDraftModalQty({ prodId: item.prodId, value: String(item.enteredQty) });
+                                e.target.select();
+                              }}
+                              onChange={(e) => {
+                                const clean = e.target.value
+                                  .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+                                  .replace(/[^0-9]/g, '');
+                                setDraftModalQty({ prodId: item.prodId, value: clean });
+                                const num = parseInt(clean, 10);
+                                if (!isNaN(num) && num > 0) {
+                                  handleUpdateQuantity(item.prodId, String(num));
+                                }
+                              }}
+                              onBlur={() => {
+                                const rawVal = draftModalQty?.prodId === item.prodId ? draftModalQty.value : '';
+                                const num = parseInt(rawVal, 10);
+                                if (draftModalQty?.prodId === item.prodId && (isNaN(num) || num <= 0)) {
+                                  handleUpdateQuantity(item.prodId, '1');
+                                }
+                                setDraftModalQty(null);
+                              }}
+                              className={`w-11 h-7 rounded-md border text-center text-xs font-black focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
+                                item.isOversold
+                                  ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-200'
+                                  : isDarkMode
+                                  ? 'bg-slate-900 border-slate-700 text-white'
+                                  : 'bg-white border-slate-200 text-slate-900'
+                              }`}
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextQty = item.enteredQty + 1;
+                                const nextPieces = item.entryUnit === 'carton' ? nextQty * item.cartonQuantity : nextQty;
+                                if (nextPieces > item.availableUnits) {
+                                  setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${item.productName}).`);
+                                  return;
+                                }
+                                handleUpdateQuantity(item.prodId, String(nextQty));
+                              }}
+                              disabled={!item.existsInInventory || item.isUnavailable || item.enteredQty >= maxInUnit}
+                              className={`w-7 h-7 rounded-md border flex items-center justify-center transition-all ${
+                                !item.existsInInventory || item.isUnavailable || item.enteredQty >= maxInUnit
+                                  ? 'opacity-40 cursor-not-allowed bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
+                                  : isDarkMode
+                                  ? 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-200 cursor-pointer active:scale-95'
+                                  : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 cursor-pointer active:scale-95'
+                              }`}
+                              title="زيادة الكمية"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Compact Unit Price Pill */}
+                          <div className={`px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ${
+                            isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {item.displayUnitPrice.toLocaleString()} د.ع
+                          </div>
+
+                          {/* Line Total */}
+                          <div className="text-xs font-black text-slate-900 dark:text-white whitespace-nowrap mr-auto">
+                            {item.lineTotal.toLocaleString()} د.ع
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Compact Payment Method + Notes strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                <div className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-2 ${
+                  isDarkMode
+                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
+                    : 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
+                }`}>
+                  <span className="text-[11px] font-black">طريقة الدفع</span>
+                  <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                    <Banknote className="w-3.5 h-3.5 shrink-0" />
+                    <span>نقد (بالكامل)</span>
+                  </span>
+                </div>
+
+                <input
+                  type="text"
+                  value={liveInvoiceNotes}
+                  onChange={(e) => setLiveInvoiceNotes(e.target.value)}
+                  placeholder="ملاحظات الفاتورة (اختياري)..."
+                  className={`w-full px-2.5 py-1.5 rounded-lg border text-[11px] font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
+                    isDarkMode
+                      ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500'
+                      : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Sticky Bottom Footer inside Modal */}
+            <div className={`px-3.5 py-2.5 border-t flex items-center justify-between gap-2 shrink-0 ${
+              isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <div className="flex flex-col text-right">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                  {liveInvoiceItems.length} مادة · نقدي · {currentInvoiceTotals.totalWeightKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} كغم
+                </span>
+                <span className="text-sm font-black text-emerald-700 dark:text-emerald-400">
+                  {currentInvoiceTotals.totalAmount.toLocaleString()} د.ع
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={currentInvoiceTotals.cartItemCount === 0 || isSavingOrder}
+                onClick={() => {
+                  setShowLiveInvoiceModal(false);
+                  prepareSave();
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition-all shrink-0 ${
+                  currentInvoiceTotals.cartItemCount === 0 || isSavingOrder
+                    ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-70'
+                    : hasAnyOversoldProduct
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer'
+                    : 'bg-teal-700 hover:bg-teal-600 active:scale-95 text-white cursor-pointer'
+                }`}
+              >
+                <Receipt className="w-4 h-4 shrink-0" />
+                <span>{hasAnyOversoldProduct ? `مراجعة وحذف غير المتوفر (${cartStockIssues.length})` : 'حفظ ومعاينة الفاتورة'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky Bottom Bar for Current Invoice Totals */}
       {showQuickAdd && (
         <div className="fixed bottom-[56px] sm:bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t-2 border-emerald-500/40 dark:border-emerald-500/30 shadow-[0_-4px_25px_rgba(0,0,0,0.15)] px-3 sm:px-6 py-2.5 sm:py-3 transition-all">
           <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
             
-            {/* Right side: Current Weight */}
-            <div className="flex items-center gap-2 sm:gap-3 text-right">
+            {/* Right side: Current Weight (clickable to preview live invoice) */}
+            <button
+              type="button"
+              onClick={() => setShowLiveInvoiceModal(true)}
+              title="اضغط لعرض وتعديل الفاتورة الحالية"
+              className="flex items-center gap-2 sm:gap-3 text-right cursor-pointer rounded-xl px-1.5 py-1 -mx-1.5 transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 active:scale-[0.98]"
+            >
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 shadow-inner">
                 <Scale className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight underline decoration-dotted underline-offset-2">
                   الوزن الحالي للإدخالات
                 </span>
                 <span className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white">
@@ -3331,7 +3701,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                   )}
                 </span>
               </div>
-            </div>
+            </button>
 
             {/* Center: Save Invoice Quick Button & Summary */}
             <div className="flex flex-col items-center gap-1">
@@ -3365,10 +3735,15 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               )}
             </div>
 
-            {/* Left side: Current Total Amount */}
-            <div className="flex items-center gap-2 sm:gap-3 text-left flex-row-reverse sm:flex-row">
+            {/* Left side: Current Total Amount (clickable to preview live invoice) */}
+            <button
+              type="button"
+              onClick={() => setShowLiveInvoiceModal(true)}
+              title="اضغط لعرض وتعديل الفاتورة الحالية"
+              className="flex items-center gap-2 sm:gap-3 text-left flex-row-reverse sm:flex-row cursor-pointer rounded-xl px-1.5 py-1 -mx-1.5 transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 active:scale-[0.98]"
+            >
               <div className="flex flex-col text-left">
-                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight">
+                <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold leading-tight underline decoration-dotted underline-offset-2">
                   المبلغ الكلي الحالي
                 </span>
                 <span className="text-xs sm:text-sm md:text-base font-black text-emerald-600 dark:text-emerald-400">
@@ -3378,7 +3753,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 shadow-inner">
                 <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-            </div>
+            </button>
 
           </div>
         </div>
