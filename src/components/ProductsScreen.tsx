@@ -453,6 +453,8 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
   const [highlightedIssueId, setHighlightedIssueId] = useState<string | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [addingQuantityId, setAddingQuantityId] = useState<string | null>(null);
+  const [draftCartons, setDraftCartons] = useState<string>('0');
+  const [draftPieces, setDraftPieces] = useState<string>('0');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   React.useEffect(() => {
@@ -1519,6 +1521,61 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
       }
       setSelectedQuantities({ ...selectedQuantities, [prodId]: val });
     }
+  };
+
+  const openQuantityEditor = (prod: ProductItem) => {
+    const upc = Number(prod.cartonQuantity || prod.unitsPerCarton) || 12;
+    const existingVal = parseInt(selectedQuantities[prod.id] || '0', 10) || 0;
+    const existingMode = entryModes[prod.id] || 'piece';
+
+    if (existingVal <= 0) {
+      setDraftCartons('0');
+      setDraftPieces('0');
+    } else if (existingMode === 'carton') {
+      setDraftCartons(String(existingVal));
+      setDraftPieces('0');
+    } else {
+      const c = Math.floor(existingVal / upc);
+      const p = existingVal % upc;
+      setDraftCartons(String(c));
+      setDraftPieces(String(p));
+    }
+    setAddingQuantityId(prod.id);
+  };
+
+  const saveQuantityEditor = (prod: ProductItem, effectiveCardUnits: number) => {
+    const upc = Number(prod.cartonQuantity || prod.unitsPerCarton) || 12;
+    const cNum = Math.max(0, parseInt(draftCartons || '0', 10) || 0);
+    const pNum = Math.max(0, parseInt(draftPieces || '0', 10) || 0);
+    const totalPieces = (cNum * upc) + pNum;
+
+    if (totalPieces <= 0) {
+      if (selectedQuantities[prod.id]) {
+        handleUpdateQuantity(prod.id, '');
+      }
+      setAddingQuantityId(null);
+      return;
+    }
+
+    if (totalPieces > effectiveCardUnits) {
+      setUserMessage(
+        prod.isAvailable === false
+          ? `الصنف (${prod.productName}) غير متوفر حالياً بالمخزن.`
+          : `الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}). المتاح: ${effectiveCardUnits} قطعة.`
+      );
+      return;
+    }
+
+    if (cNum > 0 && pNum === 0) {
+      setEntryModes(prev => ({ ...prev, [prod.id]: 'carton' }));
+      handleUpdateQuantity(prod.id, String(cNum));
+      triggerGiftToastIfEligible(prod.id, String(cNum), 'carton');
+    } else {
+      setEntryModes(prev => ({ ...prev, [prod.id]: 'piece' }));
+      handleUpdateQuantity(prod.id, String(totalPieces));
+      triggerGiftToastIfEligible(prod.id, String(totalPieces), 'piece');
+    }
+    setAddingQuantityId(null);
   };
 
   // Check and trigger gift toast notification when a product is added or quantity is updated
@@ -2876,104 +2933,165 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                         const cardReqPieces = cardMode === 'carton' ? (cardQtyVal * unitsPerCarton) : cardQtyVal;
                         const effectiveCardUnits = prod.isAvailable === false ? 0 : cardTotalUnits;
                         const isCardOversold = cardQtyVal > 0 && cardReqPieces > effectiveCardUnits;
+                        const upc = Number(prod.cartonQuantity || unitsPerCarton) || 12;
+                        const draftCartonsNum = Math.max(0, parseInt(draftCartons || '0', 10) || 0);
+                        const draftPiecesNum = Math.max(0, parseInt(draftPieces || '0', 10) || 0);
+                        const draftTotalPieces = (draftCartonsNum * upc) + draftPiecesNum;
+                        const isDraftOversold = addingQuantityId === prod.id && draftTotalPieces > 0 && draftTotalPieces > effectiveCardUnits;
 
                         return addingQuantityId === prod.id ? (
-                          <div className="grid grid-cols-7 gap-1.5 w-full bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                            {/* عمود إدخال العدد وفوقه زر التبديل بين قطعة وكارتون - أوسع وأطول */}
-                            <div className="col-span-5 flex flex-col gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const nextMode = entryModes[prod.id] === 'carton' ? 'piece' : 'carton';
-                                  setEntryModes(prev => ({...prev, [prod.id]: nextMode}));
-                                  if (selectedQuantities[prod.id]) {
-                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], nextMode);
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className={`w-full rounded-xl p-2 border shadow-xs transition-colors ${
+                              isDraftOversold
+                                ? 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700'
+                                : 'bg-emerald-50/75 dark:bg-slate-800/90 border-emerald-200 dark:border-emerald-700/60'
+                            }`}
+                          >
+                            {/* Two adjacent boxes: Carton (right in RTL) & Piece (left in RTL), with default 0 below */}
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div className="flex flex-col items-center gap-1">
+                                <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 select-none">
+                                  كارتون
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  placeholder="0"
+                                  value={draftCartons}
+                                  onFocus={(e) => {
+                                    if (e.target.value === '0') setDraftCartons('');
+                                    else e.target.select();
+                                  }}
+                                  onBlur={() => {
+                                    if (draftCartons.trim() === '') setDraftCartons('0');
+                                  }}
+                                  onChange={(e) =>
+                                    setDraftCartons(
+                                      e.target.value
+                                        .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+                                        .replace(/[^0-9]/g, '')
+                                    )
                                   }
-                                }}
-                                className={`w-full py-1 px-1.5 rounded-md text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1 border select-none ${
-                                  entryModes[prod.id] === 'carton'
-                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-600/30'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-emerald-600/30'
-                                }`}
-                                title="تبديل بين قطعة وكارتون"
-                              >
-                                <span>{entryModes[prod.id] === 'carton' ? 'كارتون' : 'قطعة'}</span>
-                              </button>
-                              <input
-                                type="number"
-                                min="1"
-                                placeholder="العدد"
-                                value={selectedQuantities[prod.id] || ''}
-                                onChange={(e) => handleUpdateQuantity(prod.id, e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.stopPropagation();
-                                    if (isCardOversold) {
-                                      setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر (${effectiveCardUnits} قطعة متاحة)`);
-                                      return;
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      saveQuantityEditor(prod, effectiveCardUnits);
                                     }
-                                    triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
-                                    setAddingQuantityId(null);
+                                  }}
+                                  className={`w-full h-9 px-1.5 rounded-lg border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-black text-center focus:outline-none transition-all ${
+                                    isDraftOversold
+                                      ? 'border-rose-500 focus:ring-2 focus:ring-rose-500/40'
+                                      : 'border-slate-700/80 dark:border-slate-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/30'
+                                  }`}
+                                  autoFocus
+                                />
+                              </div>
+
+                              <div className="flex flex-col items-center gap-1">
+                                <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 select-none">
+                                  قطعة
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  placeholder="0"
+                                  value={draftPieces}
+                                  onFocus={(e) => {
+                                    if (e.target.value === '0') setDraftPieces('');
+                                    else e.target.select();
+                                  }}
+                                  onBlur={() => {
+                                    if (draftPieces.trim() === '') setDraftPieces('0');
+                                  }}
+                                  onChange={(e) =>
+                                    setDraftPieces(
+                                      e.target.value
+                                        .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+                                        .replace(/[^0-9]/g, '')
+                                    )
                                   }
-                                }}
-                                className={`w-full h-10 px-2 py-2 text-sm sm:text-base font-extrabold rounded-md border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none text-center shadow-sm transition-all ${
-                                  isCardOversold 
-                                    ? 'border-rose-500 focus:ring-2 focus:ring-rose-500' 
-                                    : 'border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:scale-[1.02]'
-                                }`}
-                                autoFocus
-                              />
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      saveQuantityEditor(prod, effectiveCardUnits);
+                                    }
+                                  }}
+                                  className={`w-full h-9 px-1.5 rounded-lg border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-black text-center focus:outline-none transition-all ${
+                                    isDraftOversold
+                                      ? 'border-rose-500 focus:ring-2 focus:ring-rose-500/40'
+                                      : 'border-slate-700/80 dark:border-slate-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/30'
+                                  }`}
+                                />
+                              </div>
                             </div>
 
-                            {/* زر الصح - تأكيد الإدخال وإظهار تنبيه الهدية إن كان مؤهلاً */}
-                            <button
-                              type="button"
-                              disabled={isCardOversold || !cardQtyVal}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isCardOversold) {
-                                  setUserMessage(`الكمية المطلوبة تتجاوز المخزون المتوفر للمنتج (${prod.productName}).`);
-                                  return;
-                                }
-                                triggerGiftToastIfEligible(prod.id, selectedQuantities[prod.id], entryModes[prod.id] || 'piece');
-                                setAddingQuantityId(null);
-                              }}
-                              className={`col-span-2 w-full h-full min-h-[58px] flex items-center justify-center rounded-md transition-all shadow-md ${
-                                isCardOversold || !cardQtyVal
-                                  ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-60'
-                                  : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white cursor-pointer'
-                              }`}
-                              title={isCardOversold ? "الكمية المطلوبة تتجاوز المخزون المتوفر" : "تأكيد إضافة المنتج للطلب"}
-                            >
-                              <Check className="w-5 h-5 stroke-[2.5]" />
-                            </button>
+                            {draftTotalPieces > 0 && !isDraftOversold && (
+                              <div className="mt-1.5 text-[10px] font-black text-emerald-700 dark:text-emerald-300 text-center">
+                                الإجمالي: {draftTotalPieces} قطعة
+                              </div>
+                            )}
 
                             {/* Inline error message & delete option if oversold */}
-                            {isCardOversold && (
-                              <div className="col-span-7 flex flex-col gap-1">
-                                <div className="p-1 text-[9px] font-black text-rose-700 bg-rose-50 dark:bg-rose-950/80 dark:text-rose-300 rounded border border-rose-300 dark:border-rose-800 text-center flex items-center justify-center gap-1">
+                            {isDraftOversold && (
+                              <div className="mt-1.5 flex flex-col gap-1">
+                                <div className="p-1 text-[9px] font-black text-rose-700 bg-rose-100 dark:bg-rose-950/80 dark:text-rose-300 rounded border border-rose-300 dark:border-rose-800 text-center flex items-center justify-center gap-1">
                                   <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
                                   <span>
                                     {prod.isAvailable === false
                                       ? 'الصنف غير متوفر حالياً بالمخزن'
-                                      : `الكمية المطلوبة تتجاوز المخزون المتوفر (${effectiveCardUnits} قطعة متاحة)`}
+                                      : `تجاوز المخزون المتاح (${effectiveCardUnits} قطعة)`}
                                   </span>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUpdateQuantity(prod.id, '');
-                                    setAddingQuantityId(null);
-                                  }}
-                                  className="w-full py-1 px-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                  <span>مسح من الفاتورة</span>
-                                </button>
+                                {selectedQuantities[prod.id] && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUpdateQuantity(prod.id, '');
+                                      setAddingQuantityId(null);
+                                    }}
+                                    className="w-full py-1 px-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>مسح من الفاتورة</span>
+                                  </button>
+                                )}
                               </div>
                             )}
+
+                            {/* Cancel & Save buttons */}
+                            <div className="grid grid-cols-2 gap-1.5 mt-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAddingQuantityId(null);
+                                }}
+                                className="w-full py-1.5 rounded-lg text-xs font-black bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isDraftOversold}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveQuantityEditor(prod, effectiveCardUnits);
+                                }}
+                                className={`w-full py-1.5 rounded-lg text-xs font-black transition-all shadow-sm ${
+                                  isDraftOversold
+                                    ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-70'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white cursor-pointer'
+                                }`}
+                              >
+                                حفظ
+                              </button>
+                            </div>
                           </div>
                         ) : selectedQuantities[prod.id] ? (
                           <div className="flex flex-col gap-1 w-full">
@@ -2985,13 +3103,24 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                               }`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setAddingQuantityId(prod.id);
+                                openQuantityEditor(prod);
                               }}
                             >
                               <span className="text-[10px] font-bold">
-                                {entryModes[prod.id] === 'carton' ? 
-                                  `تم ادخال ${selectedQuantities[prod.id]} كارتون | ${Number(selectedQuantities[prod.id]) * (Number(prod.cartonQuantity) || 1)} قطع` : 
-                                  `تم ادخال ${selectedQuantities[prod.id]} قطع | ${parseFloat((Number(selectedQuantities[prod.id]) / (Number(prod.cartonQuantity) || 1)).toFixed(0))} كارتون`}
+                                {(() => {
+                                  if (cardMode === 'carton') {
+                                    return `تم ادخال ${cardQtyVal} كارتون | ${cardQtyVal * upc} قطع`;
+                                  }
+                                  const splitCartons = Math.floor(cardQtyVal / upc);
+                                  const splitPieces = cardQtyVal % upc;
+                                  if (splitCartons > 0 && splitPieces > 0) {
+                                    return `تم ادخال ${splitCartons} كارتون و ${splitPieces} قطعة (${cardQtyVal} قطع)`;
+                                  }
+                                  if (splitCartons > 0 && splitPieces === 0) {
+                                    return `تم ادخال ${splitCartons} كارتون | ${cardQtyVal} قطع`;
+                                  }
+                                  return `تم ادخال ${cardQtyVal} قطع`;
+                                })()}
                                 {isCardOversold && (prod.isAvailable === false ? ' (غير متوفر ⚠️)' : ' (يتجاوز المخزون ⚠️)')}
                               </span>
                               <button
@@ -3024,7 +3153,7 @@ export const ProductsScreen: React.FC<ProductsScreenProps> = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setAddingQuantityId(prod.id);
+                              openQuantityEditor(prod);
                             }}
                             className="w-full py-1.5 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg flex items-center justify-center gap-1 transition-all relative"
                           >
