@@ -12,8 +12,6 @@ import {
   detectMobileOs,
   dispatchGpsTrackingStatus,
   dispatchRepLiveCoords,
-  getActiveBaghdadRouteDay,
-  getCachedShopCoordinates,
   getPendingRepGpsCoords,
   getRepTrackingId,
   GPS_OPEN_HELP_MODAL_EVENT,
@@ -25,18 +23,12 @@ import {
   mapGeolocationErrorToStatus,
   markPendingRepGpsCoordsSynced,
   normalizeTrackingText,
-  OPEN_SHOP_ACTION_MODAL_EVENT,
-  queueOpenShopActionModal,
   REP_GPS_FORCE_SYNC_EVENT,
   requestGeolocationFromUserGesture,
-  resolveRouteCoordinatesWithCache,
   savePendingRepGpsCoords,
   upsertRepLiveLocation,
 } from '../lib/fleetTrackingService';
-import { getEffectiveRouteDay } from '../utils/routeUtils';
-import { playBroadcastAlertToneAndVibrate } from '../utils/soundAlert';
-import { RouteItem } from '../types';
-import { X, AlertTriangle, RefreshCw, BellRing, ClipboardList, Loader2 } from 'lucide-react';
+import { X, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 
 const SYNC_INTERVAL_MS = 10000; // 10 seconds live GPS capture & sync interval
 const MIN_MOVEMENT_SYNC_MS = 3000; // Push faster (3s) when rep moves >= 40m
@@ -50,10 +42,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
     routes,
     salesEntries,
     allSalesEntries,
-    setActiveTab,
-    addToast,
     isDarkMode,
-    geofenceRadiusMeters,
   } = useSales();
 
   const isRepUser = useMemo(
@@ -76,10 +65,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
   const [isModalClosedByUser, setIsModalClosedByUser] = useState<boolean>(false);
   const [isRequestingFromModal, setIsRequestingFromModal] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
-  const [exitReminderAlert, setExitReminderAlert] = useState<{
-    route: RouteItem;
-    distanceMeters: number;
-  } | null>(null);
 
   const permissionGrantedRef = useRef<boolean>(false);
   permissionGrantedRef.current = permissionGranted;
@@ -94,11 +79,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
   const pendingOnlineSyncRef = useRef<boolean>(false);
   const requestFreshFixRef = useRef<((forceSync?: boolean) => void) | null>(null);
   const prevSalesCountRef = useRef<number>(0);
-  const insideGeofenceShopsRef = useRef<Set<string>>(new Set());
-  const exitRemindedShopsRef = useRef<Set<string>>(new Set());
-  const cachedCoordsRef = useRef(getCachedShopCoordinates());
-  const geofenceRadiusRef = useRef<number>(geofenceRadiusMeters || 100);
-  geofenceRadiusRef.current = geofenceRadiusMeters || 100;
 
   // Listen to today's completion status for this representative
   useEffect(() => {
@@ -129,44 +109,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
     return () => unsub();
   }, [isRepUser, repName]);
 
-  // Today's assigned route customers with GPS coordinates
-  const todayAssignedRoutesRef = useRef<RouteItem[]>([]);
-  const visitedTodayKeysRef = useRef<{ codes: Set<string>; nameDelegatesNoCode: Set<string> }>({
-    codes: new Set(),
-    nameDelegatesNoCode: new Set(),
-  });
-
   useEffect(() => {
-    const todayStr = getBaghdadDateAndSeconds().todayStr;
-    const codes = new Set<string>();
-    const nameDelegatesNoCode = new Set<string>();
-    [...salesEntries, ...allSalesEntries].forEach((e) => {
-      if (e.dateString === todayStr && e.status !== 'cancelled') {
-        const eCode = String(e.customerCode || '').trim();
-        if (eCode) {
-          codes.add(eCode);
-        } else if (e.customerName) {
-          nameDelegatesNoCode.add(
-            `${normalizeTrackingText(e.customerName)}::${normalizeTrackingText(e.delegateName)}`
-          );
-        }
-      }
-    });
-    visitedTodayKeysRef.current = { codes, nameDelegatesNoCode };
-    setExitReminderAlert((prev) => {
-      if (!prev) return null;
-      const pCode = String(prev.route.customerCode || '').trim();
-      const pName = normalizeTrackingText(prev.route.customerName);
-      const pDel = normalizeTrackingText(prev.route.delegateName);
-      const matched = pCode
-        ? codes.has(pCode)
-        : Boolean(pName && nameDelegatesNoCode.has(`${pName}::${pDel}`));
-      if (matched || prev.route.visitedToday) {
-        return null;
-      }
-      return prev;
-    });
-
     const totalCount = salesEntries.length + allSalesEntries.length;
     if (prevSalesCountRef.current > 0 && totalCount > prevSalesCountRef.current) {
       requestFreshFixRef.current?.(true);
@@ -175,102 +118,9 @@ export const RepresentativeLiveTracker: React.FC = () => {
   }, [salesEntries, allSalesEntries]);
 
   useEffect(() => {
-    if (!isRepUser || !currentUser) {
-      todayAssignedRoutesRef.current = [];
-      return;
-    }
+    if (!isRepUser || !currentUser) return;
     cacheShopCoordinatesLocally(routes);
-    const cacheMap = getCachedShopCoordinates();
-    cachedCoordsRef.current = cacheMap;
-
-    const activeDayNorm = normalizeTrackingText(getActiveBaghdadRouteDay());
-    const curName = normalizeTrackingText(currentUser.name);
-    const curCode = normalizeTrackingText(currentUser.delegateCode);
-    const curUser = normalizeTrackingText(currentUser.username);
-
-    todayAssignedRoutesRef.current = routes.filter((r) => {
-      const { latitude: lat, longitude: lng } = resolveRouteCoordinatesWithCache(r, cacheMap);
-      if (lat === null || lng === null) return false;
-
-      const rDelName = normalizeTrackingText(r.delegateName);
-      const rDelCode = normalizeTrackingText(r.delegateCode);
-      const matchesRep =
-        (curName !== '' && (rDelName.includes(curName) || curName.includes(rDelName))) ||
-        (curCode !== '' && (rDelCode === curCode || rDelName.includes(curCode))) ||
-        (curUser !== '' && (rDelName.includes(curUser) || rDelCode === curUser));
-      if (!matchesRep) return false;
-
-      const effDay = normalizeTrackingText(getEffectiveRouteDay(r));
-      return effDay.includes(activeDayNorm) || activeDayNorm.includes(effDay);
-    });
   }, [isRepUser, currentUser, routes]);
-
-  // Run local Haversine check against today's assigned customers
-  const evaluateLocalGeofencing = (lat: number, lng: number) => {
-    const assigned = todayAssignedRoutesRef.current;
-    if (!assigned.length) return;
-
-    const radiusMeters = geofenceRadiusRef.current || 100;
-    const { codes, nameDelegatesNoCode } = visitedTodayKeysRef.current;
-
-    for (const r of assigned) {
-      const { latitude: shopLat, longitude: shopLng } = resolveRouteCoordinatesWithCache(
-        r,
-        cachedCoordsRef.current
-      );
-      if (shopLat === null || shopLng === null) continue;
-
-      const cCode = String(r.customerCode || '').trim();
-      const cNameNorm = normalizeTrackingText(r.customerName);
-      const rDelNorm = normalizeTrackingText(r.delegateName);
-      const shopKey = cCode || r.id;
-
-      // Skip already visited/invoiced shops today
-      const alreadyVisitedToday =
-        Boolean(r.visitedToday) ||
-        (cCode ? codes.has(cCode) : Boolean(cNameNorm && nameDelegatesNoCode.has(`${cNameNorm}::${rDelNorm}`)));
-      if (alreadyVisitedToday) {
-        insideGeofenceShopsRef.current.delete(shopKey);
-        exitRemindedShopsRef.current.add(shopKey);
-        continue;
-      }
-
-      const distance = calculateHaversineDistanceMeters(lat, lng, shopLat, shopLng);
-
-      if (distance <= radiusMeters) {
-        // Track entry silently without arrival notification or auto-opening invoice/action modal
-        insideGeofenceShopsRef.current.add(shopKey);
-        exitRemindedShopsRef.current.delete(shopKey);
-      } else {
-        // Check if representative just left the configured geofence without recording an invoice
-        if (insideGeofenceShopsRef.current.has(shopKey) && !exitRemindedShopsRef.current.has(shopKey)) {
-          insideGeofenceShopsRef.current.delete(shopKey);
-          exitRemindedShopsRef.current.add(shopKey);
-
-          // Trigger audio alert + device vibration
-          playBroadcastAlertToneAndVibrate();
-          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-            try {
-              navigator.vibrate([300, 120, 300, 120, 350]);
-            } catch {}
-          }
-
-          // Trigger visual toast + interactive quick-action reminder banner
-          addToast({
-            title: 'هل نسيت تسجيل الزيارة لهذا المحل؟',
-            message: `تمت مغادرة موقع المحل (${r.customerName}) دون تسجيل فاتورة أو زيارة`,
-            type: 'reminder',
-            delegateName: repName,
-          });
-
-          setExitReminderAlert({
-            route: r,
-            distanceMeters: Math.round(distance),
-          });
-        }
-      }
-    }
-  };
 
   // Publish GPS tracking status for status indicators (e.g., RoutesScreen banner)
   useEffect(() => {
@@ -641,8 +491,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
           pendingOnlineSyncRef.current ||
           movedSignificantly
       );
-      // Pure local client-side geofence evaluation
-      evaluateLocalGeofencing(latitude, longitude);
     };
 
     processIncomingPositionRef.current = handlePosition;
@@ -854,13 +702,6 @@ export const RepresentativeLiveTracker: React.FC = () => {
     };
   }, [isRepUser, isCompletedToday, repId, repName, currentUser?.delegateCode, permissionGranted, retryTrigger]);
 
-  const handleQuickOpenShopActions = (targetRoute: RouteItem) => {
-    setExitReminderAlert(null);
-    queueOpenShopActionModal(targetRoute);
-    setActiveTab('routes');
-    window.dispatchEvent(new CustomEvent(OPEN_SHOP_ACTION_MODAL_EVENT, { detail: { route: targetRoute } }));
-  };
-
   const handleModalActivateClick = () => {
     setIsRequestingFromModal(true);
     // Synchronously invoke getCurrentPosition inside the click handler (required for iOS Safari & Android Chrome)
@@ -889,73 +730,9 @@ export const RepresentativeLiveTracker: React.FC = () => {
 
   const isMandatoryGpsModalVisible = hasBlockingGpsIssue && !isModalClosedByUser;
 
-  if (!exitReminderAlert && !isMandatoryGpsModalVisible) {
+  if (!isMandatoryGpsModalVisible) {
     return null;
   }
-
-  const exitReminderBanner = exitReminderAlert ? (
-    <div
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-[75] w-[94vw] max-w-md animate-in slide-in-from-top-5 fade-in duration-200"
-      dir="rtl"
-    >
-      <div
-        className={`rounded-2xl p-4 shadow-2xl border-2 space-y-3 ${
-          isDarkMode
-            ? 'bg-gradient-to-br from-slate-900 via-amber-950/90 to-slate-900 border-amber-500 text-white'
-            : 'bg-gradient-to-br from-amber-50 via-white to-orange-50 border-amber-500 text-slate-900'
-        }`}
-      >
-        <div className="flex items-start justify-between gap-2.5">
-          <div className="flex items-start gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-md shrink-0 animate-bounce">
-              <BellRing className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-black text-sm text-amber-700 dark:text-amber-300 leading-snug">
-                هل نسيت تسجيل الزيارة لهذا المحل؟
-              </h4>
-              <p className="text-xs font-black text-slate-800 dark:text-slate-100 mt-0.5">
-                {exitReminderAlert.route.customerName} ({exitReminderAlert.route.customerCode})
-              </p>
-              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
-                تم رصد مغادرة موقع المحل دون تسجيل فاتورة أو توثيق الزيارة
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setExitReminderAlert(null)}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
-            title="إغلاق"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickOpenShopActions(exitReminderAlert.route)}
-            className="flex-1 py-2.5 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
-          >
-            <ClipboardList className="w-4 h-4 shrink-0" />
-            <span>فتح قائمة الإجراءات للمحل</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setExitReminderAlert(null)}
-            className={`py-2.5 px-3 rounded-xl font-bold text-xs cursor-pointer transition-colors ${
-              isDarkMode
-                ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                : 'bg-slate-200/80 hover:bg-slate-300 text-slate-700'
-            }`}
-          >
-            تجاهل
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : null;
 
   if (isMandatoryGpsModalVisible) {
     const modalTitle =
@@ -985,9 +762,7 @@ export const RepresentativeLiveTracker: React.FC = () => {
         : 'تم رفض الوصول إلى الموقع الجغرافي — يرجى تفعيله من الإعدادات';
 
     return (
-      <>
-        {exitReminderBanner}
-        <div
+      <div
           className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
           dir="rtl"
           onClick={() => setIsModalClosedByUser(true)}
@@ -1110,13 +885,12 @@ export const RepresentativeLiveTracker: React.FC = () => {
                 </span>
               </button>
             )}
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
-  return exitReminderBanner;
+  return null;
 };
 
 
